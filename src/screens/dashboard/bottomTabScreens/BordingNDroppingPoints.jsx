@@ -163,11 +163,14 @@ const buildPointOption = (value, kind, fallbackLabel, index) => {
 
   const id =
     normalizeIdValue(
-      raw.Id ??
+      raw.CityPointIndex ??
+        raw.cityPointIndex ??
+        raw.CityPointLocationIndex ??
+        raw.Id ??
         raw.id ??
         raw.pointId ??
         raw.stopId ??
-      raw.boardingPointId ??
+        raw.boardingPointId ??
         raw.droppingPointId ??
         raw.code ??
         raw.key ??
@@ -176,6 +179,7 @@ const buildPointOption = (value, kind, fallbackLabel, index) => {
 
   return {
     id,
+    cityPointIndex: id,
     name: label,
     address,
     time,

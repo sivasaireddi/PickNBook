@@ -1,45 +1,123 @@
 import React from "react";
-import { Picker } from "@react-native-picker/picker";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, Text, TextInput, View, Pressable } from "react-native";
+
+const TITLE_OPTIONS = ["Mr", "Mrs", "Ms", "Mstr", "Miss"];
 
 export default function GuestDetailsForm({
-  mode,
-  selectedTraveler,
-  onSelectedTravelerChange,
-  guestName,
-  guestEmail,
-  guestPhone,
-  onChangeGuestName,
-  onChangeGuestEmail,
-  onChangeGuestPhone,
-  travelers = [],
+  roomIndex = 1,
+  roomTypeName = "Standard Room",
+  paxIndex = 1,
+  isLead = false,
+  isChild = false,
+  title = "Mr",
+  firstName = "",
+  lastName = "",
+  email = "",
+  phone = "",
+  pan = "",
+  passport = "",
+  age = "",
+  isPANMandatory = false,
+  isPassportMandatory = false,
+  onChangeTitle,
+  onChangeFirstName,
+  onChangeLastName,
+  onChangeEmail,
+  onChangePhone,
+  onChangePan,
+  onChangePassport,
+  onChangeAge,
 }) {
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Guest Details</Text>
-      <View style={styles.toggle}>
-        <Text style={[styles.toggleItem, mode === "existing" && styles.toggleActive]}>Existing Traveler</Text>
-        <Text style={[styles.toggleItem, mode === "new" && styles.toggleActive]}>Add New Guest</Text>
+      <View style={styles.cardHeader}>
+        <Text style={styles.title}>
+          Room {roomIndex} Pax {paxIndex} {isLead ? "(Lead Guest)" : isChild ? "(Child)" : "(Adult)"}
+        </Text>
+        <Text style={styles.subtitle} numberOfLines={1}>{roomTypeName}</Text>
       </View>
 
-      {mode === "existing" ? (
-        <View style={styles.inputWrap}>
-          <Text style={styles.label}>Select Traveler</Text>
-          <View style={styles.pickerWrap}>
-            <Picker selectedValue={selectedTraveler} onValueChange={onSelectedTravelerChange}>
-              <Picker.Item label="Choose a traveler" value="" />
-              {travelers.map((traveler) => (
-                <Picker.Item key={traveler.value} label={traveler.label} value={traveler.value} />
-              ))}
-            </Picker>
-          </View>
+      {/* Title selector */}
+      <View style={styles.inputWrap}>
+        <Text style={styles.label}>Title</Text>
+        <View style={styles.titleRow}>
+          {TITLE_OPTIONS.map((t) => (
+            <Pressable
+              key={t}
+              style={[styles.titleChip, title === t && styles.titleChipActive]}
+              onPress={() => onChangeTitle && onChangeTitle(t)}
+            >
+              <Text style={[styles.titleChipText, title === t && styles.titleChipTextActive]}>{t}</Text>
+            </Pressable>
+          ))}
         </View>
-      ) : (
+      </View>
+
+      {/* Name inputs */}
+      <View style={styles.nameRow}>
+        <View style={{ flex: 1 }}>
+          <Input label="First Name *" value={firstName} onChangeText={onChangeFirstName} placeholder="First Name" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Input label="Last Name *" value={lastName} onChangeText={onChangeLastName} placeholder="Last Name" />
+        </View>
+      </View>
+
+      {/* Age for child */}
+      {isChild && (
+        <Input
+          label="Child Age (Years) *"
+          value={String(age || "")}
+          onChangeText={onChangeAge}
+          placeholder="e.g. 5"
+          keyboardType="number-pad"
+          maxLength={2}
+        />
+      )}
+
+      {/* Contact details for Lead Passenger or Primary Input */}
+      {isLead && (
         <>
-          <Input label="Primary Guest Name" value={guestName} onChangeText={onChangeGuestName} placeholder="Enter full name" />
-          <Input label="Email" value={guestEmail} onChangeText={onChangeGuestEmail} placeholder="name@example.com" keyboardType="email-address" autoCapitalize="none" />
-          <Input label="Mobile Number" value={guestPhone} onChangeText={onChangeGuestPhone} placeholder="10-digit mobile" keyboardType="phone-pad" />
+          <Input
+            label="Email Address *"
+            value={email}
+            onChangeText={onChangeEmail}
+            placeholder="name@example.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <Input
+            label="Mobile Number *"
+            value={phone}
+            onChangeText={onChangePhone}
+            placeholder="10-digit mobile"
+            keyboardType="phone-pad"
+            maxLength={10}
+          />
         </>
+      )}
+
+      {/* Conditional Mandatory PAN */}
+      {isPANMandatory && (
+        <Input
+          label="PAN Number (Mandatory) *"
+          value={pan}
+          onChangeText={(val) => onChangePan && onChangePan(val.toUpperCase())}
+          placeholder="e.g. DITPA7136P or ABCPS1234K"
+          autoCapitalize="characters"
+          maxLength={10}
+        />
+      )}
+
+      {/* Conditional Mandatory Passport */}
+      {isPassportMandatory && (
+        <Input
+          label="Passport Number (Mandatory) *"
+          value={passport}
+          onChangeText={(val) => onChangePassport && onChangePassport(val.toUpperCase())}
+          placeholder="e.g. A1234567"
+          autoCapitalize="characters"
+        />
       )}
     </View>
   );
@@ -56,61 +134,74 @@ function Input(props) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "#FAFAFA",
-    borderRadius: 20,
-    padding: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
-    borderColor: "#EEEEEE",
-    gap: 12,
+    borderColor: "#E2E8F0",
+    gap: 10,
+    marginBottom: 10,
+  },
+  cardHeader: {
+    borderBottomWidth: 1,
+    borderColor: "#F1F5F9",
+    paddingBottom: 6,
   },
   title: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "800",
-    color: "#212121",
-    letterSpacing: 0.3,
+    color: "#0F172A",
   },
-  toggle: {
+  subtitle: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  nameRow: {
     flexDirection: "row",
     gap: 10,
   },
-  toggleItem: {
-    flex: 1,
-    backgroundColor: "#EEEEEE",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    textAlign: "center",
-    fontWeight: "750",
-    color: "#757575",
-    fontSize: 13,
-  },
-  toggleActive: {
-    backgroundColor: "#FFEBEE",
-    color: "#E53935",
-  },
   inputWrap: {
-    gap: 6,
+    gap: 4,
   },
   label: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    color: "#757575",
+    color: "#64748B",
   },
   input: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderColor: "#EEEEEE",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 48,
-    color: "#212121",
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    height: 44,
+    fontSize: 13,
+    color: "#0F172A",
     fontWeight: "700",
   },
-  pickerWrap: {
+  titleRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 2,
+  },
+  titleChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#F1F5F9",
+  },
+  titleChipActive: {
+    backgroundColor: "#FEF2F2",
     borderWidth: 1,
-    borderColor: "#EEEEEE",
-    borderRadius: 12,
-    overflow: "hidden",
-    backgroundColor: "#FFFFFF",
+    borderColor: "#EF4444",
+  },
+  titleChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  titleChipTextActive: {
+    color: "#EF4444",
   },
 });

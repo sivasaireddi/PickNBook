@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -7,8 +7,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useHotelBooking } from "../../../context/HotelBookingContext";
 
 const formatCurrency = (value = 0) =>
   `₹ ${Number(value || 0).toLocaleString("en-IN", {
@@ -37,112 +37,87 @@ function Row({ label, value }) {
 }
 
 export default function HotelBookingConfirmationScreen({ route, navigation }) {
-  const {
-    hotel = {},
-    selectedOffer = {},
-    bookingResult = {},
-    searchContext = {},
-    appliedCoupon = "",
-    couponDiscount = 0,
-  } = route?.params || {};
+  const { clearSession } = useHotelBooking();
+  const { bookingResult = {} } = route?.params || {};
 
-  const booking = useMemo(() => {
-    const result = bookingResult || {};
-    const offer = selectedOffer || {};
-    const h = hotel || {};
-
-    return {
-      bookingId: result.bookingId || result.id || `HT-${Date.now()}`,
-      bookingReference: result.bookingReference || result.reference || result.bookingId || `REF-${Date.now().toString().slice(-6)}`,
-      hotelName: result.hotelName || h.name || "Hotel Stay",
-      guestName: result.guestName || "Guest",
-      checkIn: result.checkInDate || result.checkIn || offer.checkInDate || searchContext.checkInDate || "N/A",
-      checkOut: result.checkOutDate || result.checkOut || offer.checkOutDate || searchContext.checkOutDate || "N/A",
-      roomCategory: result.roomCategory || offer.roomCategory || "Standard Room",
-      status: result.status || "Confirmed",
-      providerBookingId: result.providerBookingId || result.bookingReference || result.bookingId || "N/A",
+  // Clear booking session state on mount to prevent trace ID reuse
+  useEffect(() => {
+    return () => {
+      clearSession();
     };
-  }, [bookingResult, selectedOffer, hotel, searchContext]);
+  }, []);
 
-  const pricing = useMemo(() => {
-    const base = Number(selectedOffer?.price || 0);
-    const gst = Math.round(base * 0.12);
-    const fee = 150;
-    const discount = Number(couponDiscount) || 0;
-    const total = Math.max(0, base + gst + fee - discount);
-    return { base, gst, fee, discount, total };
-  }, [selectedOffer, couponDiscount]);
+  const confirmationNo = String(bookingResult.confirmationNo || bookingResult.bookingId || "N/A");
+  const bookingRefNo = String(bookingResult.bookingRefNo || bookingResult.bookingReference || confirmationNo);
+  const status = String(bookingResult.status || "Confirmed");
+  const hotelName = String(bookingResult.hotelName || "Hotel Reservation");
+  const guestName = String(bookingResult.guestName || "Guest");
+  const checkIn = String(bookingResult.checkInDate || "N/A");
+  const checkOut = String(bookingResult.checkOutDate || "N/A");
+  const baseFare = Number(bookingResult.fareBreakdown?.baseFare || bookingResult.fareBreakdown?.totalPaid || 0);
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient
-        colors={["#B71C1C", "#E53935"]}
-        style={styles.hero}
-      >
+      <View style={styles.hero}>
         <View style={styles.heroTop}>
           <View style={styles.statusPill}>
             <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
-            <Text style={styles.statusText}>{booking.status}</Text>
+            <Text style={styles.statusText}>{status}</Text>
           </View>
-          <Text style={styles.bookingId}>ID: {booking.bookingId}</Text>
+          <Text style={styles.bookingId}>Ref: {bookingRefNo}</Text>
         </View>
 
         <Text style={styles.heroTitle}>Booking Confirmed!</Text>
         <Text style={styles.heroSubtitle}>
-          Your hotel booking is confirmed. Below are the details of your stay.
+          Your hotel room reservation has been officially confirmed by supplier.
         </Text>
-      </LinearGradient>
+      </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Hotel Details */}
         <InfoCard
           title="Hotel Information"
-          icon={<Ionicons name="business-outline" size={20} color="#E53935" />}
+          icon={<Ionicons name="business-outline" size={20} color="#EF4444" />}
         >
-          <Row label="Hotel Name" value={booking.hotelName} />
-          <Row label="Room Category" value={booking.roomCategory} />
-          <Row label="Check-in Date" value={booking.checkIn} />
-          <Row label="Check-out Date" value={booking.checkOut} />
+          <Row label="Hotel Name" value={hotelName} />
+          <Row label="Check-in Date" value={checkIn} />
+          <Row label="Check-out Date" value={checkOut} />
         </InfoCard>
 
         {/* Guest Details */}
         <InfoCard
           title="Guest Details"
-          icon={<Ionicons name="person-outline" size={20} color="#E53935" />}
+          icon={<Ionicons name="person-outline" size={20} color="#EF4444" />}
         >
-          <Row label="Primary Guest" value={booking.guestName} />
+          <Row label="Lead Guest" value={guestName} />
         </InfoCard>
 
-        {/* Booking Details */}
+        {/* Booking Reference Codes */}
         <InfoCard
-          title="Reference & Codes"
-          icon={<Ionicons name="receipt-outline" size={20} color="#E53935" />}
+          title="Authoritative References"
+          icon={<Ionicons name="receipt-outline" size={20} color="#EF4444" />}
         >
-          <Row label="Booking Reference" value={booking.bookingReference} />
-          <Row label="Provider Booking ID" value={booking.providerBookingId} />
-          {appliedCoupon ? <Row label="Applied Coupon" value={appliedCoupon} /> : null}
+          <Row label="Confirmation No" value={confirmationNo} />
+          <Row label="Booking Ref No" value={bookingRefNo} />
+          <Row label="Booking Status" value={status} />
         </InfoCard>
 
-        {/* Pricing Details */}
+        {/* Payment Summary */}
         <InfoCard
           title="Payment Details"
-          icon={<Ionicons name="card-outline" size={20} color="#E53935" />}
+          icon={<Ionicons name="card-outline" size={20} color="#EF4444" />}
         >
-          <Row label="Room Charges" value={formatCurrency(pricing.base)} />
-          <Row label="GST (12%)" value={formatCurrency(pricing.gst)} />
-          <Row label="Convenience Fee" value={formatCurrency(pricing.fee)} />
-          {pricing.discount > 0 ? (
-            <Row label="Coupon Discount" value={`-${formatCurrency(pricing.discount)}`} />
-          ) : null}
-          <View style={styles.divider} />
-          <Row label="Grand Total Paid" value={formatCurrency(pricing.total)} />
+          <Row label="Total Paid Amount" value={formatCurrency(baseFare)} />
         </InfoCard>
 
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
           <TouchableOpacity
             style={styles.bookingsButton}
-            onPress={() => navigation.navigate("DashBoard", { screen: "Bookings" })}
+            onPress={() => {
+              clearSession();
+              navigation.navigate("DashBoard", { screen: "Bookings" });
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.bookingsButtonText}>View My Bookings</Text>
@@ -150,7 +125,10 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
 
           <TouchableOpacity
             style={styles.homeButton}
-            onPress={() => navigation.navigate("DashBoard", { screen: "Hotels" })}
+            onPress={() => {
+              clearSession();
+              navigation.navigate("DashBoard", { screen: "Hotels" });
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.homeButtonText}>Back to Hotels Search</Text>
@@ -164,13 +142,14 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F8FAFC",
   },
   hero: {
+    backgroundColor: "#0F172A",
     paddingHorizontal: 20,
     paddingVertical: 22,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   heroTop: {
     flexDirection: "row",
@@ -181,7 +160,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "#166534",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
@@ -192,34 +171,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   bookingId: {
-    color: "#FFFFFF",
+    color: "#94A3B8",
     fontWeight: "750",
     fontSize: 12,
   },
   heroTitle: {
     marginTop: 16,
     color: "#FFFFFF",
-    fontSize: 26,
-    fontWeight: "950",
+    fontSize: 24,
+    fontWeight: "900",
   },
   heroSubtitle: {
     marginTop: 6,
-    color: "#FFEBEE",
+    color: "#94A3B8",
     lineHeight: 18,
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   content: {
     padding: 16,
-    gap: 14,
+    gap: 12,
     paddingBottom: 28,
   },
   card: {
-    backgroundColor: "#FAFAFA",
-    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: "#EEEEEE",
+    borderColor: "#E2E8F0",
   },
   cardHeader: {
     flexDirection: "row",
@@ -230,73 +209,63 @@ const styles = StyleSheet.create({
   cardIcon: {
     width: 36,
     height: 36,
-    borderRadius: 12,
-    backgroundColor: "#FFEBEE",
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
     alignItems: "center",
     justifyContent: "center",
   },
   cardTitle: {
-    fontSize: 15,
-    fontWeight: "850",
-    color: "#212121",
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
   },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   label: {
-    flex: 1.2,
-    color: "#757575",
-    fontSize: 13,
+    flex: 1,
+    color: "#64748B",
+    fontSize: 12,
     fontWeight: "600",
   },
   value: {
-    flex: 1.8,
-    color: "#212121",
-    fontSize: 13,
+    flex: 1.5,
+    color: "#0F172A",
+    fontSize: 12,
     fontWeight: "750",
     textAlign: "right",
   },
-  divider: {
-    height: 1,
-    backgroundColor: "#EEEEEE",
-    marginVertical: 10,
-  },
   actionsContainer: {
     marginTop: 8,
-    gap: 12,
+    gap: 10,
   },
   bookingsButton: {
-    backgroundColor: "#E53935",
-    borderRadius: 16,
+    backgroundColor: "#EF4444",
+    borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#E53935",
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
   },
   bookingsButtonText: {
     color: "#FFFFFF",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "800",
   },
   homeButton: {
-    backgroundColor: "transparent",
-    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "#E53935",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
   },
   homeButtonText: {
-    color: "#E53935",
-    fontSize: 15,
+    color: "#0F172A",
+    fontSize: 14,
     fontWeight: "800",
   },
 });

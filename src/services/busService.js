@@ -176,13 +176,18 @@ export async function searchBuses(params = {}) {
       const firstBoarding = boardingPoints[0]?.Name ?? boardingPoints[0]?.name ?? "";
       const firstDropping = droppingPoints[0]?.Name ?? droppingPoints[0]?.name ?? "";
 
-      const rawPrice = bus.DisplayFare ?? bus.priceInr ?? bus.price ?? bus.fare ?? (Array.isArray(bus.Price) && bus.Price[0]?.PublishedFare) ?? 0;
+      const rawPrice = bus.B2CDisplayFare ?? bus.b2cDisplayFare ?? bus.DisplayFare ?? bus.priceInr ?? bus.price ?? bus.fare ?? (Array.isArray(bus.Price) && bus.Price[0]?.PublishedFare) ?? 0;
       const priceInr = Number(rawPrice);
+
+      const busIdVal = bus.Id ?? bus.id ?? bus.busId ?? bus.busID ?? idx + 1;
 
       return {
         ...bus,
-        // Storing local integer Id
-        busId: bus.busId ?? bus.id ?? bus.busID ?? bus.Id ?? idx + 1,
+        // Storing bus Id for URLs
+        busId: busIdVal,
+        id: busIdVal,
+        Id: busIdVal,
+        b2cDisplayFare: priceInr,
         // UI expect fields mappings
         operatorName:
           bus.TravelsName ??
@@ -334,8 +339,11 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
         String(seat.status).toLowerCase() === "booked" ||
         String(seat.status).toLowerCase() === "blocked";
 
-      const rawPrice = seat.SeatFare ?? seat.Fare ?? seat.fare ?? (seat.Price && (seat.Price.PublishedFare ?? seat.Price.publishedFare)) ?? 0;
-      const priceInr = Number(rawPrice) || 0;
+      const priceObj = seat.Price || seat.price || {};
+      const baseFare = Number(priceObj.BaseFare ?? priceObj.baseFare ?? seat.BaseFare ?? seat.baseFare ?? seat.SeatFare ?? seat.Fare ?? seat.fare ?? 0);
+      const externalGst = Number(priceObj.GSTAmount ?? priceObj.gstAmount ?? priceObj.Tax ?? priceObj.tax ?? seat.GSTAmount ?? seat.Tax ?? seat.gstAmount ?? seat.tax ?? 0);
+      const displayFare = Number(priceObj.B2CDisplayFare ?? priceObj.b2cDisplayFare ?? seat.B2CDisplayFare ?? seat.b2cDisplayFare ?? (baseFare + externalGst));
+      const priceInr = displayFare || (baseFare + externalGst) || 0;
 
       // Extract coordinates directly (RowNo -> row, ColumnNo -> column)
       const rowVal = Number(seat.RowNo ?? seat.rowNo ?? seat.Row ?? seat.row ?? 0);
@@ -383,15 +391,18 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
         ...seat,
         seatCode,
         seatName,
-        isBooked,
+        seatType,
+        baseFare,
+        externalGst,
+        displayFare,
         priceInr,
+        isBooked,
         row,
         column,
         gender,
         isUpper,
         width: Number(seat.Width ?? seat.width ?? 1),
         height: Number(seat.Height ?? seat.height ?? 1),
-        seatType,
       };
     }).filter((seat) => {
       // Filter out non-seat markers (exit doors, aisles, structural elements)
@@ -535,6 +546,7 @@ export async function blockSeats(payload) {
     // Make request without Authorization header
     const response = await client.post("/api/BusBookings/block", payload);
     console.log("[BusService] blockSeats response status:", response?.status);
+    console.log("[BusService] blockSeats response data:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
     console.error("[BusService] blockSeats error:", error?.message, error?.response?.data);
@@ -561,6 +573,7 @@ export async function bookSeats(busId, payload, authToken) {
       headers,
     });
     console.log("[BusService] bookSeats response status:", response?.status);
+    console.log("[BusService] bookSeats response data:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
     console.error("[BusService] bookSeats error:", error?.message, error?.response?.data);
@@ -668,6 +681,25 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
   }
 }
 
+/**
+ * Pricing Preview via POST /api/BusBookings/{busId}/pricing-preview
+ * Step 4 of End-to-End Bus Booking flow.
+ */
+export async function getPricingPreview(busId, payload) {
+  try {
+    const cleanId = String(busId || "").trim();
+    console.log(`[BusService] getPricingPreview Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/${cleanId}/pricing-preview`);
+    console.log("[BusService] getPricingPreview payload:", JSON.stringify(payload, null, 2));
+
+    const response = await client.post(`/api/BusBookings/${cleanId}/pricing-preview`, payload);
+    console.log("[BusService] getPricingPreview response status:", response?.status);
+    console.log("[BusService] getPricingPreview response data:", JSON.stringify(response?.data, null, 2));
+    return response.data;
+  } catch (error) {
+    console.warn("[BusService] getPricingPreview error:", error?.message, error?.response?.data);
+    throw error;
+  }
+}
 
 export default {
   searchCities,
@@ -675,6 +707,7 @@ export default {
   getSeatLayout,
   fetchSeatLayoutByBusId,
   getBoardingPoints,
+  getPricingPreview,
   blockSeats,
   bookSeats,
   getMyBusBookings,

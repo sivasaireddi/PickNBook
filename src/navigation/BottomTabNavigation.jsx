@@ -2,13 +2,37 @@ import React, { useEffect, useRef } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, StyleSheet, View, Animated } from "react-native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import HomeScreen from "../screens/dashboard/bottomTabScreens/HomeScreen";
+import HotelsScreen from "../screens/dashboard/bottomTabScreens/HotelsScreen";
+import HotelSearchResultsScreen from "../screens/dashboard/bottomTabScreens/HotelSearchResultsScreen";
+import HotelOfferDetailsScreen from "../screens/dashboard/bottomTabScreens/HotelOfferDetailsScreen";
+import HotelPassengerDetailsScreen from "../screens/HotelPassengerDetailsScreen";
+import HotelBookingConfirmationScreen from "../screens/dashboard/bottomTabScreens/HotelBookingConfirmationScreen";
+import BusScreen from "../screens/dashboard/bottomTabScreens/BusScreen";
+import FlightScreen from "../screens/dashboard/bottomTabScreens/FlightScreen";
 import PickCashScreen from "../screens/dashboard/bottomTabScreens/PickCashScreen";
 import BookingsScreen from "../screens/dashboard/bottomTabScreens/BookingsScreen";
 import HelpScreen from "../screens/dashboard/bottomTabScreens/HelpScreen";
 import ProfileScreen from "../screens/dashboard/bottomTabScreens/ProfileScreen";
 
 const Tab = createBottomTabNavigator();
+const HomeStack = createNativeStackNavigator();
+
+function HomeStackNavigator() {
+  return (
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+      <HomeStack.Screen name="HomeScreenMain" component={HomeScreen} />
+      <HomeStack.Screen name="Hotels" component={HotelsScreen} />
+      <HomeStack.Screen name="HotelSearchResultsScreen" component={HotelSearchResultsScreen} />
+      <HomeStack.Screen name="HotelOfferDetails" component={HotelOfferDetailsScreen} />
+      <HomeStack.Screen name="HotelPassengerDetails" component={HotelPassengerDetailsScreen} />
+      <HomeStack.Screen name="HotelBookingConfirmation" component={HotelBookingConfirmationScreen} />
+      <HomeStack.Screen name="BusScreen" component={BusScreen} />
+      <HomeStack.Screen name="FlightScreen" component={FlightScreen} />
+    </HomeStack.Navigator>
+  );
+}
 
 function TabBarIcon({ name, focused, color }) {
   const scale = useRef(new Animated.Value(focused ? 1.08 : 1.0)).current;
@@ -76,7 +100,7 @@ export default function BottomTabNavigation() {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Home" component={HomeStackNavigator} />
       <Tab.Screen name="Bookings" component={BookingsScreen} />
       <Tab.Screen name="Offers" component={PickCashScreen} />
       <Tab.Screen name="Help" component={HelpScreen} />

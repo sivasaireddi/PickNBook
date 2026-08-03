@@ -21,7 +21,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
-import { blockSeats, bookSeats, getSeatLayout } from "../services/busService";
+import { blockSeats, bookSeats, getSeatLayout, getPricingPreview } from "../services/busService";
 import { getTravelers } from "../services/travelerService";
 import { Picker } from "@react-native-picker/picker";
 import { LinearGradient } from "expo-linear-gradient";
@@ -746,14 +746,6 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   };
 
   const fetchPricingPreview = async ({ applyPricing = true } = {}) => {
-    if (!authToken) {
-      if (applyPricing) {
-        setPricing(null);
-      }
-
-      return null;
-    }
-
     if (selectedSeats.length === 0) {
       if (applyPricing) {
         setPricing(null);
@@ -786,7 +778,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           finalSeats = selectedSeats.map((seatCode) => {
             const detail = selectedSeatDetails.find((d) => String(d.seatCode) === String(seatCode)) || {};
             return {
-              seatCode,
+              seatCode: String(seatCode),
               baseFare: Number(detail.baseFare ?? detail.priceInr ?? 0),
               seatType: getCleanSeatType(detail.seatType),
               externalGst: Number(detail.externalGst ?? 0),
@@ -798,7 +790,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         finalSeats = selectedSeats.map((seatCode) => {
           const detail = selectedSeatDetails.find((d) => String(d.seatCode) === String(seatCode)) || {};
           return {
-            seatCode,
+            seatCode: String(seatCode),
             baseFare: Number(detail.priceInr ?? 0),
             seatType: getCleanSeatType(detail.seatType),
             externalGst: Number(detail.externalGst ?? 0),
@@ -806,48 +798,26 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         });
       }
 
-      const pricingPassengers = finalSeats.map((s) => ({
-        seatNumber: String(s.seatCode),
-        SeatNumber: String(s.seatCode),
-        baseFare: Number(s.baseFare),
-        BaseFare: Number(s.baseFare),
+      const seatsPayload = finalSeats.map((s) => ({
+        seatCode: String(s.seatCode),
         seatType: String(s.seatType),
-        SeatType: String(s.seatType),
+        baseFare: Number(s.baseFare),
         externalGst: Number(s.externalGst),
-        ExternalGst: Number(s.externalGst),
       }));
 
       const requestPayload = {
         traceId: String(route?.params?.traceId ?? route?.params?.bus?.traceId ?? ""),
-        TraceId: String(route?.params?.traceId ?? route?.params?.bus?.traceId ?? ""),
+        seats: seatsPayload,
         couponCode: couponCode || null,
-        CouponCode: couponCode || null,
-        passengers: pricingPassengers,
-        Passengers: pricingPassengers,
       };
 
-      const finalRequest = {
-        ...requestPayload,
-        request: requestPayload,
-        Request: requestPayload,
-      };
+      console.log("[PostBusBookingScreen] Fetching pricing preview for busId:", busId);
+      console.log("[PostBusBookingScreen] Pricing preview payload:", JSON.stringify(requestPayload, null, 2));
 
-      const url = PRICING_PREVIEW_API_URL(busId);
-      console.log("Pricing Preview Request URL:", url);
-      console.log("Pricing Preview Request Payload:", JSON.stringify(finalRequest, null, 2));
+      const apiData = await getPricingPreview(busId, requestPayload);
+      const pricingPayload = extractPricingPayload(apiData) || apiData;
 
-      const response = await axios.post(url, finalRequest, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-      });
-
-      console.log("Pricing Preview API Response:", JSON.stringify(response.data, null, 2));
-
-      const pricingPayload = extractPricingPayload(response.data) || response.data;
-
-      console.log("Resolved Pricing Payload:", pricingPayload);
+      console.log("[PostBusBookingScreen] Resolved Pricing Payload:", pricingPayload);
 
       if (applyPricing) {
         setPricing(pricingPayload);

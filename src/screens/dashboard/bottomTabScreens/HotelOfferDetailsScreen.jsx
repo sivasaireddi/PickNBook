@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { getHotelInfo, getHotelRoom, getLastTraceId } from "../../../services/hotelService";
+import { getHotelInfo, getHotelRoom } from "../../../services/hotelService";
+import { useHotelBooking } from "../../../context/HotelBookingContext";
 
 const formatCurrency = (value, currency = "INR") =>
   new Intl.NumberFormat("en-IN", {
@@ -21,202 +22,196 @@ const formatCurrency = (value, currency = "INR") =>
     maximumFractionDigits: 0,
   }).format(Number(value || 0));
 
-const buildFallbackRooms = (routeParams = {}) => {
-  const priceObj = routeParams?.price || {};
-  const basePrice = Number(routeParams?.offeredFare || priceObj.offeredPrice || 5400);
-  const currency = priceObj.currencyCode || "INR";
-  const categoryName =
-    routeParams?.rooms?.[0]?.category ||
-    routeParams?.rooms?.[0]?.cateogry ||
-    "Deluxe Suite Room";
-
-  return [
-    {
-      categoryName,
-      offeredPrice: basePrice,
-      rooms: [
-        {
-          roomId: routeParams?.hotelCode || "room-std-01",
-          roomIndex: 1,
-          roomTypeCode: "DLX",
-          roomTypeName: categoryName,
-          roomTypeCategory: "Deluxe",
-          roomStatus: "Available",
-          childCount: 0,
-          requireAllPaxDetails: false,
-          description: [
-            "Comfortable deluxe room featuring modern interior decor.",
-            "En-suite marble bathroom with rain shower and premium toiletries.",
-            "Includes high-speed Wi-Fi and air conditioning."
-          ],
-          roomImages: [],
-          price: {
-            currencyCode: currency,
-            roomPrice: basePrice,
-            tax: priceObj.tax || 0,
-            offeredPrice: basePrice,
-            discount: priceObj.discount || 0,
-            publishedPrice: priceObj.publishedPrice || basePrice,
-          },
-          amenities: [
-            { name: "Free Wi-Fi" },
-            { name: "Air Conditioning" },
-            { name: "Breakfast" }
-          ],
-          bedTypes: [{ name: "Double Bed" }],
-          fullRefundAllowed: true,
-          ratePlanCode: "RP-STD-01"
-        }
-      ]
-    }
-  ];
-};
-
 export default function HotelOfferDetailsScreen({ route, navigation }) {
-  const { 
-    resultIndex, 
-    hotelCode, 
-    traceId,
-    searchContext = {} 
-  } = route?.params || {};
+  const { width } = useWindowDimensions();
+  const {
+    session,
+    searchParams,
+    selectedHotel: contextSelectedHotel,
+    setHotelDetailsData,
+    setSelectedRooms,
+  } = useHotelBooking();
+
+  const routeParams = route?.params || {};
+  const activeHotel = routeParams.hotel || contextSelectedHotel || {};
+
+  const targetTraceId = String(routeParams.traceId || session.traceId || activeHotel.traceId || "");
+  const targetSrdvType = String(routeParams.srdvType || session.srdvType || activeHotel.srdvType || "MixAPI");
+  const targetSrdvIndex = String(routeParams.srdvIndex || session.srdvIndex || activeHotel.srdvIndex || "15");
+  const targetResultIndex = String(routeParams.resultIndex || activeHotel.resultIndex || activeHotel.hotelCode || "");
+  const targetHotelCode = String(routeParams.hotelCode || activeHotel.hotelCode || activeHotel.resultIndex || "");
+
+  const requiredRoomCount = Number(searchParams?.noOfRooms || searchParams?.rooms || 1);
 
   const [hotelDetails, setHotelDetails] = useState(null);
   const [roomsList, setRoomsList] = useState([]);
-  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [selectedRoomSlots, setSelectedRoomSlots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const { width } = useWindowDimensions();
+  const [roomError, setRoomError] = useState("");
 
   useEffect(() => {
     fetchHotelDetailsAndRooms();
-  }, [resultIndex, hotelCode, traceId]);
+  }, [targetResultIndex, targetHotelCode, targetTraceId]);
 
   const fetchHotelDetailsAndRooms = async () => {
     setLoading(true);
     setError("");
+    setRoomError("");
     try {
-      console.log("[HotelOfferDetailsScreen] Fetching hotel details & rooms with:", {
-        traceId,
-        resultIndex,
-        hotelCode,
+      console.log("[HotelOfferDetailsScreen] Fetching live hotel info & rooms:", {
+        TraceId: targetTraceId,
+        SrdvType: targetSrdvType,
+        SrdvIndex: targetSrdvIndex,
+        ResultIndex: targetResultIndex,
+        HotelCode: targetHotelCode,
       });
 
-      const targetTraceId = traceId || searchContext?.traceId || getLastTraceId() || "T123456";
-      const targetResultIndex = resultIndex || "OB1_0_1";
-      const targetHotelCode = hotelCode || "H10025";
+      const payload = {
+        TraceId: targetTraceId,
+        SrdvType: targetSrdvType,
+        SrdvIndex: targetSrdvIndex,
+        ResultIndex: targetResultIndex,
+        HotelCode: targetHotelCode,
+      };
 
-      // Fetch Info and Rooms in parallel
-      const [infoRes, roomsRes] = await Promise.all([
-        getHotelInfo({
-          traceId: targetTraceId,
-          resultIndex: targetResultIndex,
+      // Step 2: Call GetHotelInfo FIRST (required by supplier API session)
+      let fetchedDetails = null;
+      try {
+        const infoRes = await getHotelInfo(payload);
+        fetchedDetails = infoRes?.hotelInfoResult?.hotelDetails;
+        if (fetchedDetails) {
+          setHotelDetails(fetchedDetails);
+        } else {
+          throw new Error("Hotel details missing in Info API response");
+        }
+      } catch (infoErr) {
+        console.log("[HotelOfferDetailsScreen] getHotelInfo notice:", infoErr?.message);
+        fetchedDetails = {
+          hotelName: activeHotel.name || activeHotel.hotelName || "Hotel Details",
           hotelCode: targetHotelCode,
-        }),
-        getHotelRoom({
-          TraceId: targetTraceId,
-          ResultIndex: targetResultIndex,
-          HotelCode: targetHotelCode,
-        })
-      ]);
-
-      // Parse and check Hotel Info
-      const infoResult = infoRes?.hotelInfoResult || {};
-      const infoErr = infoResult.error || {};
-      if (infoErr.errorCode !== undefined && infoErr.errorCode !== null && Number(infoErr.errorCode) !== 0) {
-        const errorMsg = infoErr.errorMessage || "Failed to retrieve hotel details.";
-        console.warn("[HotelOfferDetailsScreen] Info API reported error:", infoErr.errorCode, errorMsg);
-        setError(errorMsg);
-        Alert.alert("Error", errorMsg);
-        return;
+          starRating: activeHotel.rating || 4,
+          address: activeHotel.address || "Address unavailable",
+          city: searchParams?.cityCode || "",
+          images: activeHotel.images || [],
+        };
+        setHotelDetails(fetchedDetails);
       }
 
-      // Parse and check Rooms
-      const roomResult = roomsRes?.getHotelRoomResult || {};
-      const roomErr = roomResult.error || {};
+      // Step 3: Call GetHotelRoom AFTER GetHotelInfo completes on supplier session
+      try {
+        const roomsRes = await getHotelRoom(payload);
+        const roomResData = roomsRes?.getHotelRoomResult || {};
+        const roomsData = roomResData.hotelRoomsDetails || roomResData.HotelRoomDetails || [];
 
-      if (!infoResult.hotelDetails) {
-        throw new Error("No hotel details found in response.");
-      }
+        if (Array.isArray(roomsData) && roomsData.length > 0) {
+          setRoomsList(roomsData);
+          setHotelDetailsData(fetchedDetails || {}, roomsData);
 
-      setHotelDetails(infoResult.hotelDetails);
+          // Auto pre-select initial room slots
+          const initialSlots = [];
+          let flatRoomItems = [];
+          roomsData.forEach((cat) => {
+            (cat.rooms || []).forEach((rm) => {
+              flatRoomItems.push({
+                ...rm,
+                categoryName: cat.categoryName,
+              });
+            });
+          });
 
-      let roomsData = roomResult.hotelRoomsDetails || roomResult.HotelRoomDetails || [];
-      if (!Array.isArray(roomsData) || roomsData.length === 0) {
-        console.log("[HotelOfferDetailsScreen] getHotelRoom returned 0 rooms, creating fallback from search params");
-        roomsData = buildFallbackRooms(route?.params);
-      }
-
-      setRoomsList(roomsData);
-
-      // Pre-select first room
-      if (roomsData.length > 0 && roomsData[0]?.rooms?.length > 0) {
-        const firstRoom = roomsData[0].rooms[0];
-        setSelectedRoom({
-          ...firstRoom,
-          categoryName: roomsData[0].categoryName,
-        });
+          if (flatRoomItems.length > 0) {
+            for (let i = 0; i < requiredRoomCount; i++) {
+              const roomToPick = flatRoomItems[i] || flatRoomItems[0];
+              initialSlots.push({
+                ...roomToPick,
+                slotIndex: i + 1,
+                traceId: targetTraceId,
+                srdvType: targetSrdvType,
+                srdvIndex: targetSrdvIndex,
+                resultIndex: targetResultIndex,
+                hotelCode: targetHotelCode,
+              });
+            }
+          }
+          setSelectedRoomSlots(initialSlots);
+        } else {
+          setRoomError("No room inventory available for this hotel on your selected dates.");
+        }
+      } catch (roomErr) {
+        const roomErrMsg = roomErr?.message || "Room inventory request failed.";
+        console.log("[HotelOfferDetailsScreen] getHotelRoom error:", roomErrMsg);
+        
+        if (roomErrMsg.toLowerCase().includes("trace id")) {
+          setRoomError("Your search session expired (Trace ID timeout). Please search again to get fresh live rates.");
+        } else {
+          setRoomError(roomErrMsg || "No room inventory available for this hotel.");
+        }
       }
     } catch (err) {
-      console.error("[HotelOfferDetailsScreen] fetch error:", err?.message);
-      setError(err?.message || "Failed to load hotel info and rooms.");
+      console.log("[HotelOfferDetailsScreen] General fetch error:", err?.message);
+      setError(err?.message || "Unable to retrieve hotel details.");
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSelectRoomForSlot = (slotIdx, roomObj, categoryName) => {
+    setSelectedRoomSlots((prev) => {
+      const nextSlots = [...prev];
+      nextSlots[slotIdx] = {
+        ...roomObj,
+        categoryName,
+        slotIndex: slotIdx + 1,
+        traceId: targetTraceId,
+        srdvType: targetSrdvType,
+        srdvIndex: targetSrdvIndex,
+        resultIndex: targetResultIndex,
+        hotelCode: targetHotelCode,
+      };
+      return nextSlots;
+    });
+  };
+
   const handleContinue = () => {
     if (!hotelDetails) return;
-    if (!selectedRoom) {
-      Alert.alert("Select Room", "Please select a room category before proceeding.");
+    if (selectedRoomSlots.length < requiredRoomCount) {
+      Alert.alert("Select Room", `Please select all ${requiredRoomCount} room(s) before proceeding.`);
       return;
     }
 
-    const priceObj = selectedRoom.price || {};
-    const offeredFare = selectedRoom.offeredPrice || priceObj.offeredPrice || 0;
-
-    const selectedOffer = {
-      offerId: selectedRoom.roomId || hotelDetails.hotelCode || "mock-offer-id",
-      roomId: selectedRoom.roomId,
-      roomIndex: selectedRoom.roomIndex,
-      roomTypeCode: selectedRoom.roomTypeCode,
-      ratePlanCode: selectedRoom.ratePlanCode || "RP-STD-00",
-      offeredPrice: offeredFare,
-      categoryName: selectedRoom.categoryName || "Standard Room",
-      
-      roomCategory: selectedRoom.categoryName || "Standard Room",
-      price: offeredPrice,
-      currency: priceObj.currencyCode || "INR",
-      checkInDate: searchContext.checkInDate || "",
-      checkOutDate: searchContext.checkOutDate || "",
-      cancellationPolicy: selectedRoom.cancellationPolicies?.[0]
-        ? `Charge applies: ${selectedRoom.cancellationPolicies[0].chargeType === 1 ? `${selectedRoom.cancellationPolicies[0].charge}%` : `${formatCurrency(selectedRoom.cancellationPolicies[0].charge, selectedRoom.cancellationPolicies[0].currency)}`}`
-        : "Standard cancellation policies apply.",
-      paymentType: "GUARANTEE",
-      roomDescription: selectedRoom.description?.join(" · ") || "Comfortable Room",
-      bedType: typeof selectedRoom.bedTypes === "string" ? selectedRoom.bedTypes : (selectedRoom.bedTypes?.[0]?.name || "Double or Twin Room"),
-    };
+    setSelectedRooms(selectedRoomSlots);
 
     navigation.navigate("HotelPassengerDetails", {
       hotel: {
-        hotelId: hotelDetails.hotelCode,
-        hotelCode: hotelDetails.hotelCode,
-        name: hotelDetails.hotelName,
+        hotelId: hotelDetails.hotelCode || targetHotelCode,
+        hotelCode: hotelDetails.hotelCode || targetHotelCode,
+        name: hotelDetails.hotelName || activeHotel.name || "Hotel",
         address: hotelDetails.address,
         rating: hotelDetails.starRating,
         images: hotelDetails.images || [],
         latitude: hotelDetails.latitude,
         longitude: hotelDetails.longitude,
+        traceId: targetTraceId,
+        srdvType: targetSrdvType,
+        srdvIndex: targetSrdvIndex,
+        resultIndex: targetResultIndex,
       },
-      selectedOffer,
-      searchContext,
+      selectedRoomSlots,
+      searchContext: {
+        ...searchParams,
+        traceId: targetTraceId,
+        srdvType: targetSrdvType,
+        srdvIndex: targetSrdvIndex,
+      },
     });
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color="#E53935" />
-        <Text style={styles.loadingText}>Fetching hotel details and rooms...</Text>
+        <ActivityIndicator size="large" color="#EF4444" />
+        <Text style={styles.loadingText}>Fetching live hotel details & room rates...</Text>
       </SafeAreaView>
     );
   }
@@ -224,125 +219,102 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
   if (error || !hotelDetails) {
     return (
       <SafeAreaView style={styles.center}>
-        <Ionicons name="alert-circle-outline" size={48} color="#E53935" />
-        <Text style={styles.errorText}>{error || "Hotel information missing."}</Text>
-        <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtnText}>Go Back</Text>
+        <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
+        <Text style={styles.errorText}>{error || "Hotel information is currently unavailable."}</Text>
+        <Pressable style={styles.retryBtn} onPress={fetchHotelDetailsAndRooms}>
+          <Text style={styles.retryBtnText}>Retry</Text>
+        </Pressable>
+        <Pressable style={styles.backLink} onPress={() => navigation.goBack()}>
+          <Text style={styles.backLinkText}>Back to Search Results</Text>
         </Pressable>
       </SafeAreaView>
     );
   }
 
-  const images = Array.isArray(hotelDetails.images) && hotelDetails.images.length > 0
+  const galleryImages = Array.isArray(hotelDetails.images) && hotelDetails.images.length > 0
     ? hotelDetails.images.map(img => typeof img === "object" ? (img?.image || img?.url || "") : String(img)).filter(Boolean)
-    : [hotelDetails.hotelPicture || "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80"];
+    : (hotelDetails.hotelPicture ? [hotelDetails.hotelPicture] : []);
 
   const facilities = Array.isArray(hotelDetails.hotelFacilities) ? hotelDetails.hotelFacilities : [];
   const attractions = Array.isArray(hotelDetails.attractions) ? hotelDetails.attractions : [];
-  
+
   const descriptionText = (() => {
-    if (Array.isArray(hotelDetails?.description)) {
-      const text = hotelDetails.description
+    if (Array.isArray(hotelDetails?.description) && hotelDetails.description.length > 0) {
+      return hotelDetails.description
         .map((d) => (typeof d === "object" ? d?.text || d?.description || "" : String(d)))
         .filter(Boolean)
         .join("\n");
-      if (text) return text;
     } else if (typeof hotelDetails?.description === "string" && hotelDetails.description.trim()) {
       return hotelDetails.description.trim();
     }
-    return "No description available.";
+    return "Hotel description not provided by supplier.";
   })();
 
-  const policyText = (() => {
-    const parts = [];
-    if (Array.isArray(hotelDetails?.policyAndInstruction)) {
-      const p = hotelDetails.policyAndInstruction
-        .map((item) => (typeof item === "object" ? item?.text || item?.instruction || "" : String(item)))
-        .filter(Boolean)
-        .join("\n");
-      if (p) parts.push(p);
-    } else if (typeof hotelDetails?.policyAndInstruction === "string" && hotelDetails.policyAndInstruction.trim()) {
-      parts.push(hotelDetails.policyAndInstruction.trim());
-    }
+  const totalPriceSum = selectedRoomSlots.reduce((sum, slot) => {
+    const priceVal = slot?.price?.offeredPrice || slot?.offeredPrice || 0;
+    return sum + Number(priceVal);
+  }, 0);
 
-    if (typeof hotelDetails?.hotelPolicy === "string" && hotelDetails.hotelPolicy.trim()) {
-      parts.push(hotelDetails.hotelPolicy.trim());
-    }
-
-    if (typeof hotelDetails?.specialInstructions === "string" && hotelDetails.specialInstructions.trim()) {
-      parts.push(hotelDetails.specialInstructions.trim());
-    }
-
-    return parts.length > 0 ? parts.join("\n\n") : "Standard check-in policies apply.";
-  })();
-
-  const offeredPrice = selectedRoom?.price?.offeredPrice ?? selectedRoom?.offeredPrice ?? 0;
-  const currency = selectedRoom?.price?.currencyCode || "INR";
+  const displayCurrency = selectedRoomSlots[0]?.price?.currencyCode || "INR";
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      {/* Header */}
       <View style={styles.header}>
         <Pressable style={styles.iconBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#E53935" />
+          <Ionicons name="arrow-back" size={22} color="#0F172A" />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {hotelDetails.hotelName}
         </Text>
-        <View style={{ width: 44 }} />
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Horizontal Image Slider */}
-        <View style={styles.sliderWrap}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            style={{ width }}
-          >
-            {images.map((img, idx) => (
-              <Image key={idx} source={{ uri: img }} style={[styles.sliderImage, { width }]} />
-            ))}
-          </ScrollView>
-        </View>
+        {/* Live Gallery Slider */}
+        {galleryImages.length > 0 ? (
+          <View style={styles.sliderWrap}>
+            <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={{ width }}>
+              {galleryImages.map((img, idx) => (
+                <Image key={idx} source={{ uri: img }} style={[styles.sliderImage, { width }]} resizeMode="cover" />
+              ))}
+            </ScrollView>
+          </View>
+        ) : (
+          <View style={styles.noImageGalleryBox}>
+            <Ionicons name="image-outline" size={40} color="#94A3B8" />
+            <Text style={styles.noImageGalleryText}>No hotel images provided by supplier</Text>
+          </View>
+        )}
 
-        {/* Hotel Info Section */}
+        {/* Hotel Info */}
         <View style={styles.sectionCard}>
           <Text style={styles.hotelName}>{hotelDetails.hotelName}</Text>
-          
           <View style={styles.ratingRow}>
-            {Array.from({ length: Math.round(hotelDetails.starRating || 5) }).map((_, idx) => (
-              <Ionicons key={idx} name="star" size={16} color="#FFB300" />
+            {Array.from({ length: Math.max(1, Math.round(hotelDetails.starRating || 4)) }).map((_, idx) => (
+              <Ionicons key={idx} name="star" size={14} color="#F59E0B" />
             ))}
-            <Text style={styles.ratingText}>
-              {hotelDetails.starRating} Star Hotel
-            </Text>
+            <Text style={styles.ratingText}>{hotelDetails.starRating || 4} Star Hotel</Text>
           </View>
-
-          <View style={styles.addressRow}>
-            <Ionicons name="location-outline" size={16} color="#E53935" style={{ marginTop: 2 }} />
-            <Text style={styles.hotelAddress}>
-              {hotelDetails.address}, {hotelDetails.city}, {hotelDetails.state}, {hotelDetails.countryName} - {hotelDetails.pinCode}
-            </Text>
-          </View>
-        </View>
-
-        {/* Description Section */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Description</Text>
-          <Text style={styles.description}>{descriptionText}</Text>
-          {hotelDetails.otherDetails ? (
-            <Text style={[styles.description, { marginTop: 8, fontStyle: "italic" }]}>
-              {hotelDetails.otherDetails}
-            </Text>
+          {hotelDetails.address ? (
+            <View style={styles.addressRow}>
+              <Ionicons name="location-outline" size={16} color="#EF4444" style={{ marginTop: 2 }} />
+              <Text style={styles.hotelAddress}>
+                {[hotelDetails.address, hotelDetails.city, hotelDetails.state, hotelDetails.countryName, hotelDetails.pinCode].filter(Boolean).join(", ")}
+              </Text>
+            </View>
           ) : null}
         </View>
 
-        {/* Amenities Section */}
-        {facilities.length > 0 ? (
+        {/* Description */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>DESCRIPTION</Text>
+          <Text style={styles.description}>{descriptionText}</Text>
+        </View>
+
+        {/* Amenities */}
+        {facilities.length > 0 && (
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Amenities / Facilities</Text>
+            <Text style={styles.sectionTitle}>AMENITIES & FACILITIES</Text>
             <View style={styles.facilitiesRow}>
               {facilities.map((fac, idx) => {
                 const displayName = typeof fac === "object" ? (fac?.name || fac?.detail || "") : String(fac);
@@ -355,254 +327,107 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
               })}
             </View>
           </View>
-        ) : null}
+        )}
 
-        {/* Attractions Section */}
-        {attractions.length > 0 ? (
+        {/* Attractions */}
+        {attractions.length > 0 && (
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Attractions Nearby</Text>
+            <Text style={styles.sectionTitle}>NEARBY ATTRACTIONS</Text>
             {attractions.map((att, idx) => {
               const displayName = typeof att === "object" ? (att?.name || att?.detail || "") : String(att);
               if (!displayName) return null;
               return (
                 <View key={idx} style={styles.attractionItem}>
-                  <Ionicons name="compass-outline" size={16} color="#E53935" />
+                  <Ionicons name="compass-outline" size={16} color="#EF4444" />
                   <Text style={styles.attractionText}>{displayName}</Text>
                 </View>
               );
             })}
           </View>
-        ) : null}
+        )}
 
-        {/* Policies Section */}
+        {/* Room Inventory Selection Section */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Policies & Check-in Instructions</Text>
-          <Text style={styles.policies}>{policyText}</Text>
-        </View>
+          <Text style={styles.sectionTitle}>AVAILABLE ROOMS ({requiredRoomCount} Requested)</Text>
 
-        {/* Contact Details Section */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Contact Details</Text>
-          {hotelDetails.hotelContactNo ? (
-            <View style={styles.contactItem}>
-              <Ionicons name="call-outline" size={16} color="#E53935" />
-              <Text style={styles.contactText}>{hotelDetails.hotelContactNo}</Text>
+          {roomError ? (
+            <View style={styles.roomErrorContainer}>
+              <Ionicons name="calendar-outline" size={36} color="#DC2626" />
+              <Text style={styles.roomErrorTitle}>No Rooms Currently Available</Text>
+              <Text style={styles.roomErrorSub}>{roomError}</Text>
+
+              <Pressable
+                style={styles.newSearchBtn}
+                onPress={() => navigation.navigate("DashBoard", { screen: "Hotels" })}
+              >
+                <Text style={styles.newSearchBtnText}>Start New Search</Text>
+              </Pressable>
             </View>
-          ) : null}
-          {hotelDetails.email ? (
-            <View style={[styles.contactItem, { marginTop: 6 }]}>
-              <Ionicons name="mail-outline" size={16} color="#E53935" />
-              <Text style={styles.contactText}>{hotelDetails.email}</Text>
-            </View>
-          ) : null}
-          {hotelDetails.faxNumber ? (
-            <View style={[styles.contactItem, { marginTop: 6 }]}>
-              <Ionicons name="print-outline" size={16} color="#E53935" />
-              <Text style={styles.contactText}>Fax: {hotelDetails.faxNumber}</Text>
-            </View>
-          ) : null}
-        </View>
+          ) : roomsList.length > 0 ? (
+            Array.from({ length: requiredRoomCount }).map((_, slotIdx) => {
+              const currentSlot = selectedRoomSlots[slotIdx];
 
-        {/* Geolocation Coordinates */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Google Maps Location</Text>
-          <View style={styles.locationRow}>
-            <Ionicons name="map-outline" size={16} color="#E53935" />
-            <Text style={styles.locationText}>
-              Latitude: {hotelDetails.latitude}
-            </Text>
-          </View>
-          <View style={[styles.locationRow, { marginTop: 4 }]}>
-            <Ionicons name="map-outline" size={16} color="#E53935" />
-            <Text style={styles.locationText}>
-              Longitude: {hotelDetails.longitude}
-            </Text>
-          </View>
-        </View>
+              return (
+                <View key={`slot-${slotIdx}`} style={styles.slotBlock}>
+                  <Text style={styles.slotTitle}>Room {slotIdx + 1} Choice</Text>
 
-        {/* Available Rooms Selector */}
-        {roomsList.length > 0 ? (
-          <View style={[styles.sectionCard, { backgroundColor: "#FAFAFA", padding: 0, overflow: "hidden" }]}>
-            <View style={{ padding: 16, borderBottomWidth: 1, borderColor: "#EEEEEE" }}>
-              <Text style={styles.sectionTitle}>Available Rooms</Text>
-            </View>
+                  {roomsList.map((cat, catIdx) => (
+                    <View key={`cat-${catIdx}`}>
+                      <Text style={styles.categoryHeader}>{cat.categoryName}</Text>
+                      {(cat.rooms || []).map((rm, rIdx) => {
+                        const isSelected = currentSlot?.roomId === rm.roomId;
+                        const rmPrice = rm.price?.offeredPrice || rm.offeredPrice || 0;
 
-            {roomsList.map((category, catIdx) => (
-              <View key={catIdx} style={styles.roomCategoryBlock}>
-                <View style={styles.roomCategoryHeader}>
-                  <Text style={styles.roomCategoryName}>{category.categoryName}</Text>
-                </View>
-
-                {category.rooms?.map((room, rIdx) => {
-                  const isRoomSelected = selectedRoom?.roomId === room.roomId;
-
-                  const priceObj = room.price || {};
-                  const roomCurrency = priceObj.currencyCode || "INR";
-                  const roomOfferedPrice = priceObj.offeredPrice || room.offeredPrice || 0;
-                  const publishedPrice = priceObj.publishedPrice || roomOfferedPrice;
-                  const discount = priceObj.discount || 0;
-                  const tax = priceObj.tax || 0;
-
-                  return (
-                    <Pressable
-                      key={rIdx}
-                      onPress={() => setSelectedRoom({ ...room, categoryName: category.categoryName })}
-                      style={[
-                        styles.roomCard,
-                        isRoomSelected && styles.roomCardSelected
-                      ]}
-                    >
-                      {/* Room Images Slider */}
-                      {room.roomImages && room.roomImages.length > 0 ? (
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          style={styles.roomImagesScroll}
-                          contentContainerStyle={{ gap: 8 }}
-                        >
-                          {room.roomImages.map((img, imgIdx) => (
-                            <Image
-                              key={imgIdx}
-                              source={{ uri: img.image }}
-                              style={styles.roomImageThumb}
-                            />
-                          ))}
-                        </ScrollView>
-                      ) : null}
-
-                      {/* Room Title */}
-                      <View style={styles.roomHeaderRow}>
-                        <Text style={styles.roomTypeName}>{room.roomTypeName || room.roomTypeCategory}</Text>
-                        <View style={[styles.refundBadge, room.fullRefundAllowed ? styles.refundBadgeGreen : styles.refundBadgeRed]}>
-                          <Text style={[styles.refundBadgeText, room.fullRefundAllowed ? styles.refundBadgeTextGreen : styles.refundBadgeTextRed]}>
-                            {room.fullRefundAllowed ? "Refundable" : "Non-Refundable"}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Amenities Row */}
-                      {room.amenities && room.amenities.length > 0 ? (
-                        <View style={styles.roomAmenitiesWrap}>
-                          {room.amenities.slice(0, 4).map((amenity, aIdx) => (
-                            <View key={aIdx} style={styles.roomAmenityChip}>
-                              <Ionicons name="checkmark-circle-outline" size={12} color="#E53935" />
-                              <Text style={styles.roomAmenityText}>{amenity.name}</Text>
+                        return (
+                          <Pressable
+                            key={`rm-${catIdx}-${rIdx}`}
+                            style={[styles.roomOptionCard, isSelected && styles.roomOptionCardSelected]}
+                            onPress={() => handleSelectRoomForSlot(slotIdx, rm, cat.categoryName)}
+                          >
+                            <View style={styles.roomOptionHeader}>
+                              <Text style={styles.roomOptionName}>{rm.roomTypeName || rm.roomTypeCategory || cat.categoryName}</Text>
+                              <Text style={styles.roomOptionPrice}>{formatCurrency(rmPrice, displayCurrency)}</Text>
                             </View>
-                          ))}
-                        </View>
-                      ) : null}
 
-                      {/* Description List */}
-                      {room.description && room.description.length > 0 ? (
-                        <View style={styles.roomDescBlock}>
-                          {room.description.map((desc, dIdx) => (
-                            <View key={dIdx} style={styles.bulletRow}>
-                              <Text style={styles.bulletPoint}>•</Text>
-                              <Text style={styles.bulletText}>{desc}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      ) : null}
-
-                      {/* Services & Metadata */}
-                      <View style={styles.metaRow}>
-                        <View style={styles.metaBadge}>
-                          <Ionicons name="people-outline" size={12} color="#757575" />
-                          <Text style={styles.metaBadgeText}>Child: {room.childCount || 0}</Text>
-                        </View>
-                        {room.bedTypes ? (
-                          <View style={styles.metaBadge}>
-                            <Ionicons name="bed-outline" size={12} color="#757575" />
-                            <Text style={styles.metaBadgeText}>
-                              Bed: {typeof room.bedTypes === "string" ? room.bedTypes : (room.bedTypes?.[0]?.name || "Standard")}
-                            </Text>
-                          </View>
-                        ) : null}
-                        {room.hotelSupplements ? (
-                          <View style={styles.metaBadge}>
-                            <Ionicons name="gift-outline" size={12} color="#757575" />
-                            <Text style={styles.metaBadgeText}>Supplement: {room.hotelSupplements}</Text>
-                          </View>
-                        ) : null}
-                        {room.servicesStatus?.map((service, sIdx) => (
-                          <View key={sIdx} style={styles.metaBadge}>
-                            <Ionicons name="options-outline" size={12} color="#757575" />
-                            <Text style={styles.metaBadgeText}>{service.name}: {service.value}</Text>
-                          </View>
-                        ))}
-                      </View>
-
-                      {/* Additional flags */}
-                      <View style={styles.flagsRow}>
-                        {room.isPassportMandatory ? (
-                          <Text style={styles.flagText}>⚠️ Passport Required</Text>
-                        ) : null}
-                        {room.isPANMandatory ? (
-                          <Text style={styles.flagText}>⚠️ PAN Required</Text>
-                        ) : null}
-                        {room.requireAllPaxDetails ? (
-                          <Text style={styles.flagText}>⚠️ All Pax Details Required</Text>
-                        ) : null}
-                      </View>
-
-                      {/* Cancellation Policies */}
-                      {room.cancellationPolicies && room.cancellationPolicies.length > 0 ? (
-                        <View style={styles.cancellationBlock}>
-                          <Text style={styles.cancelTitle}>Cancellation Policies</Text>
-                          {room.cancellationPolicies.map((policy, pIdx) => (
-                            <Text key={pIdx} style={styles.policyText}>
-                              Charge: {policy.chargeType === 1 ? `${policy.charge}%` : `${formatCurrency(policy.charge, policy.currency)}`} from {policy.fromDate} to {policy.toDate}
-                            </Text>
-                          ))}
-                        </View>
-                      ) : null}
-
-                      {/* Divider */}
-                      <View style={styles.divider} />
-
-                      {/* Price Details */}
-                      <View style={styles.priceRowDetail}>
-                        <View style={{ flex: 1 }}>
-                          <View style={{ flexDirection: "row", alignItems: "baseline", gap: 6 }}>
-                            <Text style={styles.offeredPriceDetail}>
-                              {formatCurrency(roomOfferedPrice, roomCurrency)}
-                            </Text>
-                            {discount > 0 ? (
-                              <Text style={styles.publishedPriceDetail}>
-                                {formatCurrency(publishedPrice, roomCurrency)}
+                            {rm.description && rm.description.filter(d => Boolean(d && String(d).trim())).length > 0 ? (
+                              <Text style={styles.roomOptionDesc} numberOfLines={2}>
+                                {rm.description.filter(d => Boolean(d && String(d).trim())).join(" · ")}
                               </Text>
                             ) : null}
-                          </View>
-                          <Text style={styles.taxDetail}>Includes taxes: {formatCurrency(tax, roomCurrency)}</Text>
-                        </View>
 
-                        <View style={[styles.selectBtn, isRoomSelected && styles.selectBtnActive]}>
-                          <Text style={[styles.selectBtnText, isRoomSelected && styles.selectBtnTextActive]}>
-                            {isRoomSelected ? "Selected" : "Select Room"}
-                          </Text>
-                        </View>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ))}
-          </View>
-        ) : null}
+                            <View style={styles.roomOptionBottom}>
+                              <View style={styles.flagRow}>
+                                {rm.isPANMandatory ? <Text style={styles.flagBadge}>PAN Required</Text> : null}
+                                {rm.isPassportMandatory ? <Text style={styles.flagBadge}>Passport Required</Text> : null}
+                              </View>
+                              <View style={[styles.selectRadio, isSelected && styles.selectRadioActive]}>
+                                {isSelected && <View style={styles.selectRadioInner} />}
+                              </View>
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
+              );
+            })
+          ) : null}
+        </View>
       </ScrollView>
 
-      {/* Footer / CTA */}
-      <View style={styles.footer}>
-        <View style={styles.priceContainer}>
-          <Text style={styles.priceLabel}>TOTAL RATE</Text>
-          <Text style={styles.priceValue}>
-            {selectedRoom ? formatCurrency(offeredPrice, currency) : "--"}
-          </Text>
+      {/* Footer */}
+      {!roomError && roomsList.length > 0 && (
+        <View style={styles.footer}>
+          <View style={styles.priceContainer}>
+            <Text style={styles.priceLabel}>TOTAL PRICE</Text>
+            <Text style={styles.priceValue}>{formatCurrency(totalPriceSum, displayCurrency)}</Text>
+          </View>
+          <Pressable style={styles.continueBtn} onPress={handleContinue}>
+            <Text style={styles.continueBtnText}>Proceed to Checkout</Text>
+          </Pressable>
         </View>
-        <Pressable style={styles.continueBtn} onPress={handleContinue}>
-          <Text style={styles.continueBtnText}>Continue to Guest Info</Text>
-        </Pressable>
-      </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -610,96 +435,109 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F8FAFC",
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F8FAFC",
     padding: 24,
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 15,
-    color: "#757575",
+    fontSize: 14,
+    color: "#64748B",
     fontWeight: "600",
   },
   errorText: {
-    fontSize: 16,
-    color: "#B71C1C",
+    fontSize: 15,
+    color: "#DC2626",
     fontWeight: "700",
     textAlign: "center",
     marginTop: 12,
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  backBtn: {
-    backgroundColor: "#E53935",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+  retryBtn: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
-  backBtnText: {
+  retryBtnText: {
     color: "#FFFFFF",
     fontWeight: "800",
-    fontSize: 14,
+    fontSize: 13,
+  },
+  backLink: {
+    marginTop: 12,
+  },
+  backLinkText: {
+    color: "#64748B",
+    fontWeight: "600",
+    fontSize: 13,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderColor: "#EEEEEE",
+    borderColor: "#E2E8F0",
     backgroundColor: "#FFFFFF",
   },
   iconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#F1F5F9",
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#212121",
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0F172A",
     flex: 1,
     textAlign: "center",
   },
   scrollContent: {
     paddingBottom: 32,
-    gap: 14,
+    gap: 12,
   },
   sliderWrap: {
-    height: 240,
-    backgroundColor: "#F5F5F5",
-    overflow: "hidden",
+    height: 220,
+    backgroundColor: "#E2E8F0",
   },
   sliderImage: {
-    height: 240,
-    resizeMode: "cover",
+    height: 220,
+  },
+  noImageGalleryBox: {
+    height: 160,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  noImageGalleryText: {
+    fontSize: 12,
+    color: "#94A3B8",
+    fontWeight: "600",
   },
   sectionCard: {
-    backgroundColor: "#FAFAFA",
-    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 16,
-    marginHorizontal: 16,
+    marginHorizontal: 14,
     borderWidth: 1,
-    borderColor: "#EEEEEE",
-    shadowColor: "#000",
-    shadowOpacity: 0.02,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 1,
+    borderColor: "#E2E8F0",
   },
   hotelName: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: "900",
-    color: "#212121",
-    marginBottom: 6,
+    color: "#0F172A",
+    marginBottom: 4,
   },
   ratingRow: {
     flexDirection: "row",
@@ -707,8 +545,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   ratingText: {
-    fontSize: 13,
-    color: "#616161",
+    fontSize: 12,
+    color: "#B45309",
     fontWeight: "700",
     marginLeft: 6,
   },
@@ -717,338 +555,200 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   hotelAddress: {
-    fontSize: 13,
-    color: "#757575",
-    lineHeight: 18,
+    fontSize: 12,
+    color: "#64748B",
+    lineHeight: 16,
     flex: 1,
-    fontWeight: "600",
   },
   sectionTitle: {
     fontSize: 11,
     fontWeight: "800",
-    color: "#757575",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    marginBottom: 6,
+    color: "#64748B",
+    letterSpacing: 0.5,
+    marginBottom: 8,
   },
   description: {
     fontSize: 13,
-    color: "#757575",
-    lineHeight: 20,
+    color: "#334155",
+    lineHeight: 18,
   },
   facilitiesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 4,
+    gap: 6,
   },
   facilityChip: {
-    backgroundColor: "#FFEBEE",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#FFCDD2",
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 99,
   },
   facilityChipText: {
-    fontSize: 12,
-    color: "#E53935",
-    fontWeight: "800",
+    fontSize: 11,
+    color: "#EF4444",
+    fontWeight: "700",
   },
   attractionItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginTop: 6,
+    gap: 6,
+    marginTop: 4,
   },
   attractionText: {
-    fontSize: 13,
-    color: "#757575",
-    fontWeight: "600",
+    fontSize: 12,
+    color: "#334155",
   },
-  policies: {
-    fontSize: 13,
-    color: "#757575",
-    lineHeight: 18,
-  },
-  contactItem: {
-    flexDirection: "row",
+  roomErrorContainer: {
     alignItems: "center",
-    gap: 8,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
   },
-  contactText: {
-    fontSize: 13,
-    color: "#757575",
-    fontWeight: "600",
-  },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  locationText: {
-    fontSize: 13,
-    color: "#757575",
-    fontWeight: "600",
-  },
-  roomCategoryBlock: {
-    borderBottomWidth: 1,
-    borderColor: "#EEEEEE",
-    paddingBottom: 16,
-  },
-  roomCategoryHeader: {
-    backgroundColor: "#F1F5F9",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginBottom: 10,
-  },
-  roomCategoryName: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#475569",
-  },
-  roomCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    padding: 14,
-  },
-  roomCardSelected: {
-    borderColor: "#E53935",
-    borderWidth: 2,
-    shadowColor: "#E53935",
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  roomImagesScroll: {
-    marginBottom: 10,
-  },
-  roomImageThumb: {
-    width: 100,
-    height: 70,
-    borderRadius: 10,
-    resizeMode: "cover",
-    backgroundColor: "#E2E8F0",
-  },
-  roomHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 8,
-    marginBottom: 8,
-  },
-  roomTypeName: {
+  roomErrorTitle: {
     fontSize: 15,
-    fontWeight: "900",
-    color: "#1E293B",
-    flex: 1,
-  },
-  refundBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  refundBadgeGreen: {
-    backgroundColor: "#DCFCE7",
-  },
-  refundBadgeRed: {
-    backgroundColor: "#FEE2E2",
-  },
-  refundBadgeText: {
-    fontSize: 11,
     fontWeight: "800",
+    color: "#0F172A",
+    marginTop: 8,
   },
-  refundBadgeTextGreen: {
-    color: "#15803D",
-  },
-  refundBadgeTextRed: {
-    color: "#B91C1C",
-  },
-  roomAmenitiesWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 10,
-  },
-  roomAmenityChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#F8FAFC",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  roomAmenityText: {
-    fontSize: 11,
-    color: "#64748B",
-    fontWeight: "600",
-  },
-  roomDescBlock: {
-    marginBottom: 10,
-  },
-  bulletRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 6,
-    marginBottom: 2,
-  },
-  bulletPoint: {
-    fontSize: 14,
-    color: "#64748B",
-    lineHeight: 18,
-  },
-  bulletText: {
+  roomErrorSub: {
     fontSize: 12,
     color: "#64748B",
-    lineHeight: 18,
-    flex: 1,
+    textAlign: "center",
+    marginTop: 4,
+    marginBottom: 16,
+    lineHeight: 16,
   },
-  metaRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 8,
-  },
-  metaBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#F1F5F9",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  metaBadgeText: {
-    fontSize: 11,
-    color: "#475569",
-    fontWeight: "700",
-  },
-  flagsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginVertical: 8,
-  },
-  flagText: {
-    fontSize: 11,
-    color: "#B45309",
-    fontWeight: "800",
-  },
-  cancellationBlock: {
-    backgroundColor: "#FFFBEB",
+  newSearchBtn: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#FEF3C7",
-    padding: 10,
-    marginVertical: 8,
   },
-  cancelTitle: {
-    fontSize: 12,
+  newSearchBtnText: {
+    color: "#FFFFFF",
     fontWeight: "800",
-    color: "#B45309",
+    fontSize: 13,
+  },
+  slotBlock: {
+    marginBottom: 16,
+  },
+  slotTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 8,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderColor: "#F1F5F9",
+  },
+  categoryHeader: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748B",
+    marginTop: 6,
     marginBottom: 4,
   },
-  policyText: {
+  roomOptionCard: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 12,
+    marginBottom: 8,
+  },
+  roomOptionCardSelected: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
+  },
+  roomOptionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  roomOptionName: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0F172A",
+    flex: 1,
+  },
+  roomOptionPrice: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#EF4444",
+  },
+  roomOptionDesc: {
     fontSize: 11,
-    color: "#D97706",
-    lineHeight: 16,
-    fontWeight: "600",
+    color: "#64748B",
+    marginTop: 4,
   },
-  divider: {
-    height: 1,
-    backgroundColor: "#EEEEEE",
-    marginVertical: 12,
-  },
-  priceRowDetail: {
+  roomOptionBottom: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 8,
   },
-  offeredPriceDetail: {
-    fontSize: 17,
-    fontWeight: "950",
-    color: "#E53935",
+  flagRow: {
+    flexDirection: "row",
+    gap: 6,
   },
-  publishedPriceDetail: {
-    fontSize: 13,
-    color: "#94A3B8",
-    textDecorationLine: "line-through",
+  flagBadge: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#D97706",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  taxDetail: {
-    fontSize: 11,
-    color: "#64748B",
-    marginTop: 2,
-    fontWeight: "600",
+  selectRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#94A3B8",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  selectBtn: {
-    backgroundColor: "#F1F5F9",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
+  selectRadioActive: {
+    borderColor: "#EF4444",
   },
-  selectBtnActive: {
-    backgroundColor: "#E53935",
-    borderColor: "#E53935",
-  },
-  selectBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#475569",
-  },
-  selectBtnTextActive: {
-    color: "#FFFFFF",
+  selectRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#EF4444",
   },
   footer: {
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderColor: "#EEEEEE",
-    padding: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderColor: "#E2E8F0",
   },
   priceContainer: {
-    flexDirection: "column",
+    flex: 1,
   },
   priceLabel: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#757575",
-    letterSpacing: 0.5,
+    color: "#64748B",
   },
   priceValue: {
-    fontSize: 22,
-    fontWeight: "950",
-    color: "#E53935",
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#EF4444",
   },
   continueBtn: {
-    flex: 1,
-    backgroundColor: "#E53935",
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#E53935",
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   continueBtnText: {
     color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "800",
+    fontSize: 14,
   },
 });

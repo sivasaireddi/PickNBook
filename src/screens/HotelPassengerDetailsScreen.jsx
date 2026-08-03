@@ -1,8 +1,8 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,687 +13,904 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { bookHotelOffer, blockHotelRoom, validateHotelCoupon } from "../services/hotelService";
-import HotelGallery from "../components/HotelGallery";
-import HotelInfoCard from "../components/HotelInfoCard";
-import HostCard from "../components/HostCard";
-import StayHighlights from "../components/StayHighlights";
-import RoomCard from "../components/RoomCard";
+import { blockHotelRoom, getHotelPricingPreview, bookHotelOffer } from "../services/hotelService";
+import { useHotelBooking } from "../context/HotelBookingContext";
 import GuestDetailsForm from "../components/GuestDetailsForm";
 import FareSummaryCard from "../components/FareSummaryCard";
-import AmenitiesBottomSheet from "../components/AmenitiesBottomSheet";
 
-const logDev = (...args) => {
-  if (__DEV__) console.log(...args);
-};
+const formatCurrency = (value, currency = "INR") =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
 
-const formatCurrency = (value) =>
-  `₹ ${Number(value || 0).toLocaleString("en-IN")}`;
-const isValidEmail = (value) =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 const isValidPhone = (value) => /^\d{10}$/.test(String(value || "").trim());
+const isValidPAN = (value) => /^[A-Z]{3}[PCHFATGJLE][A-Z]{1}[0-9]{4}[A-Z]{1}$/.test(String(value || "").trim().toUpperCase());
 
 export default function HotelPassengerDetailsScreen({ navigation, route }) {
-  const hotel = route?.params?.hotel || {};
-  const selectedOfferFromRoute = route?.params?.selectedOffer || null;
-  const searchContext = route?.params?.searchContext || {};
-  const sheetRef = useRef(null);
+  const {
+    session,
+    searchParams,
+    selectedHotel: contextSelectedHotel,
+    selectedRooms: contextSelectedRooms,
+    setBlockedRoomResult,
+    setPricingPreview: setContextPricingPreview,
+  } = useHotelBooking();
 
-  // Retrieve the full list of available room types for this hotel
-  const offers = useMemo(() => {
-    if (hotel?.offers && hotel.offers.length > 0) {
-      return hotel.offers;
-    }
-    return selectedOfferFromRoute ? [selectedOfferFromRoute] : [];
-  }, [hotel, selectedOfferFromRoute]);
+  const routeParams = route?.params || {};
+  const hotel = routeParams.hotel || contextSelectedHotel || {};
+  const selectedRoomSlots = routeParams.selectedRoomSlots || contextSelectedRooms || [];
 
-  const requestedRooms = Number(searchContext?.rooms || route?.params?.searchParams?.rooms || 1);
+  const targetTraceId = String(routeParams.traceId || session.traceId || hotel.traceId || "");
+  const targetSrdvType = String(routeParams.srdvType || session.srdvType || hotel.srdvType || "MixAPI");
+  const targetSrdvIndex = String(routeParams.srdvIndex || session.srdvIndex || hotel.srdvIndex || "15");
+  const targetResultIndex = String(
+    routeParams.resultIndex || selectedRoomSlots[0]?.resultIndex || hotel.resultIndex || ""
+  );
+  const targetHotelCode = String(
+    selectedRoomSlots[0]?.hotelCode || routeParams.hotelCode || targetResultIndex || hotel.hotelCode || ""
+  );
 
-  // roomQuantities holds quantity for each offerId
-  const [roomQuantities, setRoomQuantities] = useState(() => {
-    if (selectedOfferFromRoute?.offerId) {
-      return { [selectedOfferFromRoute.offerId]: 1 };
-    }
-    return {};
-  });
+  const roomGuestsConfig = searchParams?.roomGuests || [
+    { NoOfAdults: "2", NoOfChild: "0", ChildAge: [] },
+  ];
 
-  const totalSelectedRooms = Object.values(roomQuantities).reduce((acc, q) => acc + q, 0);
+  const [blockingRooms, setBlockingRooms] = useState(true);
+  const [blockError, setBlockError] = useState("");
+  const [blockedResultData, setBlockedResultData] = useState(null);
+  const [showPriceChangedModal, setShowPriceChangedModal] = useState(false);
+  const [priceChangeDetails, setPriceChangeDetails] = useState({ oldPrice: 0, newPrice: 0 });
 
-  const handleIncrementRoom = (offerId) => {
-    if (requestedRooms === 1) {
-      setRoomQuantities({ [offerId]: 1 });
-      return;
-    }
-
-    if (totalSelectedRooms >= requestedRooms) {
-      Alert.alert(
-        "Room Limit Reached",
-        `You requested ${requestedRooms} room(s) during search. Please reduce another selection first to choose this room type.`
-      );
-      return;
-    }
-    setRoomQuantities((prev) => ({
-      ...prev,
-      [offerId]: (prev[offerId] || 0) + 1,
-    }));
-  };
-
-  const handleDecrementRoom = (offerId) => {
-    setRoomQuantities((prev) => {
-      const updated = { ...prev };
-      const currentQty = updated[offerId] || 0;
-      if (currentQty <= 1) {
-        delete updated[offerId];
-      } else {
-        updated[offerId] = currentQty - 1;
-      }
-      return updated;
-    });
-  };
-
-  // Build sequential list of selected rooms
-  const selectedRoomSlots = useMemo(() => {
-    const slots = [];
-    offers.forEach((offer) => {
-      const qty = roomQuantities[offer.offerId] || 0;
-      for (let i = 0; i < qty; i++) {
-        slots.push(offer);
-      }
-    });
-    return slots;
-  }, [offers, roomQuantities]);
-
-  const [couponCode, setCouponCode] = useState("");
-  const [couponDiscount, setCouponDiscount] = useState(0);
-  const [appliedCoupon, setAppliedCoupon] = useState("");
+  // Pricing preview state
+  const [couponCodeInput, setCouponCodeInput] = useState("");
+  const [pricingPreview, setPricingPreview] = useState(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
   const [couponMessage, setCouponMessage] = useState("");
 
-  const totalRoomsPrice = useMemo(() => {
-    return offers.reduce((total, offer) => {
-      const qty = roomQuantities[offer.offerId] || 0;
-      return total + (offer.price || 0) * qty;
-    }, 0);
-  }, [offers, roomQuantities]);
+  // Passenger state per room & pax
+  const [paxState, setPaxState] = useState({});
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [bookingLoading, setBookingLoading] = useState(false);
+
+  // 1. Trigger Step 4: Block Room pre-checkout
+  useEffect(() => {
+    executeBlockRoom();
+  }, []);
+
+  const executeBlockRoom = async () => {
+    setBlockingRooms(true);
+    setBlockError("");
+    try {
+      const blockRoomPayload = {
+        EndUserIp: "192.168.1.1",
+        ClientId: "180170",
+        UserName: "PickNBk6",
+        Password: "PickNB@486",
+        TraceId: targetTraceId,
+        SrdvType: targetSrdvType,
+        SrdvIndex: targetSrdvIndex,
+        ResultIndex: targetResultIndex,
+        HotelCode: targetHotelCode,
+        HotelName: String(hotel.name || hotel.hotelName || "Hotel Stay"),
+        GuestNationality: "IN",
+        NoOfRooms: selectedRoomSlots.length,
+        ClientReferenceNo: Math.floor(Date.now() / 1000),
+        IsVoucherBooking: false,
+        HotelRoomsDetails: selectedRoomSlots,
+      };
+
+      console.log("[HotelPassengerDetails] executing BlockRoom without passenger details:", blockRoomPayload);
+      const res = await blockHotelRoom(blockRoomPayload);
+
+      const blockResObj = res?.blockRoomResult || {};
+      setBlockedResultData(blockResObj);
+      setBlockedRoomResult(blockResObj);
+
+      // Extract new authoritative room details
+      const authoritativeRooms = blockResObj.hotelRoomsDetails || [];
+
+      // Calculate total original vs total blocked price
+      const originalTotal = selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0);
+      const blockedTotal = authoritativeRooms.reduce((sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0), 0);
+
+      if (blockResObj.isPriceChanged || (blockedTotal > 0 && Math.abs(blockedTotal - originalTotal) > 1)) {
+        setPriceChangeDetails({ oldPrice: originalTotal, newPrice: blockedTotal || originalTotal });
+        setShowPriceChangedModal(true);
+      }
+
+      // Initialize initial pricing preview
+      const previewRes = await getHotelPricingPreview({
+        TraceId: targetTraceId,
+        HotelCode: targetHotelCode,
+        BasePrice: blockedTotal || originalTotal,
+        CouponCode: null,
+      });
+      setPricingPreview(previewRes);
+      setContextPricingPreview(previewRes);
+
+      // Initialize passenger state inputs matching room & guest configuration
+      initPaxState(authoritativeRooms.length > 0 ? authoritativeRooms : selectedRoomSlots);
+    } catch (err) {
+      console.log("[HotelPassengerDetails] BlockRoom error:", err?.message);
+      setBlockError(err?.message || "Room availability/price verification failed.");
+    } finally {
+      setBlockingRooms(false);
+    }
+  };
+
+  const initPaxState = (roomsData) => {
+    const initialState = {};
+    roomsData.forEach((roomObj, rIdx) => {
+      const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0", ChildAge: [] };
+      const numAdults = Number(guestConfig.NoOfAdults) || 1;
+      const numChildren = Number(guestConfig.NoOfChild) || 0;
+      const childAges = guestConfig.ChildAge || [];
+
+      let globalPaxIdx = 0;
+      for (let a = 0; a < numAdults; a++) {
+        const key = `room-${rIdx}-pax-${globalPaxIdx}`;
+        initialState[key] = {
+          title: "Mr",
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          pan: "",
+          passport: "",
+          age: "",
+          isChild: false,
+          isLead: a === 0, // Exactly one lead passenger per room
+        };
+        globalPaxIdx++;
+      }
+
+      for (let c = 0; c < numChildren; c++) {
+        const key = `room-${rIdx}-pax-${globalPaxIdx}`;
+        initialState[key] = {
+          title: "Mstr",
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          pan: "",
+          passport: "",
+          age: String(childAges[c] || 5),
+          isChild: true,
+          isLead: false,
+        };
+        globalPaxIdx++;
+      }
+    });
+    setPaxState(initialState);
+  };
+
+  const handleUpdatePax = (key, field, value) => {
+    setPaxState((prev) => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        [field]: value,
+      },
+    }));
+  };
 
   const handleApplyCoupon = async () => {
-    if (!couponCode.trim()) {
+    if (!couponCodeInput.trim()) {
       Alert.alert("Input Code", "Please enter a coupon code.");
       return;
     }
     setValidatingCoupon(true);
     setCouponMessage("");
     try {
-      const priceToValidate = totalRoomsPrice || 0;
-      const res = await validateHotelCoupon(couponCode, priceToValidate);
-      if (res && res.valid) {
-        setCouponDiscount(res.discount || 0);
-        setAppliedCoupon(res.couponCode || couponCode.toUpperCase());
-        setCouponMessage(res.message || "Coupon applied successfully!");
+      const basePrice = pricingPreview?.basePrice || 0;
+      const res = await getHotelPricingPreview({
+        TraceId: targetTraceId,
+        HotelCode: targetHotelCode,
+        BasePrice: basePrice,
+        CouponCode: couponCodeInput.trim(),
+      });
+      setPricingPreview(res);
+      setContextPricingPreview(res);
+
+      if (res.couponDiscount > 0) {
+        setCouponMessage(`Coupon ${res.appliedCoupon} applied! ${formatCurrency(res.couponDiscount)} OFF`);
       } else {
-        throw new Error("Invalid coupon details.");
+        setCouponMessage("Invalid or inapplicable coupon code.");
       }
     } catch (err) {
-      setCouponDiscount(0);
-      setAppliedCoupon("");
-      setCouponMessage("");
-      Alert.alert("Invalid Coupon", err?.message || "Coupon is invalid or expired.");
+      setCouponMessage(err?.message || "Coupon calculation failed.");
     } finally {
       setValidatingCoupon(false);
     }
   };
 
-  const [guestMode, setGuestMode] = useState("new");
-  
-  // Track details for each room index
-  const [guestNames, setGuestNames] = useState({});
-  const [guestEmails, setGuestEmails] = useState({});
-  const [guestPhones, setGuestPhones] = useState({});
-  const [selectedTravelers, setSelectedTravelers] = useState({});
+  const handleRemoveCoupon = async () => {
+    setCouponCodeInput("");
+    setCouponMessage("");
+    const basePrice = pricingPreview?.basePrice || 0;
+    const res = await getHotelPricingPreview({
+      TraceId: targetTraceId,
+      HotelCode: targetHotelCode,
+      BasePrice: basePrice,
+      CouponCode: null,
+    });
+    setPricingPreview(res);
+    setContextPricingPreview(res);
+  };
 
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const travelers = useMemo(
-    () => [
-      { label: "Rahul Sharma - 9876543210", value: "Rahul Sharma" },
-      { label: "Priya Singh - 9123456780", value: "Priya Singh" },
-    ],
-    [],
-  );
+  const authoritativeRoomList = useMemo(() => {
+    const list = blockedResultData?.hotelRoomsDetails || [];
+    return list.length > 0 ? list : selectedRoomSlots;
+  }, [blockedResultData, selectedRoomSlots]);
 
   const validationError = useMemo(() => {
-    if (totalSelectedRooms === 0) return "Please select at least one room.";
-    if (totalSelectedRooms !== requestedRooms) {
-      return `Please select exactly ${requestedRooms} room(s) to match your requested count. Currently selected: ${totalSelectedRooms}.`;
-    }
+    if (blockingRooms) return "Verifying room availability...";
+    if (blockError) return blockError;
 
-    for (let i = 0; i < requestedRooms; i++) {
-      const roomLabel = `Room ${i + 1}`;
-      if (guestMode === "new") {
-        const name = (guestNames[i] || "").trim();
-        const email = (guestEmails[i] || "").trim();
-        const phone = (guestPhones[i] || "").trim();
+    for (let rIdx = 0; rIdx < authoritativeRoomList.length; rIdx++) {
+      const roomObj = authoritativeRoomList[rIdx];
+      const isPANMandatory = Boolean(roomObj.isPANMandatory || roomObj.IsPANMandatory);
+      const isPassportMandatory = Boolean(roomObj.isPassportMandatory || roomObj.IsPassportMandatory);
 
-        if (!name) return `Guest name is required for ${roomLabel}.`;
-        if (!isValidEmail(email)) return `Enter a valid email address for ${roomLabel}.`;
-        if (!isValidPhone(phone)) return `Enter a valid 10-digit mobile number for ${roomLabel}.`;
-      } else {
-        const traveler = selectedTravelers[i] || "";
-        if (!traveler) return `Please select an existing traveler for ${roomLabel}.`;
+      const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0" };
+      const totalPax = (Number(guestConfig.NoOfAdults) || 1) + (Number(guestConfig.NoOfChild) || 0);
+
+      for (let pIdx = 0; pIdx < totalPax; pIdx++) {
+        const key = `room-${rIdx}-pax-${pIdx}`;
+        const pax = paxState[key] || {};
+
+        if (!pax.firstName || !pax.firstName.trim()) {
+          return `Room ${rIdx + 1} Guest ${pIdx + 1}: First name is required.`;
+        }
+        if (!pax.lastName || !pax.lastName.trim()) {
+          return `Room ${rIdx + 1} Guest ${pIdx + 1}: Last name is required.`;
+        }
+        if (pax.isChild && (!pax.age || !pax.age.trim())) {
+          return `Room ${rIdx + 1} Child ${pIdx + 1}: Age is required.`;
+        }
+        if (pax.isLead) {
+          if (!isValidEmail(pax.email)) return `Room ${rIdx + 1} Lead Guest: Valid email is required.`;
+          if (!isValidPhone(pax.phone)) return `Room ${rIdx + 1} Lead Guest: Valid 10-digit phone is required.`;
+        }
+
+        if (isPANMandatory && (!pax.pan || !isValidPAN(pax.pan))) {
+          return `Room ${rIdx + 1} Guest ${pIdx + 1}: Valid 10-character PAN number is required (e.g. DITPA7136P or ABCPS1234K).`;
+        }
+        if (isPassportMandatory && (!pax.passport || !pax.passport.trim())) {
+          return `Room ${rIdx + 1} Guest ${pIdx + 1}: Passport number is required.`;
+        }
       }
     }
 
-    if (!agreedToTerms) return "Please accept the hotel booking policy.";
+    if (!agreedToTerms) return "Please accept the hotel booking policies before proceeding.";
     return "";
-  }, [
-    agreedToTerms,
-    guestNames,
-    guestEmails,
-    guestPhones,
-    selectedTravelers,
-    guestMode,
-    roomQuantities,
-    requestedRooms,
-    totalSelectedRooms
-  ]);
+  }, [blockingRooms, blockError, authoritativeRoomList, roomGuestsConfig, paxState, agreedToTerms]);
 
-  React.useEffect(() => {
-    logDev("[HotelPassengerDetails] mounted:", {
-      hotelId: hotel?.hotelId,
-      hotelName: hotel?.name,
-      offerCount: offers.length,
-      searchContext,
-    });
-  }, [hotel?.hotelId, hotel?.name, offers.length, searchContext]);
-
-  const handleContinue = async () => {
-    logDev("[HotelPassengerDetails] continue pressed:", {
-      agreedToTerms,
-      guestNames,
-      guestEmails,
-      guestPhones,
-      roomQuantities,
-      appliedCoupon,
-    });
-
+  const handleBookRoom = async () => {
     if (validationError) {
-      logDev("[HotelPassengerDetails] validation failed:", validationError);
-      Alert.alert("Check details", validationError);
+      Alert.alert("Check Passenger Details", validationError);
       return;
     }
 
-    setLoading(true);
+    setBookingLoading(true);
     try {
-      // Call BlockRoom API before completing booking
-      const blockRoomPayload = {
-        TraceId: searchContext?.traceId || "12",
-        ResultIndex: selectedRoomSlots[0]?.resultIndex || selectedRoomSlots[0]?.roomIndex || "",
-        HotelCode: hotel?.hotelCode || hotel?.hotelId || "",
-        HotelName: hotel?.name || "Hotel Stay",
-        GuestNationality: "IN",
-        NoOfRooms: selectedRoomSlots.length,
-        HotelRoomsDetails: selectedRoomSlots.map((slot) => ({
-          ChildCount: slot.childCount || 0,
-          RequireAllPaxDetails: Boolean(slot.requireAllPaxDetails),
-          RoomId: slot.roomId || slot.offerId || "",
+      // Build HotelRoomsDetails with nested HotelPassenger arrays
+      const hotelRoomsDetailsPayload = authoritativeRoomList.map((roomObj, rIdx) => {
+        const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0" };
+        const totalPax = (Number(guestConfig.NoOfAdults) || 1) + (Number(guestConfig.NoOfChild) || 0);
+
+        const passengersPayload = [];
+        for (let pIdx = 0; pIdx < totalPax; pIdx++) {
+          const key = `room-${rIdx}-pax-${pIdx}`;
+          const pax = paxState[key] || {};
+
+          const paxObj = {
+            Title: String(pax.title || "Mr"),
+            FirstName: String(pax.firstName || "").trim(),
+            LastName: String(pax.lastName || "").trim(),
+            PaxType: pax.isChild ? "2" : "1",
+            LeadPassenger: Boolean(pax.isLead),
+          };
+
+          if (pax.isLead) {
+            paxObj.Phoneno = String(pax.phone || "").trim();
+            paxObj.Email = String(pax.email || "").trim();
+          }
+          if (pax.pan) {
+            paxObj.PAN = String(pax.pan || "").trim().toUpperCase();
+          }
+          if (pax.passport) {
+            paxObj.PassportNo = String(pax.passport || "").trim().toUpperCase();
+          }
+          if (pax.isChild) {
+            paxObj.Age = Number(pax.age || 5);
+          }
+
+          passengersPayload.push(paxObj);
+        }
+
+        const roomOfferedPrice = Number(roomObj.price?.offeredPrice || roomObj.offeredPrice || 0);
+        const roomBasePrice = Number(roomObj.price?.roomPrice || roomObj.roomPrice || roomOfferedPrice);
+
+        return {
+          ChildCount: Number(guestConfig.NoOfChild || 0),
+          RequireAllPaxDetails: Boolean(roomObj.requireAllPaxDetails || roomObj.RequireAllPaxDetails),
+          RoomId: String(roomObj.roomId || roomObj.RoomId || ""),
           RoomStatus: "Active",
-          RoomIndex: String(slot.roomIndex || ""),
-          RoomTypeCode: String(slot.roomTypeCode || ""),
-          RoomTypeName: slot.roomTypeName || slot.roomCategory || "Standard Room",
-          RatePlan: slot.ratePlan || slot.ratePlanCode || "",
-          RatePlanCode: slot.ratePlanCode || slot.ratePlan || "",
-          SmokingPreference: "0",
-        })),
-      };
-
-      logDev("[HotelPassengerDetails] calling blockHotelRoom:", blockRoomPayload);
-      const blockRes = await blockHotelRoom(blockRoomPayload);
-      logDev("[HotelPassengerDetails] blockHotelRoom response:", blockRes);
-
-      const validOfferId =
-        hotel?.resultIndex ||
-        hotel?.hotelCode ||
-        hotel?.hotelId ||
-        searchContext?.resultIndex ||
-        selectedRoomSlots[0]?.resultIndex ||
-        selectedRoomSlots[0]?.hotelCode ||
-        blockRes?.blockRoomResult?.offerId ||
-        blockRes?.blockRoomResult?.resultIndex ||
-        blockRes?.offerId ||
-        "";
-
-      logDev("[HotelPassengerDetails] stored offerId for booking:", validOfferId);
-
-      // Loop over selected room slots to book each room category choice
-      const bookingPromises = selectedRoomSlots.map((slot, index) => {
-        const payload = {
-          offerId: validOfferId,
-          guestName: guestMode === "existing" ? (selectedTravelers[index] || "Sai") : (guestNames[index] || "Sai"),
-          guestEmail: guestMode === "existing" ? "sainimmakayala123@gmail.com" : (guestEmails[index] || "sainimmakayala123@gmail.com"),
-          guestPhone: guestMode === "existing" ? "9885180221" : (guestPhones[index] || "9885180221"),
-          couponCode: appliedCoupon || null,
-          paymentMethod: "CreditCard",
-
-          // Fallback fields for backend cache expiry
-          traceId: searchContext?.traceId || blockRes?.blockRoomResult?.traceId || "12",
-          resultIndex: validOfferId,
-          hotelCode: hotel?.hotelCode || hotel?.hotelId || validOfferId,
-          hotelName: hotel?.name || "Hotel Stay",
-          price: typeof slot.price === "number" ? slot.price : (slot.price?.offeredPrice || slot.price?.roomPrice || slot.offeredPrice || slot.offeredFare || 453.11),
-          checkInDate: searchContext?.checkInDate || slot.checkInDate || "2026-08-01",
-          checkOutDate: searchContext?.checkOutDate || slot.checkOutDate || "2026-08-05",
-          rooms: searchContext?.rooms || 1,
-          adults: searchContext?.adults || 2,
-          cityCode: searchContext?.cityCode || hotel?.cityCode || "BOM",
+          RoomIndex: String(roomObj.roomIndex || roomObj.RoomIndex || `${rIdx + 1}`),
+          RoomTypeCode: String(roomObj.roomTypeCode || roomObj.RoomTypeCode || ""),
+          RoomTypeName: String(roomObj.roomTypeName || roomObj.RoomTypeName || roomObj.categoryName || "Standard Room"),
+          RatePlanCode: String(roomObj.ratePlanCode || roomObj.RatePlanCode || ""),
+          RatePlan: String(roomObj.ratePlan || roomObj.RatePlan || roomObj.ratePlanCode || ""),
+          OfferedPrice: roomOfferedPrice,
+          Price: {
+            RoomPrice: roomBasePrice,
+            OfferedPrice: roomOfferedPrice,
+          },
+          HotelPassenger: passengersPayload,
         };
-        return bookHotelOffer(payload);
       });
 
-      const results = await Promise.all(bookingPromises);
-      logDev("[HotelPassengerDetails] all bookings succeeded:", results);
+      const leadPaxKey = "room-0-pax-0";
+      const leadPax = paxState[leadPaxKey] || {};
 
-      // Create combined result mapping
-      const combinedBookingResult = {
-        bookingId: results.map((r) => r.bookingId || r.id).join(", "),
-        bookingReference: results.map((r) => r.bookingReference || r.reference || r.bookingId).join(", "),
-        hotelName: results[0]?.hotelName || hotel.name || "Hotel Stay",
-        guestName: results.map((r, i) => `${i + 1}. ${r.guestName || (guestMode === "existing" ? selectedTravelers[i] : guestNames[i])}`).join("\n"),
-        checkInDate: results[0]?.checkInDate || searchContext.checkInDate || selectedRoomSlots[0]?.checkInDate,
-        checkOutDate: results[0]?.checkOutDate || searchContext.checkOutDate || selectedRoomSlots[0]?.checkOutDate,
-        roomCategory: selectedRoomSlots.map((slot) => slot.roomCategory).join(" + "),
-        status: "Confirmed",
-        providerBookingId: results.map((r) => r.providerBookingId || r.bookingReference || r.bookingId || "N/A").join(", "),
+      const totalAuthoritativePrice = authoritativeRoomList.reduce(
+        (sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0),
+        0
+      );
+      const grandTotalPrice =
+        pricingPreview?.totalPrice ||
+        pricingPreview?.basePrice ||
+        totalAuthoritativePrice ||
+        selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0);
+
+      const bookPayload = {
+        EndUserIp: "192.168.1.1",
+        ClientId: "180170",
+        UserName: "PickNBk6",
+        Password: "PickNB@486",
+        TraceId: targetTraceId,
+        SrdvType: targetSrdvType,
+        SrdvIndex: targetSrdvIndex,
+        ResultIndex: targetResultIndex,
+        HotelCode: targetHotelCode,
+        HotelName: String(hotel.name || hotel.hotelName || "Hotel Stay"),
+        GuestNationality: "IN",
+        NoOfRooms: authoritativeRoomList.length,
+        ClientReferenceNo: Math.floor(Date.now() / 1000),
+        IsVoucherBooking: true,
+        GuestName: `${leadPax.firstName || "Guest"} ${leadPax.lastName || "User"}`.trim(),
+        GuestEmail: String(leadPax.email || "guest@example.com").trim(),
+        GuestPhone: String(leadPax.phone || "9876543210").trim(),
+        Price: grandTotalPrice,
+        HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
 
-      const adjustedOffer = {
-        ...selectedRoomSlots[0],
-        price: totalRoomsPrice,
-      };
+      console.log("[HotelPassengerDetails] submitting BookRoom API:", bookPayload);
+      const bookRes = await bookHotelOffer(bookPayload);
+
+      console.log("[HotelPassengerDetails] BookRoom API response:", bookRes);
+
+      const bookResultObj = bookRes?.bookResult || bookRes || {};
+      const confirmationNo = String(bookResultObj.confirmationNo || bookResultObj.bookingRefNo || bookResultObj.bookingId || Date.now());
+      const bookingRefNo = String(bookResultObj.bookingRefNo || bookResultObj.confirmationNo || confirmationNo);
 
       navigation.navigate("HotelBookingConfirmation", {
-        hotel,
-        selectedOffer: adjustedOffer,
-        bookingResult: combinedBookingResult,
-        searchContext,
-        appliedCoupon,
-        couponDiscount,
+        bookingResult: {
+          confirmationNo,
+          bookingRefNo,
+          bookingId: bookResultObj.bookingId || confirmationNo,
+          status: bookResultObj.status || bookResultObj.hotelBookingStatus || "Confirmed",
+          hotelName: hotel.name || hotel.hotelName || "Hotel Stay",
+          guestName: `${leadPax.firstName} ${leadPax.lastName}`,
+          checkInDate: searchParams.checkInDate,
+          checkOutDate: searchParams.checkOutDate,
+          fareBreakdown: bookResultObj.fareBreakdown || {
+            baseFare: grandTotalPrice,
+            totalPaid: grandTotalPrice,
+          },
+        },
       });
-    } catch (error) {
-      logDev("[HotelPassengerDetails] booking failed:", error?.message || error);
-      Alert.alert(
-        "Booking failed",
-        error?.message || "Unable to complete room booking."
-      );
+    } catch (err) {
+      console.log("[HotelPassengerDetails] BookRoom error:", err?.message);
+      Alert.alert("Booking Failed", err?.message || "Unable to confirm room reservation.");
     } finally {
-      setLoading(false);
+      setBookingLoading(false);
     }
   };
 
+  if (blockingRooms) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <ActivityIndicator size="large" color="#EF4444" />
+        <Text style={styles.loadingText}>Verifying room availability & locking rates (BlockRoom)...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (blockError) {
+    return (
+      <SafeAreaView style={styles.center}>
+        <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
+        <Text style={styles.errorText}>{blockError}</Text>
+        <Pressable style={styles.retryBtn} onPress={executeBlockRoom}>
+          <Text style={styles.retryBtnText}>Retry Block Room</Text>
+        </Pressable>
+        <Pressable style={styles.backLink} onPress={() => navigation.goBack()}>
+          <Text style={styles.backLinkText}>Back to Room Selection</Text>
+        </Pressable>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color="#111827" />
+        <Pressable style={styles.iconBtn} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={22} color="#0F172A" />
         </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Complete your stay</Text>
-          <Text style={styles.headerSub}>
-            {hotel?.cityCode || searchContext?.cityCode || "Hotel booking"}
-          </Text>
-        </View>
-        <Pressable
-          style={styles.amenityBtn}
-          onPress={() => {
-            logDev("[HotelPassengerDetails] amenities sheet requested");
-            sheetRef.current?.expand();
-          }}
-        >
-          <Ionicons name="grid-outline" size={18} color="#C8102E" />
-          <Text style={styles.amenityText}>Amenities</Text>
-        </Pressable>
+        <Text style={styles.headerTitle} numberOfLines={1}>Checkout & Passenger Info</Text>
+        <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <HotelGallery images={hotel?.images} />
-        <HotelInfoCard hotel={hotel} searchContext={searchContext} />
-        <HostCard />
-        <StayHighlights />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Hotel Summary Card */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.hotelName}>{hotel.name || hotel.hotelName}</Text>
+          <Text style={styles.hotelAddress}>{hotel.address}</Text>
+          <Text style={styles.datesText}>
+            Dates: {searchParams.checkInDate} to {searchParams.checkOutDate} ({authoritativeRoomList.length} Room(s))
+          </Text>
+        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Room Selection ({totalSelectedRooms} / {requestedRooms} selected)</Text>
-          <FlatList
-            data={offers}
-            keyExtractor={(item, index) => String(item?.offerId ?? index)}
-            scrollEnabled={false}
-            ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-            renderItem={({ item }) => (
-              <RoomCard
-                room={item}
-                quantity={roomQuantities[item.offerId] || 0}
-                onIncrement={() => handleIncrementRoom(item.offerId)}
-                onDecrement={() => handleDecrementRoom(item.offerId)}
-                formatCurrency={formatCurrency}
+        {/* Passenger Forms per Room */}
+        {authoritativeRoomList.map((roomObj, rIdx) => {
+          const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0" };
+          const numAdults = Number(guestConfig.NoOfAdults) || 1;
+          const numChildren = Number(guestConfig.NoOfChild) || 0;
+          const totalPax = numAdults + numChildren;
+
+          const isPANMandatory = Boolean(roomObj.isPANMandatory || roomObj.IsPANMandatory);
+          const isPassportMandatory = Boolean(roomObj.isPassportMandatory || roomObj.IsPassportMandatory);
+          const roomTypeName = roomObj.roomTypeName || roomObj.RoomTypeName || roomObj.categoryName || "Standard Room";
+
+          const paxForms = [];
+          for (let pIdx = 0; pIdx < totalPax; pIdx++) {
+            const key = `room-${rIdx}-pax-${pIdx}`;
+            const pax = paxState[key] || {};
+
+            paxForms.push(
+              <GuestDetailsForm
+                key={key}
+                roomIndex={rIdx + 1}
+                roomTypeName={roomTypeName}
+                paxIndex={pIdx + 1}
+                isLead={pax.isLead}
+                isChild={pax.isChild}
+                title={pax.title}
+                firstName={pax.firstName}
+                lastName={pax.lastName}
+                email={pax.email}
+                phone={pax.phone}
+                pan={pax.pan}
+                passport={pax.passport}
+                age={pax.age}
+                isPANMandatory={isPANMandatory}
+                isPassportMandatory={isPassportMandatory}
+                onChangeTitle={(val) => handleUpdatePax(key, "title", val)}
+                onChangeFirstName={(val) => handleUpdatePax(key, "firstName", val)}
+                onChangeLastName={(val) => handleUpdatePax(key, "lastName", val)}
+                onChangeEmail={(val) => handleUpdatePax(key, "email", val)}
+                onChangePhone={(val) => handleUpdatePax(key, "phone", val)}
+                onChangePan={(val) => handleUpdatePax(key, "pan", val)}
+                onChangePassport={(val) => handleUpdatePax(key, "passport", val)}
+                onChangeAge={(val) => handleUpdatePax(key, "age", val)}
               />
-            )}
-          />
-        </View>
+            );
+          }
 
-        <View style={styles.section}>
-          <View style={styles.summaryPill}>
-            <Text style={styles.summaryText}>
-              Selected Rooms: {totalSelectedRooms} of {requestedRooms}
-            </Text>
-          </View>
-        </View>
+          return (
+            <View key={`room-block-${rIdx}`} style={styles.roomBlockContainer}>
+              <Text style={styles.roomBlockTitle}>Room {rIdx + 1}: {roomTypeName}</Text>
+              {paxForms}
+            </View>
+          );
+        })}
 
-        {/* Dynamic Guest Details Forms based on quantities */}
-        {selectedRoomSlots.map((slot, index) => (
-          <View key={`guest-form-${index}`} style={{ gap: 8, marginTop: 10 }}>
-            <Text style={{ fontSize: 13, fontWeight: "800", color: "#E53935", marginBottom: 2, textTransform: "uppercase" }}>
-              Room {index + 1}: {slot.roomCategory}
-            </Text>
-            <GuestDetailsForm
-              mode={guestMode}
-              selectedTraveler={selectedTravelers[index] || ""}
-              onSelectedTravelerChange={(val) => {
-                setSelectedTravelers((prev) => ({ ...prev, [index]: val }));
-              }}
-              guestName={guestNames[index] || ""}
-              guestEmail={guestEmails[index] || ""}
-              guestPhone={guestPhones[index] || ""}
-              onChangeGuestName={(val) => {
-                setGuestNames((prev) => ({ ...prev, [index]: val }));
-              }}
-              onChangeGuestEmail={(val) => {
-                setGuestEmails((prev) => ({ ...prev, [index]: val }));
-              }}
-              onChangeGuestPhone={(val) => {
-                setGuestPhones((prev) => ({ ...prev, [index]: val }));
-              }}
-              travelers={travelers}
-            />
-          </View>
-        ))}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Promo Codes & Coupons</Text>
+        {/* Step 5: Pricing Preview & Coupons */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>COUPON & DISCOUNTS</Text>
           <View style={styles.couponContainer}>
             <TextInput
               style={styles.couponInput}
               placeholder="e.g. WELCOME10, STEALDEAL"
               placeholderTextColor="#94A3B8"
-              value={couponCode}
-              onChangeText={setCouponCode}
+              value={couponCodeInput}
+              onChangeText={setCouponCodeInput}
               autoCapitalize="characters"
-              editable={!appliedCoupon}
+              editable={!pricingPreview?.appliedCoupon}
             />
             <Pressable
-              style={[styles.couponBtnAction, appliedCoupon && styles.couponBtnApplied]}
-              onPress={appliedCoupon ? () => {
-                setAppliedCoupon("");
-                setCouponDiscount(0);
-                setCouponCode("");
-                setCouponMessage("");
-              } : handleApplyCoupon}
+              style={[styles.couponBtn, pricingPreview?.appliedCoupon && styles.couponBtnApplied]}
+              onPress={pricingPreview?.appliedCoupon ? handleRemoveCoupon : handleApplyCoupon}
               disabled={validatingCoupon}
             >
               {validatingCoupon ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={styles.couponBtnText}>
-                  {appliedCoupon ? "Remove" : "Apply"}
+                  {pricingPreview?.appliedCoupon ? "Remove" : "Apply"}
                 </Text>
               )}
             </Pressable>
           </View>
           {couponMessage ? (
-            <Text style={[styles.couponMsgText, appliedCoupon ? styles.couponSuccessText : styles.couponErrorText]}>
+            <Text style={[styles.couponMsg, pricingPreview?.couponDiscount > 0 ? styles.successMsg : styles.errorMsg]}>
               {couponMessage}
             </Text>
           ) : null}
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Before you continue</Text>
-          <View style={styles.policyCard}>
-            <Text style={styles.policyText}>Cancellation Policy</Text>
-            <Text style={styles.policyText}>Backend Pricing Sync</Text>
-            <Text style={styles.policyText}>Guest ID Verification</Text>
-            <Pressable
-              style={styles.modeRow}
-              onPress={() => {
-                logDev("[HotelPassengerDetails] guest mode toggle pressed");
-                setGuestMode((m) => (m === "existing" ? "new" : "existing"));
-              }}
-            >
-              <Text style={styles.modeLabel}>
-                {guestMode === "existing"
-                  ? "Switch to Add New Guest"
-                  : "Switch to Existing Traveler"}
-              </Text>
-            </Pressable>
-            <View style={styles.termsRow}>
-              <Switch value={agreedToTerms} onValueChange={setAgreedToTerms} />
-              <Text style={styles.termsText}>
-                I agree to hotel booking policy
-              </Text>
-            </View>
+        {/* Policy Agreement */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>BOOKING POLICIES</Text>
+          <View style={styles.termsRow}>
+            <Switch value={agreedToTerms} onValueChange={setAgreedToTerms} />
+            <Text style={styles.termsText}>
+              I confirm that all guest details are accurate and I agree to the supplier booking policies.
+            </Text>
           </View>
         </View>
 
-        <FareSummaryCard roomPrice={totalRoomsPrice} discount={couponDiscount} />
-        <View style={{ height: 110 }} />
+        {/* Live Fare Breakdown */}
+        <FareSummaryCard
+          roomPrice={
+            pricingPreview?.basePrice ||
+            authoritativeRoomList.reduce((sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0), 0) ||
+            selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0)
+          }
+          discount={pricingPreview?.couponDiscount || 0}
+        />
       </ScrollView>
 
-      <View style={styles.footer}>
-        <Pressable 
-          style={[
-            styles.continueBtn, 
-            (totalSelectedRooms !== requestedRooms || !agreedToTerms) && { backgroundColor: "#94A3B8" }
-          ]} 
-          onPress={handleContinue}
-          disabled={totalSelectedRooms !== requestedRooms || !agreedToTerms}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.continueText}>Continue To Payment</Text>
-          )}
-        </Pressable>
-      </View>
+      {/* Price Changed Modal Notice */}
+      <Modal visible={showPriceChangedModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Ionicons name="information-circle-outline" size={40} color="#D97706" />
+            <Text style={styles.modalTitle}>Room Rate Updated</Text>
+            <Text style={styles.modalText}>
+              The supplier updated the room rate during checkout confirmation.
+            </Text>
+            <View style={styles.priceCompareRow}>
+              <Text style={styles.oldPriceText}>Was: {formatCurrency(priceChangeDetails.oldPrice)}</Text>
+              <Text style={styles.newPriceText}>Now: {formatCurrency(priceChangeDetails.newPrice)}</Text>
+            </View>
+            <Pressable style={styles.modalBtn} onPress={() => setShowPriceChangedModal(false)}>
+              <Text style={styles.modalBtnText}>Acknowledge & Continue</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
-      <AmenitiesBottomSheet ref={sheetRef} />
+      {/* Footer / Submit */}
+      <View style={styles.footer}>
+        {validationError ? (
+          <Text style={styles.validationHintBanner} numberOfLines={2}>
+            ⚠️ {validationError}
+          </Text>
+        ) : null}
+        <View style={styles.footerRow}>
+          <View style={styles.footerPriceBox}>
+            <Text style={styles.footerPriceLabel}>TOTAL PAYABLE</Text>
+            <Text style={styles.footerPriceValue}>
+              {formatCurrency(
+                pricingPreview?.totalPrice ||
+                pricingPreview?.basePrice ||
+                authoritativeRoomList.reduce((sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0), 0) ||
+                selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0)
+              )}
+            </Text>
+          </View>
+          <Pressable
+            style={[styles.bookBtn, (!agreedToTerms || Boolean(validationError)) && styles.bookBtnDisabled]}
+            onPress={handleBookRoom}
+            disabled={!agreedToTerms || Boolean(validationError) || bookingLoading}
+          >
+            {bookingLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.bookBtnText}>CONFIRM & BOOK ROOM</Text>
+            )}
+          </Pressable>
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
+  container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F8FAFC",
+  },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#64748B",
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  errorText: {
+    fontSize: 15,
+    color: "#DC2626",
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  retryBtn: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  retryBtnText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  backLink: {
+    marginTop: 12,
+  },
+  backLinkText: {
+    color: "#64748B",
+    fontWeight: "600",
+    fontSize: 13,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderColor: "#EEEEEE",
-    gap: 10,
-    backgroundColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
   },
-  backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#FFFFFF",
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#EEEEEE",
+    backgroundColor: "#F1F5F9",
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#212121",
-  },
-  headerSub: {
-    fontSize: 12,
-    color: "#757575",
-    marginTop: 2,
-    fontWeight: "700",
-  },
-  amenityBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#FFEBEE",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 99,
-  },
-  amenityText: {
-    color: "#E53935",
+    fontSize: 16,
     fontWeight: "800",
-    fontSize: 12,
+    color: "#0F172A",
+    flex: 1,
+    textAlign: "center",
   },
-  content: {
-    padding: 16,
-    gap: 14,
-    paddingBottom: 120,
-  },
-  section: {
+  scrollContent: {
+    padding: 14,
     gap: 12,
+    paddingBottom: 110,
   },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#212121",
-    letterSpacing: 0.3,
-  },
-  summaryPill: {
-    backgroundColor: "#FAFAFA",
-    borderRadius: 18,
+  sectionCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#EEEEEE",
+    borderColor: "#E2E8F0",
   },
-  summaryText: {
-    fontWeight: "800",
-    color: "#212121",
-    fontSize: 14,
-  },
-  policyCard: {
-    backgroundColor: "#FAFAFA",
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#EEEEEE",
-    gap: 10,
-  },
-  policyText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#757575",
-  },
-  modeRow: {
-    backgroundColor: "#FFEBEE",
-    borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
-    marginTop: 6,
-  },
-  modeLabel: {
-    color: "#E53935",
-    fontWeight: "800",
-  },
-  termsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginTop: 6,
-  },
-  termsText: {
-    fontSize: 13,
-    fontWeight: "750",
-    color: "#212121",
-  },
-  footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 16,
-    backgroundColor: "rgba(255,255,255,0.96)",
-    borderTopWidth: 1,
-    borderColor: "#EEEEEE",
-  },
-  continueBtn: {
-    backgroundColor: "#E53935",
-    borderRadius: 16,
-    minHeight: 52,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#E53935",
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  continueText: {
-    color: "#FFFFFF",
-    fontSize: 16,
+  hotelName: {
+    fontSize: 17,
     fontWeight: "900",
+    color: "#0F172A",
+  },
+  hotelAddress: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  datesText: {
+    fontSize: 12,
+    color: "#EF4444",
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#64748B",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  roomBlockContainer: {
+    gap: 4,
+  },
+  roomBlockTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 4,
+    marginTop: 4,
   },
   couponContainer: {
     flexDirection: "row",
-    gap: 10,
-    backgroundColor: "#FAFAFA",
-    borderRadius: 18,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: "#EEEEEE",
+    gap: 8,
     alignItems: "center",
   },
   couponInput: {
     flex: 1,
+    height: 44,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
     paddingHorizontal: 12,
-    fontSize: 14,
-    color: "#212121",
+    fontSize: 13,
+    color: "#0F172A",
     fontWeight: "700",
   },
-  couponBtnAction: {
-    backgroundColor: "#E53935",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    minWidth: 80,
+  couponBtn: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 16,
+    height: 44,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   couponBtnApplied: {
-    backgroundColor: "#757575",
+    backgroundColor: "#64748B",
   },
   couponBtnText: {
     color: "#FFFFFF",
     fontWeight: "800",
     fontSize: 13,
   },
-  couponMsgText: {
+  couponMsg: {
     fontSize: 12,
-    fontWeight: "750",
-    marginLeft: 6,
-    marginTop: 4,
+    fontWeight: "700",
+    marginTop: 6,
   },
-  couponSuccessText: {
-    color: "#2E7D32",
+  successMsg: {
+    color: "#166534",
   },
-  couponErrorText: {
-    color: "#B71C1C",
+  errorMsg: {
+    color: "#DC2626",
+  },
+  termsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#334155",
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 20,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 340,
+    gap: 8,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: "900",
+    color: "#0F172A",
+  },
+  modalText: {
+    fontSize: 13,
+    color: "#64748B",
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  priceCompareRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginVertical: 8,
+  },
+  oldPriceText: {
+    fontSize: 13,
+    color: "#94A3B8",
+    textDecorationLine: "line-through",
+  },
+  newPriceText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#EF4444",
+  },
+  modalBtn: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+    width: "100%",
+    alignItems: "center",
+  },
+  modalBtnText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderColor: "#E2E8F0",
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  validationHintBanner: {
+    backgroundColor: "#FEF2F2",
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "700",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  footerPriceBox: {
+    flex: 1,
+  },
+  footerPriceLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#64748B",
+  },
+  footerPriceValue: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#EF4444",
+  },
+  bookBtn: {
+    backgroundColor: "#EF4444",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  bookBtnDisabled: {
+    backgroundColor: "#94A3B8",
+  },
+  bookBtnText: {
+    color: "#FFFFFF",
+    fontWeight: "800",
+    fontSize: 14,
   },
 });
