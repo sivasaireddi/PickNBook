@@ -203,7 +203,7 @@ const EditorModal = ({
               <Ionicons
                 name="location"
                 size={22}
-                color="#ef4444"
+                color="#D11A2A"
                 style={styles.locationPin}
               />
 
@@ -493,7 +493,7 @@ export default function RouteHeader({
           onPress={openEditor}
           activeOpacity={0.88}
         >
-          <MaterialIcons name="edit" size={22} color="#ef4444" />
+          <MaterialIcons name="edit" size={22} color="#D11A2A" />
         </TouchableOpacity>
       </View>
 
@@ -548,46 +548,46 @@ const styles = StyleSheet.create({
   wrapper: {
     backgroundColor: "#f7f8fb",
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingTop: 4,
+    paddingBottom: 6,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
   },
   backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 6,
   },
   routeBox: {
     flex: 1,
     backgroundColor: "#f0f0f0",
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   routeText: {
     color: "#111827",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "800",
   },
   routeDate: {
-    marginTop: 2,
+    marginTop: 1,
     color: "#6b7280",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "500",
   },
   editButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 10,
+    marginLeft: 6,
   },
   overlay: {
     flex: 1,
@@ -635,7 +635,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   iconBubbleText: {
-    color: "#dc2626",
+    color: "#D11A2A",
     fontSize: 14,
     fontWeight: "800",
   },
@@ -668,7 +668,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff5f5",
   },
   swapButtonText: {
-    color: "#ef4444",
+    color: "#D11A2A",
     fontSize: 13,
     fontWeight: "700",
   },
@@ -705,7 +705,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   activeDateChip: {
-    backgroundColor: "#eb5a51",
+    backgroundColor: "#D11A2A",
   },
   dateChipNumber: {
     color: "#111827",
@@ -723,7 +723,7 @@ const styles = StyleSheet.create({
   },
   searchButton: {
     marginTop: 22,
-    backgroundColor: "#eb5a51",
+    backgroundColor: "#D11A2A",
     borderRadius: 18,
     paddingVertical: 18,
     alignItems: "center",

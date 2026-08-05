@@ -27,7 +27,20 @@ export default function FlightConfirmationScreen({ route, navigation }) {
   const checkmarkScale = useRef(new Animated.Value(0.3)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
+  const isPending = String(flowState.ticketStatus || "").toLowerCase().includes("pending");
+
   useEffect(() => {
+    console.log("\n==========================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 6: CONFIRMATION]");
+    console.log("[FlightConfirmationScreen] Confirmed Booking Summary:", {
+      bookingId: flowState.bookingId || flowState.bookingReference,
+      pnr: flowState.pnr,
+      status: flowState.ticketStatus,
+      payableAmount: flowState.payableAmount,
+      passengersCount: flowState.passengers?.length,
+    });
+    console.log("==========================================\n");
+
     Animated.parallel([
       Animated.spring(checkmarkScale, {
         toValue: 1,
@@ -56,25 +69,35 @@ export default function FlightConfirmationScreen({ route, navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={[styles.container, width >= 768 && styles.containerWide]}>
           
-          {/* Animated Success Badge */}
+          {/* Animated Success or Pending Badge */}
           <View style={styles.successBadgeWrap}>
             <Animated.View style={[styles.circleBadge, { transform: [{ scale: checkmarkScale }] }]}>
-              <Ionicons name="checkmark-circle" size={80} color="#10B981" />
+              <Ionicons 
+                name={isPending ? "time-outline" : "checkmark-circle"} 
+                size={80} 
+                color={isPending ? "#F59E0B" : "#10B981"} 
+              />
             </Animated.View>
-            <Text style={styles.successHeading}>Booking Confirmed!</Text>
-            <Text style={styles.successSubtext}>Your flight tickets have been reserved successfully.</Text>
+            <Text style={styles.successHeading}>
+              {isPending ? "Ticketing in Progress!" : "Booking Confirmed!"}
+            </Text>
+            <Text style={styles.successSubtext}>
+              {isPending 
+                ? "Your GDS booking reservation is placed. Ticket confirmation is in progress with the airline." 
+                : "Your flight tickets have been reserved successfully."}
+            </Text>
           </View>
 
           {/* Reference block */}
           <Animated.View style={[styles.card, { opacity: opacityAnim }, styles.refCard]}>
             <View style={styles.refCol}>
-              <Text style={styles.refLabel}>BOOKING REF</Text>
-              <Text style={styles.refVal}>{flowState.bookingReference || "FL-87290192"}</Text>
+              <Text style={styles.refLabel}>BOOKING ID / REF</Text>
+              <Text style={styles.refVal}>{flowState.bookingId || flowState.bookingReference || "N/A"}</Text>
             </View>
             <View style={styles.refLine} />
             <View style={styles.refCol}>
               <Text style={styles.refLabel}>AIRLINE PNR</Text>
-              <Text style={styles.refVal}>{flowState.pnr || "PNR-W8R90D"}</Text>
+              <Text style={styles.refVal}>{flowState.pnr || "N/A"}</Text>
             </View>
           </Animated.View>
 
@@ -86,20 +109,20 @@ export default function FlightConfirmationScreen({ route, navigation }) {
             </View>
 
             <View style={styles.itinerarySummary}>
-              <Text style={styles.airline}>{flowState.flight?.airline || "Air India"}</Text>
+              <Text style={styles.airline}>{flowState.flight?.airline || "Airline"}</Text>
               <Text style={styles.flightMeta}>
-                Flight: {flowState.flight?.flightNumber || "AI-802"} • {flowState.selectedTravelClass || "Economy"}
+                Flight: {flowState.flight?.flightNumber || ""} • {flowState.selectedTravelClass || "Economy"}
               </Text>
               
               <View style={styles.citiesRow}>
                 <View>
-                  <Text style={styles.cityName}>{flowState.flight?.fromCity || "Delhi"}</Text>
-                  <Text style={styles.citySub}>{flowState.searchContext?.date || "15 Jul 2026"}</Text>
+                  <Text style={styles.cityName}>{flowState.flight?.fromCity || "Origin"}</Text>
+                  <Text style={styles.citySub}>{flowState.searchContext?.date || ""}</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={18} color={PRIMARY_RED} />
                 <View style={{ alignItems: "flex-end" }}>
-                  <Text style={styles.cityName}>{flowState.flight?.toCity || "Mumbai"}</Text>
-                  <Text style={styles.citySub}>{flowState.searchContext?.date || "15 Jul 2026"}</Text>
+                  <Text style={styles.cityName}>{flowState.flight?.toCity || "Destination"}</Text>
+                  <Text style={styles.citySub}>{flowState.searchContext?.date || ""}</Text>
                 </View>
               </View>
             </View>
@@ -129,7 +152,7 @@ export default function FlightConfirmationScreen({ route, navigation }) {
             <View style={styles.paymentSummaryRow}>
               <Text style={styles.paymentLabel}>Amount Paid</Text>
               <Text style={styles.paymentVal}>
-                {formatCurrency(flowState.payableAmount || 5208)}
+                {formatCurrency(flowState.payableAmount || 0)}
               </Text>
             </View>
           </Animated.View>
@@ -248,39 +271,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    borderBottomWidth: 1,
-    borderColor: "#F3F4F6",
-    paddingBottom: 8,
   },
   cardTitle: {
-    fontSize: 14,
-    fontWeight: "900",
+    fontSize: 15,
+    fontWeight: "800",
     color: TEXT_DARK,
   },
   itinerarySummary: {
-    paddingTop: 4,
-    gap: 4,
+    gap: 8,
   },
   airline: {
-    fontSize: 15,
-    fontWeight: "900",
+    fontSize: 16,
+    fontWeight: "800",
     color: TEXT_DARK,
   },
   flightMeta: {
-    fontSize: 11,
+    fontSize: 12,
     color: TEXT_MUTED,
     fontWeight: "600",
   },
   citiesRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 10,
-    backgroundColor: "#F9FAFB",
+    justifyContent: "space-between",
+    marginTop: 8,
+    backgroundColor: "#F8FAFC",
+    padding: 12,
     borderRadius: 12,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
   },
   cityName: {
     fontSize: 15,
@@ -290,23 +307,22 @@ const styles = StyleSheet.create({
   citySub: {
     fontSize: 11,
     color: TEXT_MUTED,
-    fontWeight: "600",
     marginTop: 2,
   },
   passengerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 2,
+    paddingVertical: 4,
   },
   passengerName: {
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "600",
     color: TEXT_DARK,
   },
   seatNum: {
     fontSize: 12,
-    fontWeight: "900",
+    fontWeight: "700",
     color: PRIMARY_RED,
   },
   paymentSummaryRow: {
@@ -316,12 +332,12 @@ const styles = StyleSheet.create({
   },
   paymentLabel: {
     fontSize: 14,
-    fontWeight: "900",
+    fontWeight: "800",
     color: TEXT_DARK,
   },
   paymentVal: {
-    fontSize: 16,
-    fontWeight: "950",
+    fontSize: 18,
+    fontWeight: "900",
     color: PRIMARY_RED,
   },
   actionsContainer: {
@@ -339,34 +355,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    borderRadius: 12,
     paddingVertical: 12,
+    borderRadius: 12,
   },
   actionBtnOutline: {
-    borderWidth: 1.2,
+    borderWidth: 1,
     borderColor: PRIMARY_RED,
     backgroundColor: WHITE,
   },
   actionBtnOutlineText: {
-    color: PRIMARY_RED,
     fontSize: 13,
-    fontWeight: "800",
+    fontWeight: "700",
+    color: PRIMARY_RED,
   },
   homeBtn: {
     backgroundColor: PRIMARY_RED,
-    borderRadius: 14,
     paddingVertical: 14,
+    borderRadius: 12,
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: PRIMARY_RED,
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
   },
   homeBtnText: {
     color: WHITE,
     fontSize: 15,
-    fontWeight: "900",
+    fontWeight: "800",
   },
 });

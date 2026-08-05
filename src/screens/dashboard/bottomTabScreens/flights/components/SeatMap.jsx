@@ -2,33 +2,42 @@ import React, { memo, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import AircraftBody from "./AircraftBody";
 import Seat from "./Seat";
-import { buildSeatMap } from "../utils/seatMapUtils";
 
-const SeatMap = memo(function SeatMap({ selectedSeats, onSeatPress }) {
-  const seatMap = useMemo(() => buildSeatMap(selectedSeats), [selectedSeats]);
-
+const SeatMap = memo(function SeatMap({ seatMap = [], onSeatPress }) {
   const rows = useMemo(() => {
     const grouped = new Map();
-    seatMap.forEach((seat) => {
+    (seatMap || []).forEach((seat) => {
       if (!grouped.has(seat.row)) grouped.set(seat.row, []);
       grouped.get(seat.row).push(seat);
     });
     return Array.from(grouped.entries()).map(([row, seats]) => ({ row, seats }));
   }, [seatMap]);
 
-  const ColumnHeaders = () => (
-    <View style={styles.columnHeaders}>
-      <View style={styles.headerGroup}>
-        <Text style={styles.columnText}>A</Text>
-        <Text style={styles.columnText}>B</Text>
+  const ColumnHeaders = ({ seats = [] }) => {
+    const half = Math.ceil(seats.length / 2);
+    const leftSeats = seats.slice(0, half);
+    const rightSeats = seats.slice(half);
+
+    return (
+      <View style={styles.columnHeaders}>
+        <View style={styles.headerGroup}>
+          {leftSeats.map((s, i) => (
+            <Text key={i} style={styles.columnText}>{s.seatLetter && s.seatLetter.length === 1 ? s.seatLetter : ""}</Text>
+          ))}
+        </View>
+        <View style={styles.aisleHeaderSpacer} />
+        <View style={styles.headerGroup}>
+          {rightSeats.map((s, i) => (
+            <Text key={i} style={styles.columnText}>{s.seatLetter && s.seatLetter.length === 1 ? s.seatLetter : ""}</Text>
+          ))}
+        </View>
       </View>
-      <View style={styles.aisleHeaderSpacer} />
-      <View style={styles.headerGroup}>
-        <Text style={styles.columnText}>C</Text>
-        <Text style={styles.columnText}>D</Text>
-      </View>
-    </View>
-  );
+    );
+  };
+
+  if (rows.length === 0) {
+    return null;
+  }
 
   return (
     <AircraftBody>
@@ -38,7 +47,7 @@ const SeatMap = memo(function SeatMap({ selectedSeats, onSeatPress }) {
           const isPremiumStart = row === 4;
           const isEconomyStart = row === 8;
 
-          const isExitRowBefore = row === 3 || row === 12 || row === 22;
+          const isExitRowBefore = seats.some((s) => s.isExit);
 
           return (
             <View key={row} style={styles.rowContainer}>
@@ -55,27 +64,27 @@ const SeatMap = memo(function SeatMap({ selectedSeats, onSeatPress }) {
               {isBusinessStart && (
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionHeaderText}>BUSINESS CLASS</Text>
-                  <ColumnHeaders />
+                  <ColumnHeaders seats={seats} />
                 </View>
               )}
               {isPremiumStart && (
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionHeaderText}>PREMIUM ECONOMY</Text>
-                  <ColumnHeaders />
+                  <ColumnHeaders seats={seats} />
                 </View>
               )}
               {isEconomyStart && (
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionHeaderText}>ECONOMY CLASS</Text>
-                  <ColumnHeaders />
+                  <ColumnHeaders seats={seats} />
                 </View>
               )}
 
               {/* Seat Row */}
               <View style={styles.row}>
-                {/* Left Side Seats (A, B) */}
+                {/* Left Side Seats */}
                 <View style={styles.seatGroup}>
-                  {seats.slice(0, 2).map((seat) => (
+                  {seats.slice(0, Math.ceil(seats.length / 2)).map((seat) => (
                     <Seat
                       key={seat.id}
                       seat={seat}
@@ -92,9 +101,9 @@ const SeatMap = memo(function SeatMap({ selectedSeats, onSeatPress }) {
                   </View>
                 </View>
 
-                {/* Right Side Seats (C, D) */}
+                {/* Right Side Seats */}
                 <View style={styles.seatGroup}>
-                  {seats.slice(2, 4).map((seat) => (
+                  {seats.slice(Math.ceil(seats.length / 2)).map((seat) => (
                     <Seat
                       key={seat.id}
                       seat={seat}
@@ -149,33 +158,33 @@ const styles = StyleSheet.create({
   },
   headerGroup: {
     flexDirection: "row",
-    width: 110,
-    justifyContent: "space-around",
+    gap: 4,
+    justifyContent: "space-between",
   },
   columnText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
     color: "#64748B",
-    width: 24,
+    width: 38,
     textAlign: "center",
   },
   aisleHeaderSpacer: {
-    width: 40,
+    width: 28,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   seatGroup: {
     flexDirection: "row",
-    width: 110,
+    gap: 4,
     justifyContent: "space-between",
   },
   aisle: {
-    width: 40,
+    width: 28,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -192,7 +201,7 @@ const styles = StyleSheet.create({
   rowNumberText: {
     fontSize: 10,
     fontWeight: "800",
-    color: "#64748B",
+    color: "#475569",
   },
   exitRowBanner: {
     flexDirection: "row",

@@ -1,80 +1,91 @@
-import { CABIN_ZONES, SEAT_PRICE_BY_TYPE, SEAT_STATUS, SEAT_TYPES, AISLE_AFTER, TOTAL_ROWS, SEATS_PER_ROW } from "../constants/seatMapConstants";
+import { SEAT_STATUS, SEAT_TYPES } from "../constants/seatMapConstants";
 
-export function buildSeatNumber(row, seatIndex) {
-  return `${row}${["A", "B", "C", "D"][seatIndex]}`;
-}
+function extractAllSeatObjects(obj, depth = 0) {
+  if (!obj || depth > 8) return [];
+  let seats = [];
 
-export function getSeatColumnLabel(seatIndex) {
-  return ["A", "B", "C", "D"][seatIndex] || "";
-}
-
-export function getRowZone(row) {
-  return CABIN_ZONES.find((zone) => zone.rows.includes(row)) || CABIN_ZONES[CABIN_ZONES.length - 1];
-}
-
-export function getSeatType(row, seatIndex) {
-  if (row === 1 || row === 2) return SEAT_TYPES.BUSINESS;
-  if (row === 3 || row === 12 || row === 22) return SEAT_TYPES.EXIT_ROW;
-  if (row >= 4 && row <= 7) return SEAT_TYPES.PREMIUM;
-  return SEAT_TYPES.STANDARD;
-}
-
-export function getSeatPrice(row, seatIndex) {
-  const seatType = getSeatType(row, seatIndex);
-  return SEAT_PRICE_BY_TYPE[seatType] || 0;
-}
-
-export function buildSeatMap(seedSelectedLabels = []) {
-  const selectedLookup = new Set(seedSelectedLabels);
-  const seats = [];
-
-  for (let row = 1; row <= TOTAL_ROWS; row += 1) {
-    for (let seatIndex = 0; seatIndex < SEATS_PER_ROW; seatIndex += 1) {
-      const seatNumber = buildSeatNumber(row, seatIndex);
-      const type = getSeatType(row, seatIndex);
-      const price = getSeatPrice(row, seatIndex);
-      const isExit = row === 3 || row === 12 || row === 22;
-      const isWing = row >= 10 && row <= 18;
-      const isBlocked = row === 1 && seatIndex === 1;
-      const isReserved = row === 2 && seatIndex === 3;
-      const isBooked = (row % 4 === 0 && seatIndex === 1) || (row % 6 === 0 && seatIndex === 2) || (row === 5 && seatIndex === 0);
-      const status = isBlocked
-        ? SEAT_STATUS.BLOCKED
-        : isBooked
-          ? SEAT_STATUS.BOOKED
-          : isReserved
-            ? SEAT_STATUS.RESERVED
-            : selectedLookup.has(seatNumber)
-              ? SEAT_STATUS.SELECTED
-              : SEAT_STATUS.AVAILABLE;
-
-      seats.push({
-        id: seatNumber,
-        seatNumber,
-        row,
-        seatLetter: getSeatColumnLabel(seatIndex),
-        seatIndex,
-        price,
-        status,
-        type,
-        isExit,
-        isWing,
-        isWindow: seatIndex === 0 || seatIndex === SEATS_PER_ROW - 1,
-        isAisle: seatIndex === 1 || seatIndex === 2,
-        isMiddle: false,
-        features: {
-          extraLegroom: isExit || type === SEAT_TYPES.BUSINESS,
-          nearExit: isExit,
-          mealIncluded: type === SEAT_TYPES.BUSINESS,
-        },
-      });
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      seats.push(...extractAllSeatObjects(item, depth + 1));
+    }
+  } else if (typeof obj === "object") {
+    if (obj.Code || obj.SeatNo || obj.SeatNumber || obj.Number || (obj.RowNo && obj.Column)) {
+      seats.push(obj);
+    } else {
+      for (const key of Object.keys(obj)) {
+        if (obj[key] && typeof obj[key] === "object") {
+          seats.push(...extractAllSeatObjects(obj[key], depth + 1));
+        }
+      }
     }
   }
-
   return seats;
+}
+
+export function parseSrdvSeatMap(srdvData, seedSelectedLabels = []) {
+  if (!srdvData) return [];
+  const selectedLookup = new Set(seedSelectedLabels);
+
+  const rawSeats = extractAllSeatObjects(srdvData);
+  if (rawSeats.length === 0) return [];
+
+  const seenMap = new Map();
+
+  rawSeats.forEach((s, idx) => {
+    const rawCode = String(s.Code || s.SeatNo || s.SeatNumber || s.Number || "");
+    let cleanSeatNo = rawCode.split("SeKey")[0].split("_")[0].trim();
+    
+    // Extract standard seat format (e.g. 1A, 12C, 24F)
+    const match = rawCode.match(/^(\d{1,3}[A-Z])/i);
+    if (match) {
+      cleanSeatNo = match[1].toUpperCase();
+    }
+    if (!cleanSeatNo || cleanSeatNo.length > 5) {
+      cleanSeatNo = `S${idx + 1}`;
+    }
+
+    const seatNumber = cleanSeatNo;
+    if (seenMap.has(seatNumber)) return;
+
+    let row = Number(s.RowNo || s.Row || seatNumber.replace(/\D/g, "") || 1);
+    let seatLetter = String(s.Column || s.SeatLetter || seatNumber.replace(/\d/g, "") || "A").toUpperCase();
+    if (seatLetter.length > 1) {
+      seatLetter = seatLetter[0];
+    }
+
+    const price = Number(s.Price || s.Amount || s.Fee || 0);
+    const isBooked = Boolean(s.AvailablityType === 0 || s.IsBooked || s.Status === "Booked" || s.Status === 0);
+    const isBlocked = Boolean(s.Status === "Blocked" || s.Status === 2);
+
+    let status = SEAT_STATUS.AVAILABLE;
+    if (isBlocked) status = SEAT_STATUS.BLOCKED;
+    else if (isBooked) status = SEAT_STATUS.BOOKED;
+    else if (selectedLookup.has(seatNumber)) status = SEAT_STATUS.SELECTED;
+
+    const type = price > 800 ? SEAT_TYPES.BUSINESS : price > 300 ? SEAT_TYPES.PREMIUM : SEAT_TYPES.STANDARD;
+
+    seenMap.set(seatNumber, {
+      id: seatNumber,
+      seatNumber,
+      rawCode,
+      rawSeat: s,
+      row,
+      seatLetter,
+      price,
+      status,
+      type,
+      isExit: Boolean(s.IsExitRow || s.IsLegroom),
+      isWindow: ["A", "F"].includes(seatLetter),
+      isAisle: ["C", "D"].includes(seatLetter),
+      features: {
+        extraLegroom: Boolean(s.IsExitRow || s.IsLegroom),
+      },
+    });
+  });
+
+  return Array.from(seenMap.values());
 }
 
 export function formatCurrency(value) {
   return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(Number(value) || 0))}`;
 }
-

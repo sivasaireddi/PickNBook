@@ -87,7 +87,7 @@ async function resolveCityCode(city) {
 /**
  * Search buses via POST /api/BusBookings/search
  */
-export async function searchBuses(params = {}) {
+export async function searchBuses(params = {}, options = {}) {
   try {
     const fromCity = params.fromCityCode ?? params.fromCity ?? params.from;
     const toCity = params.toCityCode ?? params.toCity ?? params.to;
@@ -135,7 +135,7 @@ export async function searchBuses(params = {}) {
       payload,
     });
 
-    const response = await client.post("/api/BusBookings/search", payload);
+    const response = await client.post("/api/BusBookings/search", payload, options);
     console.log("[BusService] searchBuses response status:", response?.status);
     console.log("[BusService] Response:", JSON.stringify(response.data, null, 2));
 

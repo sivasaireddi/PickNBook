@@ -216,7 +216,11 @@ export async function searchHotelOffers(params = {}) {
 
   // If search returns 0 results or error structure
   if (response.data?.error?.errorMessage) {
-    throw new Error(response.data.error.errorMessage);
+    const rawMsg = String(response.data.error.errorMessage);
+    if (response.data.error.errorCode === 100 || rawMsg.includes("Result not found")) {
+      throw new Error("No hotel rooms available for the selected dates/city. Please try selecting future dates (e.g. tomorrow or later).");
+    }
+    throw new Error(rawMsg);
   }
 
   return {
@@ -441,6 +445,7 @@ export async function blockHotelRoom(payload = {}) {
     NoOfRooms: Number(payload.NoOfRooms || payload.noOfRooms || 1),
     ClientReferenceNo: clientRef,
     IsVoucherBooking: Boolean(payload.IsVoucherBooking ?? payload.isVoucherBooking ?? false),
+    CouponCode: String(payload.CouponCode || payload.couponCode || "").trim(),
     HotelRoomsDetails: formattedRooms,
   };
 

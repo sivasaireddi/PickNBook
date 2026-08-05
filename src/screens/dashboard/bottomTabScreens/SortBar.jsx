@@ -1,12 +1,17 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
+  Animated,
+  Platform,
+  ScrollView,
   StyleSheet,
   Text,
-  View,
-  ScrollView,
   TouchableOpacity,
+  View,
 } from "react-native";
 import { ArrowUp, Bus, Clock, Coins, Armchair } from "lucide-react-native";
+
+const BORDER_COLOR = "#F4A3A3";
+const PRIMARY_RED = "#D11A2A";
 
 const SORT_OPTIONS = [
   { id: "departure", label: "Departure", Icon: Bus },
@@ -16,12 +21,87 @@ const SORT_OPTIONS = [
   { id: "seats", label: "Seats Available", Icon: Armchair },
 ];
 
+const SortChip = ({ item, isSelected, direction, handlePress }) => {
+  const scaleAnim = useRef(new Animated.Value(isSelected ? 1.03 : 1)).current;
+
+  useEffect(() => {
+    Animated.timing(scaleAnim, {
+      toValue: isSelected ? 1.03 : 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [isSelected, scaleAnim]);
+
+  const IconComponent = item.Icon;
+
+  return (
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        activeOpacity={0.88}
+        onPress={() => handlePress(item.id)}
+        style={[
+          styles.filterBadge,
+          isSelected ? styles.activeFilterBadge : styles.inactiveFilterBadge,
+        ]}
+      >
+        <IconComponent
+          size={16}
+          color={isSelected ? "#FFFFFF" : PRIMARY_RED}
+          style={styles.icon}
+        />
+
+        <Text
+          style={[
+            styles.filterText,
+            isSelected ? styles.activeFilterText : styles.inactiveFilterText,
+          ]}
+        >
+          {item.label}
+        </Text>
+
+        <ArrowUp
+          size={14}
+          color={isSelected ? "#FFFFFF" : PRIMARY_RED}
+          style={[
+            styles.arrowIcon,
+            isSelected && direction === "desc" && styles.arrowDesc,
+          ]}
+        />
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
 export default function SortBar({
   resultCount = null,
-  value = "arrival",   // Active sorting field
-  direction = "asc",   // 'asc' (First click -> Arrow Up), 'desc' (Second click -> Arrow Down)
-  onChange = () => {}, // Callback: (id, direction) => {}
+  value = "arrival",
+  direction = "asc",
+  onChange = () => {},
 }) {
+  const animOpacity = useRef(new Animated.Value(0)).current;
+  const animTranslateY = useRef(new Animated.Value(12)).current;
+  const animScale = useRef(new Animated.Value(0.98)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(animOpacity, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(animTranslateY, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(animScale, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [animOpacity, animTranslateY, animScale]);
+
   const handlePress = (id) => {
     if (value === id) {
       const nextDirection = direction === "asc" ? "desc" : "asc";
@@ -32,81 +112,69 @@ export default function SortBar({
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.innerContainer}>
-        <View style={styles.sortSection}>
-          <Text style={styles.sortByLabel}>SORT BY:</Text>
+    <View style={styles.wrapper}>
+      <Animated.View
+        style={[
+          styles.outerGlowContainer,
+          {
+            opacity: animOpacity,
+            transform: [{ translateY: animTranslateY }, { scale: animScale }],
+          },
+        ]}
+      >
+        <View style={styles.innerContainer}>
+          <View style={styles.sortSection}>
+            <Text style={styles.sortByLabel}>SORT BY:</Text>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContainer}
-          >
-            {SORT_OPTIONS.map((item) => {
-              const isSelected = value === item.id;
-              const IconComponent = item.Icon;
-
-              return (
-                <TouchableOpacity
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContainer}
+            >
+              {SORT_OPTIONS.map((item) => (
+                <SortChip
                   key={item.id}
-                  activeOpacity={0.8}
-                  onPress={() => handlePress(item.id)}
-                  style={[
-                    styles.filterBadge,
-                    isSelected && styles.activeFilterBadge,
-                  ]}
-                >
-                  <IconComponent
-                    size={16}
-                    color={isSelected ? "#FFFFFF" : "#4A5568"}
-                    style={styles.icon}
-                  />
-
-                  <Text
-                    style={[
-                      styles.filterText,
-                      isSelected && styles.activeFilterText,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-
-                  <ArrowUp
-                    size={14}
-                    color={isSelected ? "#FFFFFF" : "#A0AEC0"}
-                    style={[
-                      styles.arrowIcon,
-                      isSelected && direction === "desc" && styles.arrowDesc,
-                    ]}
-                  />
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+                  item={item}
+                  isSelected={value === item.id}
+                  direction={direction}
+                  handlePress={handlePress}
+                />
+              ))}
+            </ScrollView>
+          </View>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    backgroundColor: "#F7FAFC",
+  wrapper: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: "#F8F9FB",
+  },
+  outerGlowContainer: {
+    borderRadius: 24,
+    shadowColor: PRIMARY_RED,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
   },
   innerContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingVertical: 8,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER_COLOR,
+    paddingVertical: 6,
     paddingHorizontal: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: PRIMARY_RED,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
   },
   sortSection: {
     flex: 1,
@@ -115,39 +183,55 @@ const styles = StyleSheet.create({
   },
   sortByLabel: {
     fontSize: 11,
-    fontWeight: "700",
-    color: "#2D3748",
+    fontWeight: "800",
+    color: "#111827",
     marginRight: 8,
+    letterSpacing: 0.3,
   },
   scrollContainer: {
     alignItems: "center",
-    paddingRight: 16,
+    paddingRight: 4,
   },
   filterBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
+    paddingVertical: 5,
     paddingHorizontal: 10,
-    borderRadius: 20,
+    borderRadius: 28,
     marginRight: 8,
-    backgroundColor: "transparent",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
   },
   activeFilterBadge: {
-    backgroundColor: "#D61A1A",
-    borderColor: "#D61A1A",
+    backgroundColor: PRIMARY_RED,
+    borderColor: PRIMARY_RED,
+    borderWidth: 0,
+    shadowColor: PRIMARY_RED,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  inactiveFilterBadge: {
+    backgroundColor: "#FFFFFF",
+    borderColor: BORDER_COLOR,
+    shadowColor: PRIMARY_RED,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   icon: {
     marginRight: 4,
   },
   filterText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: "#2D3748",
+    fontSize: 12,
   },
   activeFilterText: {
     color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  inactiveFilterText: {
+    color: "#2C2C2C",
     fontWeight: "600",
   },
   arrowIcon: {

@@ -129,7 +129,6 @@ const BusSeats = ({ route }) => {
       <View style={styles.busContainer}>
         {renderRows(sortSeats(upperDeck))}
       </View>
-
     </ScrollView>
   );
 };
@@ -139,6 +138,7 @@ export default BusSeats;
 const styles = StyleSheet.create({
   container: {
     padding: 16,
+    flexGrow: 0,
     backgroundColor: '#f5f5f5',
   },
 
@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 15,
     padding: 12,
-    marginBottom: 20,
+    marginBottom: 12,
   },
 
   row: {

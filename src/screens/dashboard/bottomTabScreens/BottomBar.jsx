@@ -1,36 +1,52 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function BottomBar({ onOpenFilters }) {
   return (
-    <View style={styles.container}>
-      
-      {/* The main container pushes this inner view to the right */}
+    <View style={styles.container} pointerEvents="box-none">
       <TouchableOpacity
         style={styles.filterBtn}
         onPress={onOpenFilters}
+        activeOpacity={0.88}
       >
-        <Text style={{ color: "#fff", fontWeight: "600" }}>Filters</Text>
+        <Ionicons name="options-outline" size={18} color="#FFFFFF" style={styles.icon} />
+        <Text style={styles.filterText}>Filters</Text>
       </TouchableOpacity>
-
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: "row",
-    padding: 10,
-    backgroundColor: "#fff",
-    // Changes 'space-around' to 'flex-end' to push content to the right
-    justifyContent: "flex-end", 
-    alignItems: "center",
+    position: "absolute",
+    bottom: 20,
+    right: 16,
+    zIndex: 99,
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
   },
-
   filterBtn: {
-    backgroundColor: "#E53935",
-    paddingVertical: 12,
-    paddingHorizontal: 20, // Added horizontal padding for a better button shape
-    borderRadius: 10,
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#D11A2A",
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    shadowColor: "#D11A2A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  icon: {
+    marginRight: 6,
+  },
+  filterText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
 });

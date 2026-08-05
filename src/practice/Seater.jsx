@@ -672,7 +672,8 @@ const Seater = ({ navigation, route }) => {
           contentContainerStyle={[
             styles.scrollContent,
             {
-              paddingBottom: insets.bottom + 132,
+              paddingBottom: 16,
+              flexGrow: 0,
             },
           ]}
         >

@@ -19,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Circle, Rect, G } from "react-native-svg";
 import FeaturedOffers from "./FeaturedOffers";
 import { searchCities } from "../../../services/busService";
+import RedDatePickerModal from "../../../components/RedDatePickerModal";
 
 const COLORS = {
   background: "#F8F9FC",
@@ -30,9 +31,9 @@ const COLORS = {
   textSecondary: "#6B7280",
   textMuted: "#9CA3AF",
   icon: "#64748B",
-  primary: "#E53935",
-  primaryLight: "#FF6B6B",
-  primaryGradient: ["#E53935", "#FF6B6B"],
+  primary: "#D11A2A",
+  primaryLight: "#B91C1C",
+  primaryGradient: ["#D11A2A", "#B91C1C"],
   shadow: "#0F172A",
 };
 
@@ -181,7 +182,6 @@ export default function BusBookingSection({ navigation }) {
   const [destination, setDestination] = useState({ cityId: "", cityName: "", stateName: "" });
   const [date, setDate] = useState(new Date());
   const [passengersCount, setPassengersCount] = useState(1);
-  const [showPassengersModal, setShowPassengersModal] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [fromPlaces, setFromPlaces] = useState([]);
   const [toPlaces, setToPlaces] = useState([]);
@@ -423,10 +423,10 @@ export default function BusBookingSection({ navigation }) {
                 {/* Bus graphic on the road */}
                 <G transform="translate(255, 134) scale(0.65)">
                   <Rect x="0" y="10" width="72" height="32" rx="6" fill="#FFFFFF" opacity="0.9" />
-                  <Rect x="8" y="16" width="12" height="10" rx="2" fill="#E53935" />
-                  <Rect x="24" y="16" width="12" height="10" rx="2" fill="#E53935" />
-                  <Rect x="40" y="16" width="12" height="10" rx="2" fill="#E53935" />
-                  <Rect x="56" y="16" width="8" height="10" rx="2" fill="#E53935" />
+                  <Rect x="8" y="16" width="12" height="10" rx="2" fill="#D11A2A" />
+                  <Rect x="24" y="16" width="12" height="10" rx="2" fill="#D11A2A" />
+                  <Rect x="40" y="16" width="12" height="10" rx="2" fill="#D11A2A" />
+                  <Rect x="56" y="16" width="8" height="10" rx="2" fill="#D11A2A" />
                   <Circle cx="16" cy="42" r="6" fill="#1F2937" />
                   <Circle cx="56" cy="42" r="6" fill="#1F2937" />
                 </G>
@@ -437,7 +437,7 @@ export default function BusBookingSection({ navigation }) {
             <View style={styles.topBar}>
               <View style={styles.brandRow}>
                 <View style={styles.logoBadge}>
-                  <Ionicons name="bus-outline" size={20} color="#E53935" />
+                  <Ionicons name="bus-outline" size={20} color="#D11A2A" />
                 </View>
                 <View>
                   <Text style={styles.brandTitle}>PickNBook</Text>
@@ -562,31 +562,17 @@ export default function BusBookingSection({ navigation }) {
                 <Ionicons name="calendar" size={18} color={COLORS.primary} />
               </View>
             }
-            showBorderBottom={true}
-          />
-          {showPicker && (
-            <DateTimePicker
-              value={date}
-              mode="date"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              minimumDate={new Date()}
-              onChange={onChangeDate}
-            />
-          )}
-
-          {/* PASSENGERS FIELD */}
-          <TravelField
-            label="PASSENGERS"
-            icon="person-outline"
-            value={`${passengersCount} ${passengersCount === 1 ? "Passenger" : "Passengers"}`}
-            placeholder="Select count"
-            onPress={() => {
-              setShowFromSuggestions(false);
-              setShowToSuggestions(false);
-              setShowPassengersModal(true);
-            }}
-            rightAdornment={<Ionicons name="chevron-down" size={18} color={COLORS.textSecondary} />}
             showBorderBottom={false}
+          />
+          <RedDatePickerModal
+            visible={showPicker}
+            value={date}
+            minimumDate={new Date()}
+            onConfirm={(selectedDate) => {
+              setDate(selectedDate);
+              setShowPicker(false);
+            }}
+            onCancel={() => setShowPicker(false)}
           />
 
           {/* SEARCH BUTTON */}
@@ -652,52 +638,13 @@ export default function BusBookingSection({ navigation }) {
           <FeaturedOffers />
         </View>
       </ScrollView>
-
-      {/* PASSENGERS COUNT MODAL */}
-      <Modal
-        visible={showPassengersModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPassengersModal(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowPassengersModal(false)}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Passengers</Text>
-            <View style={styles.passengerOptionsRow}>
-              {[1, 2, 3, 4, 5, 6].map((num) => (
-                <Pressable
-                  key={num}
-                  onPress={() => {
-                    setPassengersCount(num);
-                    setShowPassengersModal(false);
-                  }}
-                  style={({ pressed }) => [
-                    styles.passengerPill,
-                    passengersCount === num && styles.passengerPillActive,
-                    pressed && { opacity: 0.8 },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.passengerPillText,
-                      passengersCount === num && styles.passengerPillTextActive,
-                    ]}
-                  >
-                    {num}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  contentContainer: { paddingBottom: 110 },
+  contentContainer: { paddingBottom: 20, flexGrow: 0 },
   
   heroContainer: {
     width: "100%",
@@ -974,6 +921,7 @@ const styles = StyleSheet.create({
   featuredOffersWrap: {
     marginTop: SPACING.sectionGap,
     paddingHorizontal: SPACING.screen,
+    marginBottom: 0,
   },
 
   modalOverlay: {

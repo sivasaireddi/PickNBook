@@ -1,19 +1,19 @@
 import axios from "axios";
 import Constants from "expo-constants";
-import { AUTH_API_BASE_URL } from "./authService";
 import { getStoredAuthToken } from "../utils/authSession";
 
 const runtimeEnv = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
 export const FLIGHT_API_BASE_URL =
   process.env.EXPO_PUBLIC_FLIGHT_API_BASE_URL ||
   runtimeEnv.FLIGHT_API_BASE_URL ||
-  "https://humiliate-eatery-humvee.ngrok-free.dev";
+  "https://paycheck-baton-overfull.ngrok-free.dev";
 
 const client = axios.create({
   baseURL: FLIGHT_API_BASE_URL,
-  timeout: 120000, // 2 minutes timeout to prevent ECONNABORTED for slow responses
+  timeout: 120000, // 2 minutes timeout
   headers: {
     Accept: "application/json",
+    "Content-Type": "application/json",
     "ngrok-skip-browser-warning": "true",
   },
 });
@@ -34,75 +34,46 @@ client.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-const cityNameMap = {
-  DEL: "Delhi",
-  BOM: "Mumbai",
-  BLR: "Bengaluru",
-  MAA: "Chennai",
-  HYD: "Hyderabad",
-  CCU: "Kolkata",
-  PNQ: "Pune",
-  AMD: "Ahmedabad",
-  JAI: "Jaipur",
-  COK: "Kochi",
-};
-
-function toCityCode(value) {
-  const text = String(value || "").trim().toLowerCase();
-  if (!text) return "";
-  if (text.length === 3) {
-    return text.toUpperCase();
-  }
-  const entry = Object.entries(cityNameMap).find(
-    ([code, name]) => name.toLowerCase() === text
-  );
-  if (entry) {
-    return entry[0].toUpperCase();
-  }
-  const fallbackMap = {
-    hyderabad: "HYD",
-    mumbai: "BOM",
-    delhi: "DEL",
-    bengaluru: "BLR",
-    chennai: "MAA",
-    kolkata: "CCU",
-    pune: "PNQ",
-    ahmedabad: "AMD",
-    jaipur: "JAI",
-    kochi: "COK",
+function getCityCode(val) {
+  const clean = String(val || "").trim().toUpperCase();
+  if (!clean) return "DEL";
+  if (clean.length === 3) return clean;
+  const map = {
+    DELHI: "DEL",
+    MUMBAI: "BOM",
+    BENGALURU: "BLR",
+    BANGALORE: "BLR",
+    CHENNAI: "MAA",
+    HYDERABAD: "HYD",
+    KOLKATA: "CCU",
+    PUNE: "PNQ",
+    AHMEDABAD: "AMD",
+    JAIPUR: "JAI",
+    KOCHI: "COK",
+    GOA: "GOI",
+    VIJAYAWADA: "VGA",
+    VISAKHAPATNAM: "VTZ",
   };
-  return (fallbackMap[text] || text.slice(0, 3)).toUpperCase();
-}
-
-function toCabinClassCode(cabinClassStr) {
-  const text = String(cabinClassStr || "").trim().toLowerCase();
-  if (text.includes("economy")) {
-    if (text.includes("premium")) return 2;
-    return 1;
-  }
-  if (text.includes("business")) {
-    if (text.includes("premium")) return 3;
-    return 3;
-  }
-  if (text.includes("first")) {
-    return 4;
-  }
-  return 1;
+  return map[clean] || clean.slice(0, 3);
 }
 
 function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
   let rawItems = [];
-  if (Array.isArray(data?.Results?.[0])) {
-    rawItems = data.Results[0];
-  } else if (Array.isArray(data?.results?.[0])) {
-    rawItems = data.results[0];
-  } else if (Array.isArray(data?.Results)) {
-    rawItems = data.Results;
-  } else if (Array.isArray(data)) {
-    rawItems = data;
+  const resObj = data?.Response || data?.data?.Response || data;
+
+  if (Array.isArray(resObj?.Results?.[0])) {
+    rawItems = resObj.Results[0];
+  } else if (Array.isArray(resObj?.results?.[0])) {
+    rawItems = resObj.results[0];
+  } else if (Array.isArray(resObj?.Results)) {
+    rawItems = resObj.Results;
+  } else if (Array.isArray(resObj?.results)) {
+    rawItems = resObj.results;
+  } else if (Array.isArray(resObj)) {
+    rawItems = resObj;
   }
 
-  const traceId = String(data?.TraceId || data?.traceId || "");
+  const traceId = String(resObj?.TraceId || resObj?.traceId || data?.TraceId || data?.traceId || "");
 
   return rawItems.map((item, idx) => {
     const segment = item?.Segments?.[0]?.[0] || item?.Segments?.[0] || item?.segment || {};
@@ -154,20 +125,32 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
       item?.OfferedFare ||
       item?.offeredFare ||
       item?.displayFare ||
-      1589
+      0
     );
 
-    const baseFare = Number(fareObj?.BaseFare || offeredFare * 0.85);
-    const tax = Number(fareObj?.Tax || offeredFare - baseFare);
+    const baseFare = Number(fareObj?.BaseFare || item?.baseFare || offeredFare);
+    const tax = Number(fareObj?.Tax || item?.tax || 0);
 
-    const resultIndex = fareData?.ResultIndex || item?.ResultIndex || item?.resultIndex || "";
+    const resultIndex = fareData?.ResultIndex || item?.ResultIndex || item?.resultIndex || String(idx + 1);
     const srdvIndex = fareData?.SrdvIndex || item?.SrdvIndex || "2";
+    const srdvType = fareData?.SrdvType || item?.SrdvType || "MixAPI";
+
+    const isLCC = Boolean(
+      fareData?.IsLCC !== undefined 
+        ? fareData.IsLCC 
+        : item?.IsLCC !== undefined 
+          ? item.IsLCC 
+          : item?.isLCC !== undefined 
+            ? item.isLCC 
+            : ["6E", "SG", "I5", "QP", "G8"].includes(airlineCode.toUpperCase())
+    );
 
     return {
       ...item,
       id: String(item?.Id || item?.id || resultIndex || `flight-${idx + 1}`),
       resultIndex,
       srdvIndex,
+      srdvType,
       traceId,
       airline: airlineName,
       airlineName,
@@ -188,30 +171,58 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
       fromCity,
       to: toCode,
       toCity,
-      isLCC: Boolean(fareData?.IsLCC),
-      isRefundable: Boolean(fareData?.IsRefundable),
+      isLCC,
+      isRefundable: Boolean(fareData?.IsRefundable ?? item?.IsRefundable),
       selectedTravelClass: fareSegment?.CabinClassName || searchParams.travelClass || "Economy",
-      selectedTravelClassAvailableSeats: Number(fareSegment?.NoOfSeatAvailable || 9),
-      seats: Number(fareSegment?.NoOfSeatAvailable || 9),
+      selectedTravelClassAvailableSeats: Number(fareSegment?.NoOfSeatAvailable || item?.seats || 9),
+      seats: Number(fareSegment?.NoOfSeatAvailable || item?.seats || 9),
     };
   });
 }
 
+function toCabinClassCode(cabinClassStr) {
+  const text = String(cabinClassStr || "").trim().toLowerCase();
+  if (text.includes("premium") && text.includes("economy")) return 3;
+  if (text.includes("economy")) return 2;
+  if (text.includes("premium") && text.includes("business")) return 5;
+  if (text.includes("business")) return 4;
+  if (text.includes("first")) return 6;
+  return 1; // 1 = All
+}
+
+// 1. Search Flights: POST /api/flight/srdv/Search
 export async function searchFlights(searchParams) {
-  let fromCode = "";
-  let toCode = "";
-  let journeyDate = "";
-  let payload = {};
+  const fromCode = getCityCode(searchParams.from);
+  const toCode = getCityCode(searchParams.to);
+  const journeyDate = searchParams.date || new Date().toISOString().slice(0, 10);
+  const tripTypeStr = String(searchParams.tripType || "").toLowerCase();
+  
+  let journeyType = 1;
+  if (tripTypeStr === "roundtrip" || tripTypeStr === "twoway" || searchParams.journeyType === 2) {
+    journeyType = 2;
+  } else if (tripTypeStr === "multicity" || searchParams.journeyType === 3) {
+    journeyType = 3;
+  }
 
-  try {
-    fromCode = toCityCode(searchParams.from || "DEL");
-    toCode = toCityCode(searchParams.to || "BOM");
-    journeyDate = searchParams.date || "2026-10-15";
+  const cabinClassCode = toCabinClassCode(searchParams.travelClass);
 
-    const isRoundTrip = String(searchParams.tripType).toLowerCase() === "roundtrip";
-    const cabinClassCode = toCabinClassCode(searchParams.travelClass);
+  let segments = [];
 
-    const segments = [
+  if (journeyType === 3 && Array.isArray(searchParams.segments) && searchParams.segments.length > 0) {
+    segments = searchParams.segments.map((seg) => {
+      const segFrom = getCityCode(seg.origin || seg.from);
+      const segTo = getCityCode(seg.destination || seg.to);
+      const segDate = seg.date || seg.departureDate || journeyDate;
+      return {
+        Origin: segFrom,
+        Destination: segTo,
+        FlightCabinClass: cabinClassCode,
+        PreferredDepartureTime: `${segDate}T00:00:00`,
+        PreferredArrivalTime: `${segDate}T00:00:00`,
+      };
+    });
+  } else {
+    segments = [
       {
         Origin: fromCode,
         Destination: toCode,
@@ -221,7 +232,7 @@ export async function searchFlights(searchParams) {
       },
     ];
 
-    if (isRoundTrip && searchParams.returnDate) {
+    if (journeyType === 2 && searchParams.returnDate) {
       segments.push({
         Origin: toCode,
         Destination: fromCode,
@@ -230,320 +241,73 @@ export async function searchFlights(searchParams) {
         PreferredArrivalTime: `${searchParams.returnDate}T00:00:00`,
       });
     }
+  }
 
-    payload = {
-      EndUserIp: "127.0.0.1",
-      ClientId: "180170",
-      UserName: "PickNBk6",
-      Password: "PickNB@486",
-      ApiToken: "PickNB@486#170$",
-      AdultCount: Number(searchParams.adults !== undefined ? searchParams.adults : 1),
-      ChildCount: Number(searchParams.children !== undefined ? searchParams.children : 0),
-      InfantCount: Number(searchParams.infants !== undefined ? searchParams.infants : 0),
-      JourneyType: isRoundTrip ? 2 : 1,
-      DirectFlight: false,
-      OneStopFlight: false,
-      PreferredAirlines: null,
-      Segments: segments,
-    };
+  const payload = {
+    EndUserIp: searchParams.endUserIp || "192.168.1.1",
+    ClientId: "180170",
+    UserName: "PickNBk6",
+    Password: "PickNB@486",
+    AdultCount: Number(searchParams.adults !== undefined ? searchParams.adults : 1),
+    ChildCount: Number(searchParams.children !== undefined ? searchParams.children : 0),
+    InfantCount: Number(searchParams.infants !== undefined ? searchParams.infants : 0),
+    JourneyType: journeyType,
+    // CRITICAL: For multi-city bookings (JourneyType 3), DO NOT send DirectFlight tag
+    ...(journeyType !== 3 ? { DirectFlight: Boolean(searchParams.directFlight ?? false) } : {}),
+    Segments: segments,
+  };
 
-    console.log("[FlightService] searchFlights calling API via Axios", {
-      baseURL: FLIGHT_API_BASE_URL,
-      url: `${FLIGHT_API_BASE_URL}/api/FlightBookings/Search`,
-      payload,
-    });
-
-    const response = await client.post("/api/FlightBookings/Search", payload);
+  console.log("[FlightService] searchFlights requesting /api/flight/srdv/Search:", JSON.stringify(payload, null, 2));
+  try {
+    const response = await client.post("/api/flight/srdv/Search", payload);
     console.log("[FlightService] searchFlights response status:", response?.status);
-    console.log("[FlightService] searchFlights result data:", JSON.stringify(response?.data, null, 2));
+    console.log("[FlightService] searchFlights raw data snippet:", JSON.stringify(response?.data).slice(0, 400));
+
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
 
     return mapFlightResults(response.data, fromCode, toCode, searchParams);
   } catch (error) {
-    console.log("--- AXIOS ERROR DIAGNOSTICS ---");
-    console.log("MESSAGE:", error?.message);
-    console.log("CODE:", error?.code);
-    console.log("CONFIG:", JSON.stringify(error?.config));
-    console.log("REQUEST:", error?.request ? "[Request Present]" : "[No Request]");
-    console.log("RESPONSE:", error?.response ? JSON.stringify(error.response.data) : "[No Response]");
-    console.log("--------------------------------");
-
-    console.log("[FlightService] Attempting fallback request using native fetch...");
-    try {
-      const token = await getStoredAuthToken();
-      const headers = {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "ngrok-skip-browser-warning": "true",
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
-      const fetchUrl = `${FLIGHT_API_BASE_URL}/api/FlightBookings/Search`;
-      console.log("[FlightService] Fetch fallback URL:", fetchUrl);
-      const fetchResponse = await fetch(fetchUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      if (!fetchResponse.ok) {
-        throw new Error(`Fetch fallback failed with status ${fetchResponse.status}`);
-      }
-
-      const json = await fetchResponse.json();
-      console.log("[FlightService] Fetch fallback succeeded!");
-      return mapFlightResults(json, fromCode, toCode, searchParams);
-    } catch (fetchError) {
-      console.error("[FlightService] Fetch fallback also failed:", fetchError?.message);
-      throw error;
-    }
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] searchFlights failed:", msg);
+    throw new Error(msg);
   }
 }
 
-export async function getPlaces() {
-  console.log("========== [API REQUEST] getPlaces ==========");
-  console.log("URL: /api/places");
-  console.log("Params: { tripType: 'flight' }");
-  try {
-    const response = await client.get("/api/places", {
-      params: { tripType: "flight" },
-    });
-    console.log("========== [API RESPONSE] getPlaces ==========");
-    console.log("Status:", response?.status);
-    console.log("Data count:", response?.data?.length);
-    return response.data;
-  } catch (error) {
-    console.error("========== [API ERROR] getPlaces ==========");
-    console.error(error.message);
-    throw error;
-  }
-}
-
-export async function getHotRoutes() {
-  console.log("========== [API REQUEST] getHotRoutes ==========");
-  console.log("URL: /api/FlightBookings/hot-routes");
-  try {
-    const response = await client.get("/api/FlightBookings/hot-routes");
-    console.log("========== [API RESPONSE] getHotRoutes ==========");
-    console.log("Status:", response?.status);
-    console.log("Data:", JSON.stringify(response?.data, null, 2));
-    return response.data;
-  } catch (error) {
-    console.warn("Hot routes API failed, using fallback mock routes.", error.message);
-    return [
-      { id: "hr-1", from: "DEL", to: "BOM", title: "Delhi to Mumbai", fare: 5208, image: "https://images.unsplash.com/photo-1564507592333-c60657eea523?w=400&q=80" },
-      { id: "hr-2", from: "BLR", to: "DEL", title: "Bengaluru to Delhi", fare: 6410, image: "https://images.unsplash.com/photo-1596176530529-78163a4f7af2?w=400&q=80" },
-      { id: "hr-3", from: "BOM", to: "BLR", title: "Mumbai to Bengaluru", fare: 4890, image: "https://images.unsplash.com/photo-1582510003544-4d00b7f74220?w=400&q=80" }
-    ];
-  }
-}
-
-export async function getFeaturedOffers() {
-  console.log("========== [API REQUEST] getFeaturedOffers ==========");
-  console.log("URL: /api/FeaturedOffers");
-  try {
-    const response = await client.get("/api/FeaturedOffers");
-    console.log("========== [API RESPONSE] getFeaturedOffers ==========");
-    console.log("Status:", response?.status);
-    console.log("Data:", JSON.stringify(response?.data, null, 2));
-    return response.data;
-  } catch (error) {
-    console.warn("Featured offers API failed, using fallback offers.", error.message);
-    return [
-      { id: "fo-1", title: "Domestic Flights Sale", code: "FLYDOM", discount: "Flat 10% Off", desc: "Get up to ₹1,500 off on all major domestic carriers." },
-      { id: "fo-2", title: "Zero Convenience Fee", code: "NOFEES", discount: "₹0 Fees", desc: "No convenience fee on payments done via UPI." },
-      { id: "fo-3", title: "Vistara Special Deals", code: "VIS15", discount: "Save ₹1,000", desc: "Exclusive flat discounts on Business and First class Vistara seats." }
-    ];
-  }
-}
-
-export async function bookFlight(flightId, payload) {
-  console.log("========== [API REQUEST] bookFlight ==========");
-  console.log(`URL: /api/FlightBookings/${flightId}/book`);
-  console.log("Payload:", JSON.stringify(payload, null, 2));
-  try {
-    const response = await client.post(`/api/FlightBookings/${flightId}/book`, payload);
-    console.log("========== [API RESPONSE] bookFlight ==========");
-    console.log("Status:", response?.status);
-    console.log("Data:", JSON.stringify(response?.data, null, 2));
-    return response.data;
-  } catch (error) {
-    console.error("========== [API ERROR] bookFlight ==========");
-    console.error(error.message);
-    throw error;
-  }
-}
-
-export async function getFlightSeatMap(flightId) {
-  console.log("========== [API REQUEST] getFlightSeatMap ==========");
-  console.log(`URL: /api/FlightBookings/${flightId}/seats`);
-  try {
-    const response = await client.get(`/api/FlightBookings/${flightId}/seats`);
-    console.log("========== [API RESPONSE] getFlightSeatMap ==========");
-    console.log("Status:", response?.status);
-    console.log("Data count:", response?.data?.length);
-    return response.data;
-  } catch (error) {
-    console.warn("Seat map API failed, returning mock map.", error.message);
-    return null;
-  }
-}
-
-export async function cancelFlightBooking(bookingId, passengersList = []) {
-  const payload = passengersList.length > 0 ? { passengers: passengersList } : {};
-  const url = passengersList.length > 0 
-    ? `/api/FlightBookings/bookings/${bookingId}/cancel-passengers`
-    : `/api/FlightBookings/bookings/${bookingId}/cancel`;
-
-  console.log("========== [API REQUEST] cancelFlightBooking ==========");
-  console.log(`URL: ${url}`);
-  console.log("Payload:", JSON.stringify(payload, null, 2));
-  try {
-    const response = await client.post(url, payload);
-    console.log("========== [API RESPONSE] cancelFlightBooking ==========");
-    console.log("Status:", response?.status);
-    console.log("Data:", JSON.stringify(response?.data, null, 2));
-    return response.data;
-  } catch (error) {
-    console.error("========== [API ERROR] cancelFlightBooking ==========");
-    console.error(error.message);
-    throw error;
-  }
-}
-
-export async function getFlightFareRule(params = {}) {
-  const payload = {
-    EndUserIp: "127.0.0.1",
-    ClientId: "180170",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
-    ApiToken: "PickNB@486#170$",
-    TraceId: String(params.traceId || params.TraceId || ""),
-    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
-    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
-    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
-  };
-
-  console.log(`[FlightService] getFlightFareRule calling POST to ${FLIGHT_API_BASE_URL}/api/FlightBookings/FareRule`);
-  console.log("[FlightService] FareRule payload:", JSON.stringify(payload, null, 2));
-
-  try {
-    const response = await client.post("/api/FlightBookings/FareRule", payload);
-    console.log("[FlightService] FareRule API response status:", response?.status);
-    console.log("[FlightService] FareRule API response data:", JSON.stringify(response?.data, null, 2));
-    return response.data;
-  } catch (error) {
-    console.warn("[FlightService] FareRule API request failed via Axios:", error?.message);
-    try {
-      const token = await getStoredAuthToken();
-      const headers = {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "ngrok-skip-browser-warning": "true",
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      const fetchUrl = `${FLIGHT_API_BASE_URL}/api/FlightBookings/FareRule`;
-      console.log("[FlightService] FareRule native fetch fallback URL:", fetchUrl);
-      const fetchResponse = await fetch(fetchUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      if (!fetchResponse.ok) {
-        throw new Error(`Fetch fallback failed with status ${fetchResponse.status}`);
-      }
-      const json = await fetchResponse.json();
-      return json;
-    } catch (fallbackError) {
-      console.warn("FareRule API fallback failed, returning default rule response.", fallbackError?.message);
-      return {
-        Error: { ErrorCode: 0, ErrorMessage: "" },
-        SrdvType: payload.SrdvType,
-        ResultIndex: payload.ResultIndex,
-        TraceId: payload.TraceId,
-        SpecialRule: "",
-        Results: [],
-      };
-    }
-  }
-}
-
-export function getFareRule(params) {
-  return getFlightFareRule(params);
-}
-
+// 2. Fare Quote: POST /api/flight/srdv/FareQuote
 export async function getFlightFareQuote(params = {}) {
   const payload = {
-    EndUserIp: "127.0.0.1",
+    EndUserIp: params.endUserIp || "192.168.1.1",
     ClientId: "180170",
     UserName: "PickNBk6",
     Password: "PickNB@486",
-    ApiToken: "PickNB@486#170$",
     TraceId: String(params.traceId || params.TraceId || ""),
+    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
     SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
     SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
-    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
+    ...(params.couponCode || params.CouponCode ? { CouponCode: String(params.couponCode || params.CouponCode) } : {}),
   };
 
-  console.log(`[FlightService] getFlightFareQuote calling POST to ${FLIGHT_API_BASE_URL}/api/FlightBookings/FareQuote`);
-  console.log("[FlightService] FareQuote payload:", JSON.stringify(payload, null, 2));
-
+  console.log("[FlightService] getFlightFareQuote requesting /api/flight/srdv/FareQuote:", payload);
   try {
-    const response = await client.post("/api/FlightBookings/FareQuote", payload);
-    console.log("[FlightService] FareQuote API response status:", response?.status);
-    console.log("[FlightService] FareQuote API response data:", JSON.stringify(response?.data, null, 2));
+    const response = await client.post("/api/flight/srdv/FareQuote", payload);
+    console.log("[FlightService] FareQuote response status:", response?.status);
+    console.log("[FlightService] FareQuote raw response snippet:", JSON.stringify(response?.data).slice(0, 400));
+    
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+
     return response.data;
   } catch (error) {
-    console.warn("[FlightService] FareQuote API request failed via Axios:", error?.message);
-    try {
-      const token = await getStoredAuthToken();
-      const headers = {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "ngrok-skip-browser-warning": "true",
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      const fetchUrl = `${FLIGHT_API_BASE_URL}/api/FlightBookings/FareQuote`;
-      console.log("[FlightService] FareQuote native fetch fallback URL:", fetchUrl);
-      const fetchResponse = await fetch(fetchUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      if (!fetchResponse.ok) {
-        throw new Error(`Fetch fallback failed with status ${fetchResponse.status}`);
-      }
-      const json = await fetchResponse.json();
-      return json;
-    } catch (fallbackError) {
-      console.warn("FareQuote API fallback failed, returning mock quote response.", fallbackError?.message);
-      return {
-        Error: { ErrorCode: 0, ErrorMessage: "" },
-        TraceId: payload.TraceId,
-        SrdvType: payload.SrdvType,
-        IsPriceChanged: false,
-        Results: {
-          SrdvIndex: payload.SrdvIndex,
-          ResultIndex: payload.ResultIndex,
-          IsLCC: true,
-          IsRefundable: false,
-          Fare: {
-            Currency: "INR",
-            BaseFare: params.price ? params.price * 0.85 : 1500,
-            Tax: params.price ? params.price * 0.15 : 88.5,
-            OfferedFare: params.price || 1589,
-            PublishedFare: params.price || 1588.5,
-          },
-        },
-      };
-    }
+    console.error("[FlightService] FareQuote API request failed:", error?.message);
+    throw error;
   }
 }
 
@@ -551,17 +315,397 @@ export function getFareQuote(params) {
   return getFlightFareQuote(params);
 }
 
-export default { 
-  searchFlights, 
-  getPlaces, 
-  getHotRoutes, 
-  getFeaturedOffers, 
-  bookFlight, 
-  getFlightSeatMap, 
-  cancelFlightBooking,
+export async function getFlightFareRule(params = {}) {
+  const payload = {
+    EndUserIp: params.endUserIp || "192.168.1.1",
+    ClientId: "180170",
+    UserName: "PickNBk6",
+    Password: "PickNB@486",
+    ApiToken: "PickNB@486#170$",
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+    TraceId: String(params.traceId || params.TraceId || ""),
+    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
+  };
+
+  console.log("[FlightService] getFlightFareRule requesting /api/flight/srdv/FareRule:", JSON.stringify(payload, null, 2));
+  try {
+    const response = await client.post("/api/flight/srdv/FareRule", payload);
+    console.log("[FlightService] getFlightFareRule response status:", response?.status);
+    console.log("\n==========================================");
+    console.log("📋 [FLIGHT SERVICE - FARE RULE RESPONSE DATA]:");
+    console.log(JSON.stringify(response?.data, null, 2));
+    console.log("==========================================\n");
+
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] FareRule API request failed:", msg);
+    throw new Error(msg);
+  }
+}
+
+export function getFareRule(params) {
+  return getFlightFareRule(params);
+}
+
+// 4. SSR (Extra Baggage / Meals): POST /api/flight/srdv/SSR
+export async function getFlightSSR(params = {}) {
+  const payload = {
+    EndUserIp: "127.0.0.1",
+    TraceId: String(params.traceId || params.TraceId || ""),
+    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+  };
+
+  console.log("[FlightService] getFlightSSR requesting /api/flight/srdv/SSR payload:", JSON.stringify(payload, null, 2));
+  try {
+    const response = await client.post("/api/flight/srdv/SSR", payload);
+    console.log("[FlightService] getFlightSSR response status:", response?.status);
+    console.log("[FlightService] getFlightSSR raw response data:", JSON.stringify(response?.data, null, 2));
+
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] getFlightSSR request failed:", msg, errData ? JSON.stringify(errData) : "");
+    throw new Error(msg);
+  }
+}
+
+// 5. Seat Map: POST /api/flight/srdv/SeatMap
+export async function getFlightSeatMap(params = {}) {
+  const payload = {
+    TraceId: String(params.traceId || params.TraceId || ""),
+    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+  };
+
+  console.log("[FlightService] getFlightSeatMap requesting /api/flight/srdv/SeatMap:", payload);
+  try {
+    const response = await client.post("/api/flight/srdv/SeatMap", payload);
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    console.error("[FlightService] SeatMap API request failed:", error?.message);
+    throw error;
+  }
+}
+
+// 6. Ticket LCC: POST /api/flight/srdv/TicketLCC (auth required)
+export async function ticketLCC(params = {}) {
+  const innerPayload = {
+    EndUserIp: params.endUserIp || "192.168.1.1",
+    ClientId: "180170",
+    UserName: "PickNBk6",
+    Password: "PickNB@486",
+    TraceId: String(params.traceId || params.TraceId || ""),
+    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+    ...(params.couponCode || params.CouponCode ? { CouponCode: String(params.couponCode || params.CouponCode) } : {}),
+    Passengers: (params.passengers || params.Passengers || []).map((p) => {
+      const nat = String(p.Nationality || "IN");
+      const natCode = nat.toLowerCase().includes("india") ? "IN" : nat.slice(0, 2).toUpperCase();
+      const cnt = String(p.CountryCode || "IN");
+      const countryCode = cnt.toLowerCase().includes("india") ? "IN" : cnt.slice(0, 2).toUpperCase();
+      return {
+        ...p,
+        Gender: String(p.Gender !== undefined ? p.Gender : "1"),
+        Nationality: natCode,
+        CountryCode: countryCode,
+      };
+    }),
+  };
+
+  const payload = {
+    ...innerPayload,
+    request: innerPayload,
+    Request: innerPayload,
+  };
+
+  console.log("[FlightService] ticketLCC requesting /api/flight/srdv/TicketLCC:", JSON.stringify(payload, null, 2));
+  try {
+    const response = await client.post("/api/flight/srdv/TicketLCC", payload);
+    console.log("[FlightService] TicketLCC response:", JSON.stringify(response?.data));
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] TicketLCC request failed:", msg, errData ? JSON.stringify(errData) : "");
+    throw new Error(msg);
+  }
+}
+
+// 7. Hold GDS: POST /api/flight/srdv/HoldGDS (auth required)
+export async function holdGDS(params = {}) {
+  const innerPayload = {
+    EndUserIp: params.endUserIp || "192.168.1.1",
+    ClientId: "180170",
+    UserName: "PickNBk6",
+    Password: "PickNB@486",
+    TraceId: String(params.traceId || params.TraceId || ""),
+    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+    ...(params.couponCode || params.CouponCode ? { CouponCode: String(params.couponCode || params.CouponCode) } : {}),
+    Passengers: (params.passengers || params.Passengers || []).map((p) => {
+      const nat = String(p.Nationality || "IN");
+      const natCode = nat.toLowerCase().includes("india") ? "IN" : nat.slice(0, 2).toUpperCase();
+      const cnt = String(p.CountryCode || "IN");
+      const countryCode = cnt.toLowerCase().includes("india") ? "IN" : cnt.slice(0, 2).toUpperCase();
+      return {
+        ...p,
+        Gender: String(p.Gender !== undefined ? p.Gender : "1"),
+        Nationality: natCode,
+        CountryCode: countryCode,
+      };
+    }),
+  };
+
+  const payload = {
+    ...innerPayload,
+    request: innerPayload,
+    Request: innerPayload,
+  };
+
+  console.log("[FlightService] holdGDS requesting /api/flight/srdv/HoldGDS:", JSON.stringify(payload, null, 2));
+  try {
+    const response = await client.post("/api/flight/srdv/HoldGDS", payload);
+    console.log("[FlightService] HoldGDS response:", JSON.stringify(response?.data));
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] HoldGDS request failed:", msg, errData ? JSON.stringify(errData) : "");
+    throw new Error(msg);
+  }
+}
+
+// 8. Ticket GDS: POST /api/flight/srdv/TicketGDS (auth required)
+export async function ticketGDS(params = {}) {
+  const payload = {
+    EndUserIp: params.endUserIp || "192.168.1.1",
+    ClientId: "180170",
+    UserName: "PickNBk6",
+    Password: "PickNB@486",
+    TraceId: String(params.traceId || params.TraceId || ""),
+    ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
+    PNR: String(params.pnr || params.PNR || ""),
+    BookingId: params.bookingId || params.BookingId || "",
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+  };
+
+  console.log("[FlightService] ticketGDS requesting /api/flight/srdv/TicketGDS:", payload);
+  try {
+    const response = await client.post("/api/flight/srdv/TicketGDS", payload);
+    console.log("[FlightService] TicketGDS response:", response?.data);
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] TicketGDS request failed:", msg);
+    throw new Error(msg);
+  }
+}
+
+// 9. Get Cancellation Charges: POST /api/flight/srdv/GetCancellationCharges (auth required)
+export async function getCancellationCharges(params = {}) {
+  const payload = {
+    EndUserIp: "127.0.0.1",
+    RequestType: Number(params.requestType || params.RequestType || 1),
+    TraceId: String(params.traceId || params.TraceId || ""),
+    BookingId: String(params.bookingId || params.BookingId || ""),
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+  };
+
+  console.log("[FlightService] getCancellationCharges requesting /api/flight/srdv/GetCancellationCharges:", payload);
+  try {
+    const response = await client.post("/api/flight/srdv/GetCancellationCharges", payload);
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] GetCancellationCharges failed:", msg);
+    throw new Error(msg);
+  }
+}
+
+// 10. Send Cancel Request: POST /api/flight/srdv/SendChangeRequest (auth required)
+export async function sendCancelRequest(params = {}) {
+  const payload = {
+    EndUserIp: "127.0.0.1",
+    BookingId: String(params.bookingId || params.BookingId || ""),
+    PNR: String(params.pnr || params.PNR || ""),
+    RequestType: String(params.requestType || params.RequestType || "2"),
+    CancellationType: String(params.cancellationType || params.CancellationType || "3"),
+    Remarks: String(params.remarks || params.Remarks || "User requested cancellation"),
+    SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
+    SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
+    ...(params.sectors || params.Sectors ? { Sectors: params.sectors || params.Sectors } : {}),
+    ...(params.ticketData || params.TicketData ? { TicketData: params.ticketData || params.TicketData } : {}),
+  };
+
+  console.log("[FlightService] sendCancelRequest requesting /api/flight/srdv/SendChangeRequest:", payload);
+  try {
+    const response = await client.post("/api/flight/srdv/SendChangeRequest", payload);
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] SendChangeRequest failed:", msg);
+    throw new Error(msg);
+  }
+}
+
+// 11. Get Cancel Status: POST /api/flight/srdv/GetCancelStatus (auth required)
+export async function getCancelStatus(params = {}) {
+  const payload = {
+    EndUserIp: "127.0.0.1",
+    ChangeRequestId: String(params.changeRequestId || params.ChangeRequestId || ""),
+  };
+
+  console.log("[FlightService] getCancelStatus requesting /api/flight/srdv/GetCancelStatus:", payload);
+  try {
+    const response = await client.post("/api/flight/srdv/GetCancelStatus", payload);
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+    return response.data;
+  } catch (error) {
+    const errData = error?.response?.data;
+    const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
+    console.error("[FlightService] GetCancelStatus failed:", msg);
+    throw new Error(msg);
+  }
+}
+
+// Additional APIs without mock data fallbacks
+export async function getPlaces() {
+  console.log("[FlightService] getPlaces calling /api/places");
+  const response = await client.get("/api/places", {
+    params: { tripType: "flight" },
+  });
+  return response.data;
+}
+
+export async function getHotRoutes() {
+  console.log("[FlightService] getHotRoutes calling /api/FlightBookings/hot-routes");
+  const response = await client.get("/api/FlightBookings/hot-routes");
+  return response.data;
+}
+
+export async function getFeaturedOffers() {
+  const response = await client.get("/api/FeaturedOffers");
+  return response.data;
+}
+
+// 12. Get Calendar Fare: POST /api/flight/srdv/GetCalendarFare
+export async function getCalendarFare(searchParams = {}) {
+  const fromCode = getCityCode(searchParams.from || searchParams.origin || "DEL");
+  const toCode = getCityCode(searchParams.to || searchParams.destination || "BOM");
+  const journeyDate = searchParams.date || searchParams.preferredDepartureTime || new Date().toISOString().slice(0, 10);
+  const cabinClassCode = toCabinClassCode(searchParams.travelClass || searchParams.flightCabinClass);
+
+  const payload = {
+    EndUserIp: searchParams.endUserIp || "127.0.0.1",
+    ClientId: "",
+    UserName: "",
+    Password: "",
+    JourneyType: Number(searchParams.journeyType || 1),
+    FareType: Number(searchParams.fareType || 1),
+    Segments: [
+      {
+        Origin: fromCode,
+        Destination: toCode,
+        FlightCabinClass: cabinClassCode,
+        PreferredDepartureTime: `${journeyDate}T00:00:00`,
+        PreferredArrivalTime: `${journeyDate}T00:00:00`,
+      },
+    ],
+  };
+
+  console.log("[FlightService] getCalendarFare requesting /api/flight/srdv/GetCalendarFare:", JSON.stringify(payload, null, 2));
+  try {
+    const response = await client.post("/api/flight/srdv/GetCalendarFare", payload);
+    console.log("[FlightService] getCalendarFare response status:", response?.status);
+    
+    const resObj = response?.data?.Response || response?.data;
+    const errObj = resObj?.Error || response?.data?.Error;
+    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+      throw new Error(errObj.ErrorMessage);
+    }
+
+    return response.data;
+  } catch (error) {
+    const msg = error?.response?.data?.Error?.ErrorMessage || error?.message;
+    console.error("[FlightService] getCalendarFare request failed:", msg);
+    throw new Error(msg);
+  }
+}
+
+export default {
+  searchFlights,
+  getPlaces,
+  getHotRoutes,
+  getFeaturedOffers,
+  getFlightSeatMap,
   getFlightFareRule,
   getFareRule,
   getFlightFareQuote,
   getFareQuote,
+  getFlightSSR,
+  ticketLCC,
+  holdGDS,
+  ticketGDS,
+  getCancellationCharges,
+  sendCancelRequest,
+  getCancelStatus,
+  getCalendarFare,
 };
-

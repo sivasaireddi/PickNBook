@@ -6,24 +6,42 @@ const formatAmount = (value) => {
   return Number.isFinite(amount) ? amount.toFixed(3) : "0.000";
 };
 
-export default function FareSummaryCard({ roomPrice = 0, discount = 0 }) {
+export default function FareSummaryCard({
+  basePrice = 0,
+  gst = 0,
+  convenienceFee = 0,
+  discount = 0,
+  totalPrice = null,
+}) {
   const summary = useMemo(() => {
-    const base = Number(roomPrice) || 0;
-    const gst = Math.round(base * 0.12);
-    const fee = 150;
+    const base = Number(basePrice) || 0;
+    const gstVal = Number(gst) || 0;
+    const feeVal = Number(convenienceFee) || 0;
     const discountVal = Number(discount) || 0;
-    return { base, gst, fee, discount: discountVal, total: Math.max(0, base + gst + fee - discountVal) };
-  }, [roomPrice, discount]);
+    const calculatedTotal = Math.max(0, base + gstVal + feeVal - discountVal);
+    const total =
+      totalPrice !== null && totalPrice !== undefined && Number(totalPrice) > 0
+        ? Number(totalPrice)
+        : calculatedTotal;
+
+    return {
+      base,
+      gst: gstVal,
+      fee: feeVal,
+      discount: discountVal,
+      total,
+    };
+  }, [basePrice, gst, convenienceFee, discount, totalPrice]);
 
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Fare Summary</Text>
       <Row label="Room Charges" value={summary.base} />
-      <Row label="GST" value={summary.gst} />
-      <Row label="Convenience Fee" value={summary.fee} />
-      {summary.discount > 0 && (
+      {summary.gst > 0 ? <Row label="GST" value={summary.gst} /> : null}
+      {summary.fee > 0 ? <Row label="Convenience Fee" value={summary.fee} /> : null}
+      {summary.discount > 0 ? (
         <Row label="Coupon Discount" value={-summary.discount} discount />
-      )}
+      ) : null}
       <View style={styles.divider} />
       <Row label="Total" value={summary.total} total />
     </View>

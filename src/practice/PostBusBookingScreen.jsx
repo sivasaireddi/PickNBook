@@ -562,6 +562,14 @@ const SectionCard = ({ title, subtitle, icon, children, style }) => (
 const PostBusBookingScreen = ({ route, navigation }) => {
   const busId = normalizeIdValue(route?.params?.busId) ?? 11;
 
+  const idProofRequired = Boolean(
+    route?.params?.bus?.idProofRequired ??
+      route?.params?.bus?.IdProofRequired ??
+      route?.params?.idProofRequired ??
+      route?.params?.IdProofRequired ??
+      false
+  );
+
   const selectedSeatsParam = route?.params?.selectedSeats;
   const seatNumberParam = route?.params?.seatNumber;
   const selectedSeatDetailsParam = route?.params?.selectedSeatDetails;
@@ -883,6 +891,17 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         return false;
       }
 
+      if (idProofRequired) {
+        const cleanId = String(passenger.idNumber || "").trim();
+        if (!cleanId) {
+          Alert.alert("Validation", `Please enter Aadhaar Number for Passenger ${i + 1}`);
+          return false;
+        }
+        if (!/^\d{12}$/.test(cleanId)) {
+          Alert.alert("Validation", `Aadhaar Number for Passenger ${i + 1} must contain exactly 12 digits`);
+          return false;
+        }
+      }
     }
 
     return true;
@@ -919,15 +938,56 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         )
       : estimatedSubtotal;
 
-    const couponAmount = pricing
+    // 1. Auto Discount Calculation
+    const rawAutoDiscount = pricing
       ? normalizeAmount(
-          pricing.couponAmount ??
-            pricing.discountAmountInr ??
-            pricing.discountAmount ??
-            pricing.discount ??
+          pricing.autoDiscountAmount ??
+            pricing.autoDiscount ??
+            pricing.automaticDiscount ??
             0
         )
       : 0;
+
+    const autoPromoCode =
+      pricing?.autoPromotionCode ||
+      pricing?.autoPromotionTitle ||
+      pricing?.autoDiscountLabel ||
+      "";
+
+    const autoDiscountLabel = autoPromoCode
+      ? `Auto Discount (${autoPromoCode})`
+      : "Auto Discount";
+
+    // 2. Coupon / Manual Discount Calculation
+    let rawCouponDiscount = pricing
+      ? normalizeAmount(
+          pricing.couponDiscountAmount ??
+            pricing.manualDiscountAmount ??
+            pricing.appliedCouponAmount ??
+            0
+        )
+      : 0;
+
+    // Fallback if backend returns pricing.couponAmount or discountAmount/totalDiscount without splitting:
+    if (pricing && rawCouponDiscount === 0) {
+      const rawTotalDiscount = normalizeAmount(pricing.totalDiscount ?? pricing.discountAmount ?? 0);
+      const rawCouponAmount = normalizeAmount(pricing.couponAmount ?? pricing.discountAmountInr ?? 0);
+
+      if (rawAutoDiscount > 0) {
+        if (rawTotalDiscount > rawAutoDiscount) {
+          rawCouponDiscount = rawTotalDiscount - rawAutoDiscount;
+        } else if (rawCouponAmount > rawAutoDiscount && (pricing.appliedPromotionCode || couponCode)) {
+          rawCouponDiscount = rawCouponAmount - rawAutoDiscount;
+        }
+      } else {
+        rawCouponDiscount = rawCouponAmount || rawTotalDiscount;
+      }
+    }
+
+    const appliedCouponCode = pricing?.appliedPromotionCode || couponCode || "";
+    const couponDiscountLabel = appliedCouponCode
+      ? `Coupon (${appliedCouponCode})`
+      : "Coupon";
 
     const gstPercent = pricing?.gstPercent ?? pricing?.taxPercent ?? null;
 
@@ -945,11 +1005,13 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         )
       : 0;
 
-    const computedGrandTotal = subtotal - couponAmount + gstAmount + convenienceFee;
+    const totalDiscount = rawAutoDiscount + rawCouponDiscount;
+    const computedGrandTotal = subtotal - totalDiscount + gstAmount + convenienceFee;
 
     const grandTotal = pricing
       ? normalizeAmount(
           pricing.grandTotal ??
+            pricing.finalAmount ??
             pricing.total ??
             pricing.customerFareInr ??
             pricing.totalPriceInr ??
@@ -960,22 +1022,27 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
     return {
       subtotal,
-      couponAmount,
+      autoDiscountAmount: rawAutoDiscount,
+      autoDiscountLabel,
+      couponAmount: rawCouponDiscount,
+      couponDiscountLabel,
       gstPercent,
       gstAmount,
       convenienceFee,
       grandTotal,
       isEstimated: !pricing,
     };
-  }, [pricing, seatBreakdown]);
+  }, [pricing, seatBreakdown, couponCode]);
 
   const fareSummaryNote = fareSummary.isEstimated
     ? couponCode
       ? "Estimated from selected seat fares. Coupon, GST, and convenience fee will refresh when pricing preview becomes available."
       : "Estimated from selected seat fares. GST and convenience fee will refresh when pricing preview becomes available."
-    : "Final payable amount including coupon, GST, and convenience fee.";
+    : "Final payable amount including discounts, GST, and convenience fee.";
 
-  const couponSummaryLabel = couponCode ? `Coupon (${couponCode})` : "Coupon";
+  const couponSummaryLabel = couponCode
+    ? `Coupon (${couponCode})`
+    : fareSummary.couponDiscountLabel || "Coupon";
 
   const couponSummaryValue = !couponCode
     ? "Not applied"
@@ -983,7 +1050,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       ? `-${formatCurrencyDetailed(fareSummary.couponAmount)}`
       : fareSummary.isEstimated
         ? "Applying..."
-        : formatCurrencyDetailed(0);
+        : "Not applicable";
 
   const gstSummaryLabel =
     fareSummary.gstPercent !== null ? `GST (${fareSummary.gstPercent}%)` : "GST";
@@ -1146,8 +1213,8 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           state: "Default State",
           genderInt,
           genderStr,
-          idType: passenger.idType || "Aadhar",
-          idNumber: String(passenger.idNumber || "").trim() || "123456789012",
+          idType: idProofRequired ? "Aadhar Card" : "",
+          idNumber: idProofRequired ? String(passenger.idNumber || "").trim() : "",
         };
       });
 
@@ -1205,23 +1272,30 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const droppingPointName = droppingPoint?.Name ?? droppingPoint?.name ?? "";
       const droppingPointTime = parseToDateTime(droppingPoint?.Time ?? droppingPoint?.time ?? "", baseDate);
 
-      // 1. Build Block payload (gender as integer, strictly required idType and idNumber)
-      const blockPassengers = normalizedPassengers.map((p) => ({
-        title: p.title,
-        firstName: p.firstName,
-        lastName: p.lastName,
-        age: p.age,
-        gender: p.genderInt,
-        seatName: p.seatName,
-        fare: p.fare,
-        address: p.address,
-        city: p.city,
-        state: p.state,
-        contactNo: p.contactNo,
-        email: p.email,
-        idType: p.idType,
-        idNumber: p.idNumber,
-      }));
+      // 1. Build Block payload (idType and idNumber included only if idProofRequired is true)
+      const blockPassengers = normalizedPassengers.map((p) => {
+        const passengerObj = {
+          title: p.title,
+          firstName: p.firstName,
+          lastName: p.lastName,
+          age: p.age,
+          gender: p.genderInt,
+          seatName: p.seatName,
+          fare: p.fare,
+          address: p.address,
+          city: p.city,
+          state: p.state,
+          contactNo: p.contactNo,
+          email: p.email,
+        };
+
+        if (idProofRequired) {
+          passengerObj.idType = "Aadhar Card";
+          passengerObj.idNumber = p.idNumber;
+        }
+
+        return passengerObj;
+      });
 
       const blockRequestBody = {
         traceId,
@@ -1611,7 +1685,13 @@ const PostBusBookingScreen = ({ route, navigation }) => {
             <AnimatedCard delay={120}>
               <SectionCard
                 title="Offers & Coupons"
-                subtitle={couponLoading ? "Loading available offers" : "Apply a coupon before payment"}
+                subtitle={
+                  couponLoading
+                    ? "Loading available offers"
+                    : couponCode
+                      ? `Coupon ${couponCode} applied`
+                      : "Apply a coupon before payment"
+                }
                 icon={<MaterialCommunityIcons name="ticket-percent-outline" size={18} color="#D11A2A" />}
               >
                 {couponLoading ? (
@@ -1620,25 +1700,56 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                     <Text style={styles.loadingInlineText}>Fetching available coupons...</Text>
                   </View>
                 ) : coupons.length > 0 ? (
-                  <View style={styles.pickerShell}>
-                    <Picker
-                      selectedValue={couponCode}
-                      onValueChange={(value) => setCouponCode(value)}
-                      style={styles.pickerControl}
-                      accessibilityLabel="Coupon selection"
-                      dropdownIconColor="#D11A2A"
-                    >
-                      <Picker.Item label="Select Coupon" value="" color="#0F172A" />
+                  <View style={styles.couponSectionWrap}>
+                    {couponCode ? (
+                      <View style={styles.appliedCouponCard}>
+                        <View style={styles.appliedCouponInfo}>
+                          <View style={styles.appliedCouponBadge}>
+                            <MaterialCommunityIcons name="ticket-percent" size={18} color="#D11A2A" />
+                            <Text style={styles.appliedCouponCodeText}>{couponCode}</Text>
+                          </View>
+                          <Text style={styles.appliedCouponSubtext}>
+                            {fareSummary.couponAmount > 0
+                              ? `Saves ${formatCurrencyDetailed(fareSummary.couponAmount)} on this booking`
+                              : "Coupon applied"}
+                          </Text>
+                        </View>
 
-                      {coupons.map((coupon) => (
+                        <TouchableOpacity
+                          style={styles.removeCouponBtn}
+                          onPress={() => setCouponCode("")}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="close-circle-outline" size={18} color="#DC2626" />
+                          <Text style={styles.removeCouponBtnText}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+
+                    <View style={styles.pickerShell}>
+                      <Picker
+                        selectedValue={couponCode}
+                        onValueChange={(value) => setCouponCode(value)}
+                        style={styles.pickerControl}
+                        accessibilityLabel="Coupon selection"
+                        dropdownIconColor="#D11A2A"
+                      >
                         <Picker.Item
-                          key={coupon.id}
-                          label={`${coupon.couponCode}`}
-                          value={coupon.couponCode}
+                          label={couponCode ? "Change Coupon Code" : "Select Coupon"}
+                          value=""
                           color="#0F172A"
                         />
-                      ))}
-                    </Picker>
+
+                        {coupons.map((coupon) => (
+                          <Picker.Item
+                            key={coupon.id}
+                            label={`${coupon.couponCode}`}
+                            value={coupon.couponCode}
+                            color="#0F172A"
+                          />
+                        ))}
+                      </Picker>
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.emptyStateCard}>
@@ -1654,6 +1765,15 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
             <AnimatedCard delay={160}>
               <Text style={styles.sectionHeading}>Passenger Details</Text>
+
+              {idProofRequired && (
+                <View style={styles.idProofBanner}>
+                  <Ionicons name="information-circle-outline" size={20} color="#991B1B" style={{ marginRight: 8 }} />
+                  <Text style={styles.idProofBannerText}>
+                    This bus operator requires a valid Aadhaar number for booking.
+                  </Text>
+                </View>
+              )}
 
               {passengers.map((passenger, index) => (
                 <View
@@ -1725,7 +1845,25 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                       </View>
                     </View>
 
-
+                    {idProofRequired && (
+                      <View style={{ marginTop: 12 }}>
+                        <IconInput
+                          icon={<Ionicons name="card-outline" size={18} color="#D11A2A" />}
+                          placeholder="Enter 12-digit Aadhaar Number"
+                          value={passenger.idNumber}
+                          onChangeText={(text) =>
+                            handlePassengerChange(
+                              index,
+                              "idNumber",
+                              text.replace(/[^0-9]/g, "")
+                            )
+                          }
+                          keyboardType="number-pad"
+                          maxLength={12}
+                          accessibilityLabel={`Passenger ${index + 1} Aadhaar number`}
+                        />
+                      </View>
+                    )}
                   </View>
                 </View>
               ))}
@@ -1799,24 +1937,37 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                         </Text>
                       </View>
 
-                      <View style={styles.summaryRow}>
-                        <Text
-                          style={[
-                            styles.summaryLabel,
-                            couponCode && styles.summaryAccentText,
-                          ]}
-                        >
-                          {couponSummaryLabel}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.summaryValue,
-                            couponCode && styles.summaryAccentText,
-                          ]}
-                        >
-                          {couponSummaryValue}
-                        </Text>
-                      </View>
+                      {fareSummary.autoDiscountAmount > 0 && (
+                        <View style={styles.summaryRow}>
+                          <Text style={[styles.summaryLabel, styles.summaryAccentText]}>
+                            {fareSummary.autoDiscountLabel}
+                          </Text>
+                          <Text style={[styles.summaryValue, styles.summaryAccentText]}>
+                            -{formatCurrencyDetailed(fareSummary.autoDiscountAmount)}
+                          </Text>
+                        </View>
+                      )}
+
+                      {(couponCode || fareSummary.couponAmount > 0) && (
+                        <View style={styles.summaryRow}>
+                          <Text
+                            style={[
+                              styles.summaryLabel,
+                              fareSummary.couponAmount > 0 && styles.summaryAccentText,
+                            ]}
+                          >
+                            {couponSummaryLabel}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.summaryValue,
+                              fareSummary.couponAmount > 0 && styles.summaryAccentText,
+                            ]}
+                          >
+                            {couponSummaryValue}
+                          </Text>
+                        </View>
+                      )}
 
                       <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>{gstSummaryLabel}</Text>
@@ -1824,6 +1975,15 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                           {formatCurrencyDetailed(fareSummary.gstAmount)}
                         </Text>
                       </View>
+
+                      {fareSummary.convenienceFee > 0 && (
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Convenience Fee</Text>
+                          <Text style={styles.summaryValue}>
+                            {formatCurrencyDetailed(fareSummary.convenienceFee)}
+                          </Text>
+                        </View>
+                      )}
 
                       <View style={styles.summaryDivider} />
 
@@ -1979,6 +2139,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     flexShrink: 1,
+  },
+  idProofBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+  },
+  idProofBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#991B1B",
+    lineHeight: 18,
   },
   sectionCard: {
     marginTop: 16,
@@ -2526,5 +2703,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#0F172A",
     fontWeight: "600",
+  },
+  couponSectionWrap: {
+    gap: 8,
+  },
+  appliedCouponCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FEF2F2",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    marginBottom: 6,
+  },
+  appliedCouponInfo: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  appliedCouponBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  appliedCouponCodeText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#D11A2A",
+    letterSpacing: 0.5,
+  },
+  appliedCouponSubtext: {
+    fontSize: 11.5,
+    color: "#059669",
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  removeCouponBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  removeCouponBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#DC2626",
   },
 });

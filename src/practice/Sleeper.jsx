@@ -409,9 +409,9 @@ const DeckCard = memo(
       return mb;
     }, [seats, cellH]);
 
-    // Dimensions for vertical coach card (no fixed height, auto-expanding minHeight!)
+    // Dimensions for vertical coach card (auto-expanding tight content layout)
     const contentWidth = SPACING[16] * 2 + totalCols * cellW + (hasAisle ? AISLE_W : 0) - CELL_GAP;
-    const floorMinHeight = DRIVER_CABIN_H + 2 + maxSeatBottom + scale(24);
+    const floorMinHeight = DRIVER_CABIN_H + 2 + maxSeatBottom + SPACING[12];
 
     return (
       <View style={styles.deckCardWrapper}>
@@ -433,8 +433,8 @@ const DeckCard = memo(
           </View>
           <View style={styles.cabinDivider} />
 
-          {/* Seats placed absolutely on vertical grid */}
-          <View style={{ flex: 1, position: "relative" }}>
+          {/* Seats placed absolutely on vertical grid with tight bottom wrap */}
+          <View style={{ height: maxSeatBottom + SPACING[12], position: "relative" }}>
             {seats.map((seat) => {
               const isSelected = selectedSeatSet.has(seat.seatCode);
               const seatPrice = getSeatPrice(seat, layoutPrice);
@@ -630,7 +630,7 @@ const Sleeper = ({ navigation, route }) => {
     Share.share({ message: `${title} | ${subtitle} | ${operatorName}` }).catch(() => {});
   }, [operatorName, subtitle, title]);
 
-  const contentBottomPadding = insets.bottom + SPACING[32] + 130;
+  const contentBottomPadding = SPACING[16];
 
   const legendItems = useMemo(
     () => [
@@ -840,7 +840,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   scrollContent: {
-    paddingBottom: SPACING[32],
+    paddingBottom: SPACING[16],
+    flexGrow: 0,
   },
   scrollView: {
     flex: 1,

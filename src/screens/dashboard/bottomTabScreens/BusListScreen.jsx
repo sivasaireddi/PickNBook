@@ -53,6 +53,7 @@ export default function BusListScreen({ route }) {
         onChange={(field, direction) =>
           setSortState({ field, direction: direction || "asc" })
         }
+        onOpenFilters={() => setShowFilters(true)}
         resultCount={resultCount}
       />
       {/* CONTENT */}

@@ -397,7 +397,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 90,
+    paddingBottom: 20,
+    flexGrow: 0,
   },
 
   /* ── Hero Background & Header ── */

@@ -3,14 +3,36 @@ import {
   getPlaces as baseGetPlaces,
   getHotRoutes as baseGetHotRoutes,
   getFeaturedOffers as baseGetFeaturedOffers,
-  bookFlight as baseBookFlight,
   getFlightSeatMap as baseGetFlightSeatMap,
-  cancelFlightBooking as baseCancelFlightBooking,
   getFlightFareRule as baseGetFlightFareRule,
   getFareRule as baseGetFareRule,
   getFlightFareQuote as baseGetFlightFareQuote,
-  getFareQuote as baseGetFareQuote
+  getFareQuote as baseGetFareQuote,
+  getFlightSSR as baseGetFlightSSR,
+  ticketLCC as baseTicketLCC,
+  holdGDS as baseHoldGDS,
+  ticketGDS as baseTicketGDS,
+  getCancellationCharges as baseGetCancellationCharges,
+  sendCancelRequest as baseSendCancelRequest,
+  getCancelStatus as baseGetCancelStatus,
+  getCalendarFare as baseGetCalendarFare,
 } from "../../../../../services/FlightService";
+
+export async function searchFlights(params) {
+  return await baseSearchFlights(params);
+}
+
+export async function getPlaces() {
+  return await baseGetPlaces();
+}
+
+export async function getHotRoutes() {
+  return await baseGetHotRoutes();
+}
+
+export async function getFeaturedOffers() {
+  return await baseGetFeaturedOffers();
+}
 
 export async function getFlightFareRule(params) {
   return await baseGetFlightFareRule(params);
@@ -28,56 +50,38 @@ export async function getFareQuote(params) {
   return await baseGetFareQuote(params);
 }
 
-export async function searchFlights(params) {
-  const response = await baseSearchFlights(params);
-  console.log("[FlightBookingService] searchFlights response", response);
-  return response;
+export async function getFlightSSR(params) {
+  return await baseGetFlightSSR(params);
 }
 
-export async function getPlaces() {
-  const response = await baseGetPlaces();
-  return response;
+export async function getFlightSeatMap(params) {
+  return await baseGetFlightSeatMap(params);
 }
 
-export async function getHotRoutes() {
-  return await baseGetHotRoutes();
+export async function ticketLCC(params) {
+  return await baseTicketLCC(params);
 }
 
-export async function getFeaturedOffers() {
-  return await baseGetFeaturedOffers();
+export async function holdGDS(params) {
+  return await baseHoldGDS(params);
 }
 
-export async function bookFlight(flightId, payload) {
-  return await baseBookFlight(flightId, payload);
+export async function ticketGDS(params) {
+  return await baseTicketGDS(params);
 }
 
-export async function getFlightSeatMap(flightId) {
-  return await baseGetFlightSeatMap(flightId);
+export async function getCancellationCharges(params) {
+  return await baseGetCancellationCharges(params);
 }
 
-export async function cancelFlightBooking(bookingId, passengersList = []) {
-  return await baseCancelFlightBooking(bookingId, passengersList);
+export async function sendCancelRequest(params) {
+  return await baseSendCancelRequest(params);
 }
 
-export async function getFlightPricingPreview(payload) {
-  const response = {
-    baseFare: payload.baseFare || 5208,
-    tax: Math.round((payload.baseFare || 5208) * 0.05),
-    convenienceFee: 150,
-    discount: payload.discount || 0,
-    promotionDiscount: payload.discount || 0,
-    couponDiscount: 0,
-    ...payload,
-  };
-  console.log("[FlightBookingService] getFlightPricingPreview response", response);
-  return response;
+export async function getCancelStatus(params) {
+  return await baseGetCancelStatus(params);
 }
 
-export async function getFlightPromotions() {
-  const response = [
-    { code: "FLYDOM", discount: 150, title: "Domestic Flights Sale" },
-    { code: "NOFEES", discount: 150, title: "Zero Convenience Fee" }
-  ];
-  console.log("[FlightBookingService] getFlightPromotions response", response);
-  return response;
+export async function getCalendarFare(params) {
+  return await baseGetCalendarFare(params);
 }

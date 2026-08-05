@@ -73,7 +73,35 @@ export function validateFlightSearch(values) {
   if (values.tripType === "twoway" && values.returnDate && values.date && new Date(values.returnDate) < new Date(values.date)) {
     errors.returnDate = "Return date must be on or after departure date.";
   }
-  if (Number(values.adults || 0) < 1) errors.adults = "At least 1 adult is required.";
-  if (!TRAVEL_CLASSES.includes(values.travelClass)) errors.travelClass = "Select a valid cabin class.";
   return errors;
+}
+
+export function cleanFareRuleHtml(rawHtml) {
+  if (!rawHtml) return "";
+  let text = String(rawHtml);
+  
+  // Replace HTML headers/breaks with clean newlines and formatting
+  text = text.replace(/<h4[^>]*>/gi, "\n\n📌 ");
+  text = text.replace(/<\/h4>/gi, "\n");
+  text = text.replace(/<tr[^>]*>/gi, "\n");
+  text = text.replace(/<td[^>]*>/gi, " ");
+  text = text.replace(/<\/td>/gi, "  ");
+  text = text.replace(/<br\s*[\/]?>/gi, "\n");
+  text = text.replace(/<p[^>]*>/gi, "\n");
+  text = text.replace(/<\/p>/gi, "\n");
+  
+  // Strip any remaining HTML tags
+  text = text.replace(/<[^>]+>/g, " ");
+
+  // Clean HTML entities & extra whitespace
+  text = text.replace(/&nbsp;/gi, " ");
+  text = text.replace(/&amp;/gi, "&");
+  text = text.replace(/&lt;/gi, "<");
+  text = text.replace(/&gt;/gi, ">");
+  text = text.replace(/&quot;/gi, '"');
+  text = text.replace(/__be__/g, "");
+  text = text.replace(/[ \t]+/g, " ");
+  text = text.replace(/\n\s*\n\s*\n+/g, "\n\n");
+  
+  return text.trim();
 }

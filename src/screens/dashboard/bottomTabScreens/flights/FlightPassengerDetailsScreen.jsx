@@ -1,32 +1,49 @@
-import React, { useMemo, useState } from "react";
-import { 
-  Alert, 
-  TouchableOpacity, 
-  ScrollView, 
-  StyleSheet, 
-  Text, 
-  TextInput, 
-  useWindowDimensions, 
-  View 
-} from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, StyleSheet, View, useWindowDimensions, Modal, ActivityIndicator, TouchableOpacity, Text, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
-import { writeFlightBookingFlowState, clearFlightBookingFlowState } from "./services/flightBookingFlowStore";
-import { Picker } from "@react-native-picker/picker";
+import { writeFlightBookingFlowState, readFlightBookingFlowState, clearFlightBookingFlowState } from "./services/flightBookingFlowStore";
 import { getTravelers } from "../../../../services/travelerService";
 import { getStoredAuthToken } from "../../../../utils/authSession";
+import { getFlightFareRule } from "./services/flightBookingService";
+import { cleanFareRuleHtml } from "./utils/flightUtils";
 
-const PRIMARY_RED = "#E53935";
-const BACKGROUND = "#F8F9FB";
-const WHITE = "#FFFFFF";
-const BORDER = "#E5E7EB";
-const TEXT_DARK = "#1F2937";
-const TEXT_MUTED = "#6B7280";
+// Redesigned Theme & Components
+import { COLORS } from "./theme/passengerDetailsTheme";
+import BackgroundDecorations from "./components/BackgroundDecorations";
+import PassengerHeader from "./components/PassengerHeader";
+import SavedTravellerCard from "./components/SavedTravellerCard";
+import PassengerCard from "./components/PassengerCard";
+import ContactCard from "./components/ContactCard";
+import FareRuleModal from "./components/FareRuleModal";
+import StickyFooter from "./components/StickyFooter";
 
 export default function FlightPassengerDetailsScreen({ route, navigation }) {
   const { width } = useWindowDimensions();
-  const flowState = route?.params || {};
-  
+  const routeParams = route?.params || {};
+  const [currentFlowState, setCurrentFlowState] = useState(routeParams);
+
+  // Sync stored flowState if parameters missing in route
+  useEffect(() => {
+    (async () => {
+      const stored = await readFlightBookingFlowState();
+      if (stored) {
+        setCurrentFlowState((prev) => ({
+          ...stored,
+          ...prev,
+          traceId: prev.traceId || prev.flight?.traceId || stored.traceId || stored.flight?.traceId,
+          resultIndex: prev.resultIndex || prev.flight?.resultIndex || stored.resultIndex || stored.flight?.resultIndex,
+          srdvType: prev.srdvType || prev.flight?.srdvType || stored.srdvType || stored.flight?.srdvType || "MixAPI",
+          srdvIndex: prev.srdvIndex || prev.flight?.srdvIndex || stored.srdvIndex || stored.flight?.srdvIndex || "2",
+        }));
+      }
+    })();
+  }, []);
+
+  const flowState = useMemo(() => ({ ...currentFlowState, ...routeParams }), [currentFlowState, routeParams]);
+
+  // Extract passenger counts from searchContext
   const travellersCount = useMemo(() => {
     const summary = String(flowState.searchContext?.travellers || "");
     const adults = Number((summary.match(/(\d+)\s*Adult/i) || [])[1] || flowState.searchContext?.adults || 1);
@@ -37,7 +54,22 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
 
   const totalPassengers = Math.max(1, travellersCount.adults + travellersCount.children);
 
-  // Keep existing state structure but populate with detailed fields: dob, gender
+  // International flight check for passport requirements
+  const isInternational = useMemo(() => {
+    const indianCodes = ["DEL", "BOM", "BLR", "MAA", "HYD", "CCU", "PNQ", "AMD", "JAI", "COK", "GOI", "VGA", "VTZ"];
+    const from = String(flowState.flight?.from || flowState.searchContext?.from || "DEL").toUpperCase();
+    const to = String(flowState.flight?.to || flowState.searchContext?.to || "BOM").toUpperCase();
+    const segs = flowState.searchContext?.segments || [];
+    const allCodes = [
+      from,
+      to,
+      ...segs.map((s) => String(s.origin || s.from || "").toUpperCase()),
+      ...segs.map((s) => String(s.destination || s.to || "").toUpperCase()),
+    ];
+    return allCodes.some((code) => code && !indianCodes.includes(code));
+  }, [flowState]);
+
+  // Passengers state
   const [passengers, setPassengers] = useState(
     Array.from({ length: totalPassengers }, (_, index) => ({
       title: "Mr",
@@ -46,21 +78,78 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       gender: "Male",
       dob: "1995-05-15",
       nationality: "Indian",
+      passportNo: "",
+      passportExpiry: "2030-12-31",
+      passportIssueCountryCode: "IN",
       passengerType: index < travellersCount.adults ? "Adult" : "Child",
     }))
   );
 
+  // Contact details state
   const [contact, setContact] = useState({
     email: flowState.contact?.email || "",
     mobile: flowState.contact?.mobile || "",
   });
 
+  // Fare Rule Modal State
+  const [fareRuleModalVisible, setFareRuleModalVisible] = useState(false);
+  const [fareRuleLoading, setFareRuleLoading] = useState(false);
+  const [fareRuleData, setFareRuleData] = useState(null);
+
+  const handleFetchFareRules = useCallback(async () => {
+    setFareRuleModalVisible(true);
+    if (fareRuleData) return;
+    setFareRuleLoading(true);
+    try {
+      const activeTraceId = flowState.traceId || flowState.flight?.traceId || routeParams.traceId || routeParams.flight?.traceId;
+      const activeResultIndex = flowState.resultIndex || flowState.flight?.resultIndex || routeParams.resultIndex || routeParams.flight?.resultIndex;
+      const activeSrdvType = flowState.srdvType || flowState.flight?.srdvType || routeParams.srdvType || routeParams.flight?.srdvType || "MixAPI";
+      const activeSrdvIndex = flowState.srdvIndex || flowState.flight?.srdvIndex || routeParams.srdvIndex || routeParams.flight?.srdvIndex || "2";
+
+      console.log("\n==========================================");
+      console.log("📋 [FLIGHT FARE RULE - REQUESTING API]");
+      console.log({ traceId: activeTraceId, resultIndex: activeResultIndex, srdvType: activeSrdvType, srdvIndex: activeSrdvIndex });
+      console.log("==========================================\n");
+
+      const res = await getFlightFareRule({
+        traceId: activeTraceId,
+        resultIndex: activeResultIndex,
+        srdvType: activeSrdvType,
+        srdvIndex: activeSrdvIndex,
+      });
+
+      console.log("\n==========================================");
+      console.log("📋 [FLIGHT FARE RULE API RESPONSE RETURNED]:");
+      console.log(JSON.stringify(res, null, 2));
+      console.log("==========================================\n");
+
+      setFareRuleData(res);
+    } catch (err) {
+      console.error("[FlightPassengerDetailsScreen] Fare rule fetch error:", err?.message);
+    } finally {
+      setFareRuleLoading(false);
+    }
+  }, [fareRuleData, flowState, routeParams]);
+
+  const fareRulesList = useMemo(() => {
+    const resObj = fareRuleData?.Response || fareRuleData?.Results || fareRuleData;
+    let list = resObj?.FareRules || resObj?.FareRule || resObj?.Results || fareRuleData?.Results || fareRuleData?.FareRules || [];
+    if (!Array.isArray(list)) list = [list].filter(Boolean);
+    if (fareRuleData?.SpecialRule && !list.some((r) => r.SpecialRule)) {
+      list.unshift({ SpecialRule: fareRuleData.SpecialRule });
+    }
+    return list;
+  }, [fareRuleData]);
+
+  // Saved travelers state
   const [savedTravelers, setSavedTravelers] = useState([]);
   const [travelersLoading, setTravelersLoading] = useState(false);
   const [travelersError, setTravelersError] = useState(null);
   const [selectedTravelerId, setSelectedTravelerId] = useState(null);
+  const [errors, setErrors] = useState({});
 
-  const fetchSavedTravelers = async () => {
+  // Fetch saved travelers from service
+  const fetchSavedTravelers = useCallback(async () => {
     try {
       setTravelersLoading(true);
       setTravelersError(null);
@@ -77,13 +166,14 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     } finally {
       setTravelersLoading(false);
     }
-  };
-
-  React.useEffect(() => {
-    fetchSavedTravelers();
   }, []);
 
-  const handleSelectTraveler = (traveler) => {
+  useEffect(() => {
+    fetchSavedTravelers();
+  }, [fetchSavedTravelers]);
+
+  // Select a saved traveler
+  const handleSelectTraveler = useCallback((traveler) => {
     if (!traveler) {
       setSelectedTravelerId(null);
       return;
@@ -111,9 +201,10 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
 
     if (traveler.email) setContact((prev) => ({ ...prev, email: traveler.email }));
     if (traveler.phoneNumber) setContact((prev) => ({ ...prev, mobile: traveler.phoneNumber }));
-  };
+  }, []);
 
-  const handleAddNewTraveler = () => {
+  // Add new traveler action
+  const handleAddNewTraveler = useCallback(() => {
     setSelectedTravelerId(null);
     setPassengers((prev) => {
       if (!prev || prev.length === 0) return prev;
@@ -125,17 +216,22 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       };
       return next;
     });
-  };
+  }, []);
 
-  const [errors, setErrors] = useState({});
-
-  const updatePassenger = (index, field, value) => {
+  // Field updater
+  const updatePassenger = useCallback((index, field, value) => {
     setPassengers((prev) =>
       prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
     );
-  };
+  }, []);
 
-  const validateDetails = () => {
+  // Contact field updater
+  const updateContact = useCallback((field, value) => {
+    setContact((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
+  // Form validation
+  const validateDetails = useCallback(() => {
     const nextErrors = {};
     let isValid = true;
 
@@ -168,589 +264,242 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
 
     setErrors(nextErrors);
     return isValid;
-  };
+  }, [passengers, contact]);
 
-  const handleContinue = async () => {
+  // Handle Continue to Seat Selection
+  const handleContinue = useCallback(async () => {
     if (!validateDetails()) {
+      console.warn("[FlightPassengerDetailsScreen] Validation failed:", errors);
       Alert.alert("Incomplete Details", "Please correct the errors before continuing.");
       return;
     }
 
-    // Pass the state to the Seat Selection Screen
+    const activeTraceId = flowState.traceId || flowState.flight?.traceId || routeParams.traceId || routeParams.flight?.traceId;
+    const activeResultIndex = flowState.resultIndex || flowState.flight?.resultIndex || routeParams.resultIndex || routeParams.flight?.resultIndex;
+    const activeSrdvType = flowState.srdvType || flowState.flight?.srdvType || routeParams.srdvType || routeParams.flight?.srdvType || "MixAPI";
+    const activeSrdvIndex = flowState.srdvIndex || flowState.flight?.srdvIndex || routeParams.srdvIndex || routeParams.flight?.srdvIndex || "2";
+
+    console.log("\n==========================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 3: PASSENGER DETAILS]");
+    console.log("[FlightPassengerDetailsScreen] Trace ID:", activeTraceId);
+    console.log("[FlightPassengerDetailsScreen] Result Index:", activeResultIndex);
+    console.log("[FlightPassengerDetailsScreen] Saved passenger count:", passengers.length);
+    console.log("[FlightPassengerDetailsScreen] Passengers list:", JSON.stringify(passengers, null, 2));
+    console.log("[FlightPassengerDetailsScreen] Contact details:", JSON.stringify(contact, null, 2));
+    console.log("==========================================\n");
+
     const nextState = {
       ...flowState,
+      traceId: activeTraceId,
+      resultIndex: activeResultIndex,
+      srdvType: activeSrdvType,
+      srdvIndex: activeSrdvIndex,
       passengers,
       contact,
       selectedSeats: passengers.map((_, index) => ({ label: `${12 + index}A` })),
-      fareSummary: flowState.fareSummary || { 
-        baseFare: Number(flowState.flight?.selectedTravelClassPriceInr || flowState.flight?.fare || 5208) 
+      fareSummary: flowState.fareSummary || {
+        baseFare: Number(flowState.flight?.selectedTravelClassPriceInr || flowState.flight?.fare || 5208),
       },
     };
+
     await writeFlightBookingFlowState(nextState);
-    console.log("[FlightPassengerDetailsScreen] Saving details", nextState);
+    console.log("[FlightPassengerDetailsScreen] Navigating to FlightSeatSelectionScreen with traceId:", activeTraceId);
     navigation.navigate("FlightSeatSelectionScreen", nextState);
-  };
+  }, [validateDetails, errors, passengers, contact, flowState, routeParams, navigation]);
+
+  // Handle Clear Draft
+  const handleClearDraft = useCallback(() => {
+    clearFlightBookingFlowState();
+    Alert.alert("Draft Cleared", "Passenger details draft has been cleared.");
+  }, []);
+
+  const handleBackPress = useCallback(() => {
+    navigation.goBack();
+  }, [navigation]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
-      {/* Header bar */}
-      <View style={styles.headerBar}>
-        <TouchableOpacity activeOpacity={0.8} onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={TEXT_DARK} />
-        </TouchableOpacity>
-        <View style={styles.headerTitleWrap}>
-          <Text style={styles.headerTitle}>Passenger Details</Text>
-          <Text style={styles.headerSubtitle}>Step 2 of 4 • Add traveler records</Text>
-        </View>
-      </View>
+    <View style={styles.rootContainer}>
+      {/* Background Decor Layer */}
+      <BackgroundDecorations />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <View style={[styles.container, width >= 768 && styles.containerWide]}>
-          {/* Saved Travelers Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="people" size={18} color={PRIMARY_RED} />
-              <View>
-                <Text style={styles.cardTitle}>Saved Travelers</Text>
-                <Text style={styles.cardSubtitle}>Select an existing traveler or add a new one.</Text>
-              </View>
-            </View>
+      <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+        {/* Header */}
+        <PassengerHeader onBackPress={handleBackPress} />
 
-            {travelersLoading ? (
-              <View style={styles.loadingInlineCard}>
-                <Text style={styles.loadingInlineText}>Fetching saved travelers...</Text>
-              </View>
-            ) : travelersError ? (
-              <View style={styles.errorInlineCard}>
-                <Ionicons name="alert-circle-outline" size={22} color={PRIMARY_RED} />
-                <Text style={styles.errorInlineText}>{travelersError}</Text>
-                <TouchableOpacity activeOpacity={0.8} onPress={fetchSavedTravelers} style={styles.retryInlineBtn}>
-                  <Text style={styles.retryInlineBtnText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            ) : savedTravelers.length === 0 ? (
-              <View style={styles.emptyStateCard}>
-                <Ionicons name="person-add-outline" size={24} color={TEXT_MUTED} />
-                <Text style={styles.emptyStateTitle}>No saved travelers found.</Text>
-                <TouchableOpacity activeOpacity={0.85} onPress={handleAddNewTraveler} style={styles.addNewTravelerCardBtn}>
-                  <Ionicons name="add" size={18} color={PRIMARY_RED} />
-                  <Text style={styles.addNewTravelerCardBtnText}>+ Add New Traveler</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.pickerShell}>
-                <Picker
-                  selectedValue={selectedTravelerId ? String(selectedTravelerId) : ""}
-                  onValueChange={(itemValue) => {
-                    if (!itemValue || itemValue === "NEW_TRAVELER") {
-                      handleAddNewTraveler();
-                    } else {
-                      const selected = savedTravelers.find(
-                        (t) => String(t.id) === String(itemValue)
-                      );
-                      if (selected) {
-                        handleSelectTraveler(selected);
-                      }
-                    }
-                  }}
-                  style={styles.pickerControl}
-                  accessibilityLabel="Saved Travelers Selection"
-                  dropdownIconColor={PRIMARY_RED}
-                >
-                  <Picker.Item label="Select Saved Traveler" value="" color="#0F172A" />
-                  {savedTravelers.map((traveler) => (
-                    <Picker.Item
-                      key={traveler.id}
-                      label={`${traveler.fullName} (${traveler.gender}, ${traveler.age} yrs${traveler.phoneNumber ? ` • 📞 ${traveler.phoneNumber}` : ""})`}
-                      value={String(traveler.id)}
-                      color="#0F172A"
-                    />
-                  ))}
-                  <Picker.Item label="+ Add New Traveler" value="NEW_TRAVELER" color="#0F172A" />
-                </Picker>
-              </View>
-            )}
-          </View>
+        {/* Scrollable Form Content with Keyboard Awareness */}
+        <KeyboardAwareScrollView
+          style={styles.keyboardScrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          enableOnAndroid={true}
+          extraScrollHeight={25}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.container, width >= 768 && styles.containerWide]}>
+            {/* Saved Travellers Card */}
+            <SavedTravellerCard
+              savedTravelers={savedTravelers}
+              travelersLoading={travelersLoading}
+              travelersError={travelersError}
+              selectedTravelerId={selectedTravelerId}
+              onSelectTraveler={handleSelectTraveler}
+              onAddNewTraveler={handleAddNewTraveler}
+              onRetryFetch={fetchSavedTravelers}
+            />
 
-          {passengers.map((passenger, index) => (
-            <View key={index} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Ionicons name="person" size={18} color={PRIMARY_RED} />
-                <Text style={styles.cardTitle}>{passenger.passengerType} Passenger {index + 1}</Text>
-              </View>
-
-              {/* Title Selection */}
-              <View style={styles.fieldBlock}>
-                <Text style={styles.fieldLabel}>TITLE</Text>
-                <View style={styles.genderRow}>
-                  {["Mr", "Mrs", "Ms"].map((titleOpt) => {
-                    const isActive = passenger.title === titleOpt;
-                    return (
-                      <TouchableOpacity
-                        key={titleOpt}
-                        activeOpacity={0.8}
-                        onPress={() => updatePassenger(index, "title", titleOpt)}
-                        style={[styles.genderBtn, isActive && styles.genderBtnActive]}
-                      >
-                        <Text style={[styles.genderBtnText, isActive && styles.genderBtnTextActive]}>
-                          {titleOpt}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* Names input row */}
-              <View style={styles.row}>
-                <View style={styles.flex1}>
-                  <Text style={styles.fieldLabel}>FIRST NAME</Text>
-                  <TextInput
-                    style={[styles.input, errors[`p-${index}-firstName`] && styles.inputError]}
-                    value={passenger.firstName}
-                    onChangeText={(val) => updatePassenger(index, "firstName", val)}
-                    placeholder="Enter first name"
-                    placeholderTextColor={TEXT_MUTED}
-                  />
-                  {errors[`p-${index}-firstName`] && (
-                    <Text style={styles.errorText}>{errors[`p-${index}-firstName`]}</Text>
-                  )}
-                </View>
-
-                <View style={styles.flex1}>
-                  <Text style={styles.fieldLabel}>LAST NAME</Text>
-                  <TextInput
-                    style={[styles.input, errors[`p-${index}-lastName`] && styles.inputError]}
-                    value={passenger.lastName}
-                    onChangeText={(val) => updatePassenger(index, "lastName", val)}
-                    placeholder="Enter last name"
-                    placeholderTextColor={TEXT_MUTED}
-                  />
-                  {errors[`p-${index}-lastName`] && (
-                    <Text style={styles.errorText}>{errors[`p-${index}-lastName`]}</Text>
-                  )}
-                </View>
-              </View>
-
-              {/* Gender selection */}
-              <View style={styles.fieldBlock}>
-                <Text style={styles.fieldLabel}>GENDER</Text>
-                <View style={styles.genderRow}>
-                  {["Male", "Female", "Transgender"].map((gOpt) => {
-                    const isActive = passenger.gender === gOpt;
-                    return (
-                      <TouchableOpacity
-                        key={gOpt}
-                        activeOpacity={0.8}
-                        onPress={() => updatePassenger(index, "gender", gOpt)}
-                        style={[styles.genderBtn, isActive && styles.genderBtnActive]}
-                      >
-                        <Text style={[styles.genderBtnText, isActive && styles.genderBtnTextActive]}>
-                          {gOpt}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* DOB and Nationality row */}
-              <View style={styles.row}>
-                <View style={styles.flex1}>
-                  <Text style={styles.fieldLabel}>DATE OF BIRTH (YYYY-MM-DD)</Text>
-                  <TextInput
-                    style={[styles.input, errors[`p-${index}-dob`] && styles.inputError]}
-                    value={passenger.dob}
-                    onChangeText={(val) => updatePassenger(index, "dob", val)}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={TEXT_MUTED}
-                  />
-                  {errors[`p-${index}-dob`] && (
-                    <Text style={styles.errorText}>{errors[`p-${index}-dob`]}</Text>
-                  )}
-                </View>
-
-                <View style={styles.flex1}>
-                  <Text style={styles.fieldLabel}>NATIONALITY</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={passenger.nationality}
-                    onChangeText={(val) => updatePassenger(index, "nationality", val)}
-                    placeholder="e.g. Indian"
-                    placeholderTextColor={TEXT_MUTED}
-                  />
-                </View>
-              </View>
-            </View>
-          ))}
-
-          {/* Contact Details Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="call" size={18} color={PRIMARY_RED} />
-              <Text style={styles.cardTitle}>Contact Details</Text>
-            </View>
-            <Text style={styles.cardDesc}>Booking receipt & e-ticket will be sent here.</Text>
-
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
-              <TextInput
-                style={[styles.input, errors["email"] && styles.inputError]}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={contact.email}
-                onChangeText={(val) => setContact((prev) => ({ ...prev, email: val }))}
-                placeholder="name@example.com"
-                placeholderTextColor={TEXT_MUTED}
+            {/* Passenger Forms Cards */}
+            {passengers.map((passenger, index) => (
+              <PassengerCard
+                key={index}
+                passenger={passenger}
+                index={index}
+                isInternational={isInternational}
+                errors={errors}
+                onUpdatePassenger={updatePassenger}
               />
-              {errors["email"] && <Text style={styles.errorText}>{errors["email"]}</Text>}
-            </View>
+            ))}
 
-            <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>MOBILE NUMBER</Text>
-              <TextInput
-                style={[styles.input, errors["mobile"] && styles.inputError]}
-                keyboardType="phone-pad"
-                value={contact.mobile}
-                onChangeText={(val) => setContact((prev) => ({ ...prev, mobile: val }))}
-                placeholder="10-digit mobile number"
-                placeholderTextColor={TEXT_MUTED}
-              />
-              {errors["mobile"] && <Text style={styles.errorText}>{errors["mobile"]}</Text>}
-            </View>
+            {/* Contact Details Card */}
+            <ContactCard
+              contact={contact}
+              errors={errors}
+              onUpdateContact={updateContact}
+            />
+
+            {/* View Fare Rules & Cancellation Policy Trigger Button */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={handleFetchFareRules}
+              style={styles.fareRuleBtn}
+            >
+              <Ionicons name="document-text-outline" size={18} color="#E11D2E" />
+              <Text style={styles.fareRuleBtnText}>View Fare Rules & Cancellation Policy</Text>
+            </TouchableOpacity>
           </View>
+        </KeyboardAwareScrollView>
 
-          {/* Continue button */}
-          <TouchableOpacity activeOpacity={0.9} onPress={handleContinue} style={styles.continueBtn}>
-            <Text style={styles.continueBtnText}>Continue to Seats Selection</Text>
-          </TouchableOpacity>
+        {/* Fare Rules Modal */}
+        <FareRuleModal
+          visible={fareRuleModalVisible}
+          onClose={() => setFareRuleModalVisible(false)}
+          loading={fareRuleLoading}
+          fareRuleData={fareRuleData}
+          origin={flowState.flight?.from || flowState.searchContext?.from || "DEL"}
+          destination={flowState.flight?.to || flowState.searchContext?.to || "BOM"}
+          airline={flowState.flight?.airlineName || "Flight"}
+        />
 
-          <TouchableOpacity 
-            activeOpacity={0.8} 
-            onPress={() => {
-              clearFlightBookingFlowState();
-              Alert.alert("Draft Cleared", "Passenger details draft has been cleared.");
-            }} 
-            style={styles.clearBtn}
-          >
-            <Text style={styles.clearBtnText}>Clear Booking Draft</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+        {/* Sticky Action Footer */}
+        <StickyFooter onContinue={handleContinue} onClearDraft={handleClearDraft} />
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  rootContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
   safe: {
     flex: 1,
-    backgroundColor: BACKGROUND,
   },
-  headerBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: WHITE,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: BORDER,
-  },
-  backBtn: {
-    padding: 4,
-  },
-  headerTitleWrap: {
-    marginLeft: 14,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: TEXT_DARK,
-  },
-  headerSubtitle: {
-    fontSize: 11,
-    color: TEXT_MUTED,
-    fontWeight: "600",
-    marginTop: 1,
+  keyboardScrollView: {
+    flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 32,
   },
   container: {
-    padding: 16,
-    gap: 16,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    gap: 20,
   },
   containerWide: {
     maxWidth: 720,
     alignSelf: "center",
     width: "100%",
   },
-  card: {
-    backgroundColor: WHITE,
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    gap: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.03,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  cardHeader: {
+  fareRuleBtn: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 4,
   },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: TEXT_DARK,
+  fareRuleBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#E11D2E",
   },
-  cardDesc: {
-    fontSize: 12,
-    color: TEXT_MUTED,
-    fontWeight: "600",
-    marginTop: -8,
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
   },
-  row: {
+  modalContent: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "75%",
+    padding: 20,
+  },
+  modalHeader: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1F2937",
+  },
+  modalBody: {
+    paddingVertical: 16,
+  },
+  modalLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 32,
     gap: 12,
   },
-  flex1: {
-    flex: 1,
+  modalLoadingText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6B7280",
   },
-  fieldBlock: {
-    gap: 6,
-  },
-  fieldLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: TEXT_MUTED,
-    letterSpacing: 0.5,
-  },
-  input: {
+  ruleCard: {
     backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: TEXT_DARK,
-    fontSize: 13,
-    fontWeight: "750",
-  },
-  inputError: {
-    borderColor: PRIMARY_RED,
-    backgroundColor: "#FFF5F5",
-  },
-  errorText: {
-    color: PRIMARY_RED,
-    fontSize: 10,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  genderRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  genderBtn: {
-    flex: 1,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 10,
-    paddingVertical: 8,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  genderBtnActive: {
-    backgroundColor: PRIMARY_RED,
-    borderColor: PRIMARY_RED,
-  },
-  genderBtnText: {
-    color: TEXT_DARK,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  genderBtnTextActive: {
-    color: WHITE,
-  },
-  continueBtn: {
-    backgroundColor: PRIMARY_RED,
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
-    shadowColor: PRIMARY_RED,
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  continueBtnText: {
-    color: WHITE,
-    fontSize: 15,
-    fontWeight: "900",
-  },
-  clearBtn: {
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  clearBtnText: {
-    color: TEXT_MUTED,
-    fontWeight: "800",
-    fontSize: 13,
-  },
-  savedTravelersList: {
-    gap: 10,
-    marginTop: 8,
-  },
-  travelerItemCard: {
-    backgroundColor: WHITE,
-    borderRadius: 12,
     padding: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  travelerItemCardSelected: {
-    borderColor: PRIMARY_RED,
-    borderWidth: 1.5,
-    backgroundColor: "#FEF2F2",
-  },
-  radioWrapper: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  radioRing: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: "#CBD5E1",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: WHITE,
-  },
-  radioRingSelected: {
-    borderColor: PRIMARY_RED,
-  },
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: PRIMARY_RED,
-  },
-  travelerDetailsWrap: {
-    flex: 1,
-  },
-  travelerItemName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: TEXT_DARK,
-  },
-  travelerItemMeta: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: TEXT_MUTED,
-    marginTop: 2,
-  },
-  travelerItemPhone: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: TEXT_MUTED,
-    marginTop: 2,
-  },
-  addTravelerActionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: PRIMARY_RED,
-    backgroundColor: WHITE,
-    marginTop: 4,
-    gap: 6,
-  },
-  addTravelerActionBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: PRIMARY_RED,
-  },
-  loadingInlineCard: {
-    padding: 14,
-    alignItems: "center",
-  },
-  loadingInlineText: {
-    fontSize: 13,
-    color: TEXT_MUTED,
-  },
-  errorInlineCard: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 14,
-    backgroundColor: "#FEF2F2",
-    borderRadius: 10,
-    gap: 6,
-  },
-  errorInlineText: {
-    fontSize: 13,
-    color: PRIMARY_RED,
-    fontWeight: "600",
-  },
-  retryInlineBtn: {
-    backgroundColor: PRIMARY_RED,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 6,
-    marginTop: 4,
-  },
-  retryInlineBtnText: {
-    color: WHITE,
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  emptyStateCard: {
-    alignItems: "center",
-    padding: 16,
-    gap: 6,
-  },
-  emptyStateTitle: {
-    fontSize: 13,
-    color: TEXT_MUTED,
-  },
-  addNewTravelerCardBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: PRIMARY_RED,
-  },
-  addNewTravelerCardBtnText: {
-    color: PRIMARY_RED,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  pickerShell: {
-    backgroundColor: WHITE,
-    borderWidth: 1,
-    borderColor: BORDER,
     borderRadius: 12,
-    overflow: "hidden",
-    marginTop: 6,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginBottom: 12,
   },
-  pickerControl: {
-    color: TEXT_DARK,
-    width: "100%",
+  ruleSector: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1F2937",
+    marginBottom: 6,
+  },
+  ruleDetail: {
+    fontSize: 13,
+    color: "#374151",
+    lineHeight: 18,
+  },
+  noRulesText: {
+    fontSize: 13,
+    color: "#6B7280",
+    textAlign: "center",
+    paddingVertical: 20,
   },
 });

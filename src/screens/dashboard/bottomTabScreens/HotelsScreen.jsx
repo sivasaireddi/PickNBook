@@ -42,9 +42,11 @@ const HotelsScreen = () => {
   const { setSearchSession } = useHotelBooking();
 
   const [destinationInput, setDestinationInput] = useState("New Delhi (725862)");
-  const [checkInDate, setCheckInDate] = useState(new Date());
-  const [checkOutDate, setCheckOutDate] = useState(
+  const [checkInDate, setCheckInDate] = useState(
     new Date(Date.now() + 24 * 60 * 60 * 1000)
+  );
+  const [checkOutDate, setCheckOutDate] = useState(
+    new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
   );
 
   // Multi-room guests state

@@ -79,7 +79,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     executeBlockRoom();
   }, []);
 
-  const executeBlockRoom = async () => {
+  const executeBlockRoom = async (couponCodeToApply = couponCodeInput) => {
     setBlockingRooms(true);
     setBlockError("");
     try {
@@ -98,37 +98,47 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         NoOfRooms: selectedRoomSlots.length,
         ClientReferenceNo: Math.floor(Date.now() / 1000),
         IsVoucherBooking: false,
+        CouponCode: String(couponCodeToApply || "").trim(),
         HotelRoomsDetails: selectedRoomSlots,
       };
 
-      console.log("[HotelPassengerDetails] executing BlockRoom without passenger details:", blockRoomPayload);
+      console.log("[HotelPassengerDetails] executing BlockRoom with payload:", blockRoomPayload);
       const res = await blockHotelRoom(blockRoomPayload);
 
-      const blockResObj = res?.blockRoomResult || {};
+      const blockResObj = res?.BlockRoomResult || res?.blockRoomResult || res || {};
       setBlockedResultData(blockResObj);
       setBlockedRoomResult(blockResObj);
 
       // Extract new authoritative room details
-      const authoritativeRooms = blockResObj.hotelRoomsDetails || [];
+      const authoritativeRooms = blockResObj.HotelRoomsDetails || blockResObj.hotelRoomsDetails || [];
 
-      // Calculate total original vs total blocked price
-      const originalTotal = selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0);
-      const blockedTotal = authoritativeRooms.reduce((sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0), 0);
+      // Check coupon discount from BlockRoom response
+      const firstRoomPrice = authoritativeRooms[0]?.Price || authoritativeRooms[0]?.price || {};
+      const couponDiscountVal = Number(
+        firstRoomPrice.CouponDiscount ?? firstRoomPrice.couponDiscount ?? 0
+      );
 
-      if (blockResObj.isPriceChanged || (blockedTotal > 0 && Math.abs(blockedTotal - originalTotal) > 1)) {
-        setPriceChangeDetails({ oldPrice: originalTotal, newPrice: blockedTotal || originalTotal });
-        setShowPriceChangedModal(true);
+      if (couponCodeToApply && couponCodeToApply.trim()) {
+        if (couponDiscountVal > 0) {
+          setCouponMessage(`Coupon ${couponCodeToApply.trim().toUpperCase()} applied! Saved ${formatCurrency(couponDiscountVal)}`);
+        } else {
+          setCouponMessage("Invalid or expired coupon code.");
+        }
+      } else {
+        setCouponMessage("");
       }
 
-      // Initialize initial pricing preview
-      const previewRes = await getHotelPricingPreview({
-        TraceId: targetTraceId,
-        HotelCode: targetHotelCode,
-        BasePrice: blockedTotal || originalTotal,
-        CouponCode: null,
-      });
-      setPricingPreview(previewRes);
-      setContextPricingPreview(previewRes);
+      // Calculate total original vs total blocked price notice
+      const originalTotal = selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0);
+      const blockedB2CTotal = authoritativeRooms.reduce(
+        (sum, r) => sum + Number(r.price?.b2CTotalPrice || r.price?.B2CTotalPrice || r.price?.offeredPrice || r.offeredPrice || 0),
+        0
+      );
+
+      if (blockResObj.IsPriceChanged || blockResObj.isPriceChanged) {
+        setPriceChangeDetails({ oldPrice: originalTotal, newPrice: blockedB2CTotal || originalTotal });
+        setShowPriceChangedModal(true);
+      }
 
       // Initialize passenger state inputs matching room & guest configuration
       initPaxState(authoritativeRooms.length > 0 ? authoritativeRooms : selectedRoomSlots);
@@ -202,25 +212,8 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       return;
     }
     setValidatingCoupon(true);
-    setCouponMessage("");
     try {
-      const basePrice = pricingPreview?.basePrice || 0;
-      const res = await getHotelPricingPreview({
-        TraceId: targetTraceId,
-        HotelCode: targetHotelCode,
-        BasePrice: basePrice,
-        CouponCode: couponCodeInput.trim(),
-      });
-      setPricingPreview(res);
-      setContextPricingPreview(res);
-
-      if (res.couponDiscount > 0) {
-        setCouponMessage(`Coupon ${res.appliedCoupon} applied! ${formatCurrency(res.couponDiscount)} OFF`);
-      } else {
-        setCouponMessage("Invalid or inapplicable coupon code.");
-      }
-    } catch (err) {
-      setCouponMessage(err?.message || "Coupon calculation failed.");
+      await executeBlockRoom(couponCodeInput.trim());
     } finally {
       setValidatingCoupon(false);
     }
@@ -229,15 +222,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const handleRemoveCoupon = async () => {
     setCouponCodeInput("");
     setCouponMessage("");
-    const basePrice = pricingPreview?.basePrice || 0;
-    const res = await getHotelPricingPreview({
-      TraceId: targetTraceId,
-      HotelCode: targetHotelCode,
-      BasePrice: basePrice,
-      CouponCode: null,
-    });
-    setPricingPreview(res);
-    setContextPricingPreview(res);
+    await executeBlockRoom("");
   };
 
   const authoritativeRoomList = useMemo(() => {
@@ -287,6 +272,141 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     if (!agreedToTerms) return "Please accept the hotel booking policies before proceeding.";
     return "";
   }, [blockingRooms, blockError, authoritativeRoomList, roomGuestsConfig, paxState, agreedToTerms]);
+
+  const fareBreakdown = useMemo(() => {
+    const primaryRoom = authoritativeRoomList[0] || selectedRoomSlots[0] || {};
+    const priceObj = primaryRoom.price || primaryRoom.Price || {};
+
+    const roomPriceVal = Number(
+      priceObj.roomPrice ??
+        priceObj.RoomPrice ??
+        priceObj.b2CBasePrice ??
+        priceObj.B2CBasePrice ??
+        0
+    );
+
+    const base =
+      roomPriceVal ||
+      authoritativeRoomList.reduce(
+        (sum, r) =>
+          sum +
+          Number(
+            r.price?.roomPrice ??
+              r.price?.RoomPrice ??
+              r.price?.b2CBasePrice ??
+              r.price?.B2CBasePrice ??
+              r.roomPrice ??
+              r.offeredPrice ??
+              0
+          ),
+        0
+      ) ||
+      selectedRoomSlots.reduce(
+        (sum, s) =>
+          sum +
+          Number(
+            s.price?.roomPrice ??
+              s.price?.RoomPrice ??
+              s.price?.b2CBasePrice ??
+              s.price?.B2CBasePrice ??
+              s.roomPrice ??
+              s.offeredPrice ??
+              0
+          ),
+        0
+      );
+
+    const gst =
+      Number(
+        priceObj.totalGSTAmount ??
+          priceObj.TotalGSTAmount ??
+          priceObj.tax ??
+          priceObj.Tax ??
+          0
+      ) ||
+      authoritativeRoomList.reduce(
+        (sum, r) =>
+          sum +
+          Number(
+            r.price?.totalGSTAmount ??
+              r.price?.TotalGSTAmount ??
+              r.price?.tax ??
+              r.price?.Tax ??
+              0
+          ),
+        0
+      ) ||
+      0;
+
+    const convenienceFee =
+      Number(priceObj.otherCharges ?? priceObj.OtherCharges ?? 0) ||
+      authoritativeRoomList.reduce(
+        (sum, r) =>
+          sum + Number(r.price?.otherCharges ?? r.price?.OtherCharges ?? 0),
+        0
+      ) ||
+      0;
+
+    const discount =
+      Number(
+        priceObj.couponDiscount ??
+          priceObj.CouponDiscount ??
+          priceObj.discount ??
+          priceObj.Discount ??
+          0
+      ) ||
+      authoritativeRoomList.reduce(
+        (sum, r) =>
+          sum +
+          Number(
+            r.price?.couponDiscount ??
+              r.price?.CouponDiscount ??
+              r.price?.discount ??
+              r.price?.Discount ??
+              0
+          ),
+        0
+      ) ||
+      0;
+
+    const b2cTotal = Number(
+      priceObj.b2CTotalPrice ??
+        priceObj.b2cTotalPrice ??
+        priceObj.B2CTotalPrice ??
+        0
+    );
+
+    const total =
+      b2cTotal ||
+      authoritativeRoomList.reduce(
+        (sum, r) =>
+          sum +
+          Number(
+            r.price?.b2CTotalPrice ??
+              r.price?.b2cTotalPrice ??
+              r.price?.B2CTotalPrice ??
+              r.price?.offeredPrice ??
+              r.offeredPrice ??
+              0
+          ),
+        0
+      ) ||
+      selectedRoomSlots.reduce(
+        (sum, s) =>
+          sum +
+          Number(
+            s.price?.b2CTotalPrice ??
+              s.price?.b2cTotalPrice ??
+              s.price?.B2CTotalPrice ??
+              s.price?.offeredPrice ??
+              s.offeredPrice ??
+              0
+          ),
+        0
+      );
+
+    return { base, gst, convenienceFee, discount, total };
+  }, [authoritativeRoomList, selectedRoomSlots]);
 
   const handleBookRoom = async () => {
     if (validationError) {
@@ -566,12 +686,11 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
         {/* Live Fare Breakdown */}
         <FareSummaryCard
-          roomPrice={
-            pricingPreview?.basePrice ||
-            authoritativeRoomList.reduce((sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0), 0) ||
-            selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0)
-          }
-          discount={pricingPreview?.couponDiscount || 0}
+          basePrice={fareBreakdown.base}
+          gst={fareBreakdown.gst}
+          convenienceFee={fareBreakdown.convenienceFee}
+          discount={fareBreakdown.discount}
+          totalPrice={fareBreakdown.total}
         />
       </ScrollView>
 
@@ -606,12 +725,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           <View style={styles.footerPriceBox}>
             <Text style={styles.footerPriceLabel}>TOTAL PAYABLE</Text>
             <Text style={styles.footerPriceValue}>
-              {formatCurrency(
-                pricingPreview?.totalPrice ||
-                pricingPreview?.basePrice ||
-                authoritativeRoomList.reduce((sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0), 0) ||
-                selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0)
-              )}
+              {formatCurrency(fareBreakdown.total)}
             </Text>
           </View>
           <Pressable

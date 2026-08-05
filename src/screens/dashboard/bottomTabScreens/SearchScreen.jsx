@@ -14,6 +14,7 @@ import {
 import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import RedDatePickerModal from "../../../components/RedDatePickerModal";
 
 const trips = [
   { label: "One Way", value: "oneway" },
@@ -139,20 +140,6 @@ export default function SearchScreen({ navigation, route }) {
   };
 
   const openDate = () => {
-    if (Platform.OS === "android") {
-      DateTimePickerAndroid.open({
-        value: departureDate,
-        mode: "date",
-        display: "calendar",
-        onChange: (event, selectedDate) => {
-          if (event.type !== "set" || !selectedDate) return;
-          const next = normalize(selectedDate);
-          setDepartureDate(next);
-          setDraftDate(next);
-        },
-      });
-      return;
-    }
     setDraftDate(departureDate);
     setShowDate(true);
   };
@@ -570,97 +557,18 @@ export default function SearchScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      {Platform.OS !== "android" && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showDate}
-          onRequestClose={() => setShowDate(false)}
-        >
-          <View style={styles.modalBg}>
-            <View style={styles.modal}>
-              <Text style={styles.modalTitle}>Select departure date</Text>
-              <Text style={styles.modalSub}>{fmt(draftDate)}</Text>
-              <View style={[styles.pickers, compact && styles.column]}>
-                <View style={styles.pickCol}>
-                  <Text style={styles.pickLabel}>Month</Text>
-                  <View style={styles.pickWrap}>
-                    <Picker
-                      selectedValue={draftDate.getMonth()}
-                      onValueChange={(v) => editDraft("month", v)}
-                    >
-                      {months.map((m, i) => (
-                        <Picker.Item key={m} label={m} value={i} />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-                <View style={styles.pickCol}>
-                  <Text style={styles.pickLabel}>Day</Text>
-                  <View style={styles.pickWrap}>
-                    <Picker
-                      selectedValue={draftDate.getDate()}
-                      onValueChange={(v) => editDraft("day", v)}
-                    >
-                      {Array.from(
-                        {
-                          length: daysInMonth(
-                            draftDate.getFullYear(),
-                            draftDate.getMonth(),
-                          ),
-                        },
-                        (_, i) => i + 1,
-                      ).map((day) => (
-                        <Picker.Item
-                          key={`day-${day}`}
-                          label={`${day}`}
-                          value={day}
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-                <View style={styles.pickCol}>
-                  <Text style={styles.pickLabel}>Year</Text>
-                  <View style={styles.pickWrap}>
-                    <Picker
-                      selectedValue={draftDate.getFullYear()}
-                      onValueChange={(v) => editDraft("year", v)}
-                    >
-                      {years.map((year) => (
-                        <Picker.Item
-                          key={`year-${year}`}
-                          label={`${year}`}
-                          value={year}
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-              </View>
-              <View style={styles.actions}>
-                <TouchableOpacity
-                  style={styles.btnAlt}
-                  onPress={() => setShowDate(false)}
-                  activeOpacity={0.88}
-                >
-                  <Text style={styles.btnAltText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.btn}
-                  onPress={() => {
-                    setDepartureDate(draftDate);
-                    setShowDate(false);
-                  }}
-                  activeOpacity={0.9}
-                >
-                  <Text style={styles.btnText}>Apply</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      )}
+      <RedDatePickerModal
+        visible={showDate}
+        value={departureDate}
+        minimumDate={new Date()}
+        onConfirm={(selectedDate) => {
+          const next = normalize(selectedDate);
+          setDepartureDate(next);
+          setDraftDate(next);
+          setShowDate(false);
+        }}
+        onCancel={() => setShowDate(false)}
+      />
     </>
   );
 }
