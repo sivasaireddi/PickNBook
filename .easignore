@@ -1,0 +1,7 @@
+# Ignore local native directories so EAS performs a clean cloud prebuild
+android/
+ios/
+.expo/
+dist/
+web-build/
+node_modules/

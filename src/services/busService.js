@@ -555,21 +555,39 @@ export async function blockSeats(payload) {
 }
 
 /**
- * Book seats via POST /api/BusBookings/{busId}/book (with auth header)
+ * Option B: Book seats via POST /api/BusBookings/book (with auth header)
  */
-export async function bookSeats(busId, payload, authToken) {
+export async function bookSeats(arg1, arg2, arg3) {
   try {
-    console.log(`[BusService] bookSeats Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/${busId}/book`);
+    let payload = arg1;
+    let authToken = arg2;
+    if (typeof arg1 === "number" || typeof arg1 === "string") {
+      payload = arg2;
+      authToken = arg3;
+    }
+
+    // Strip out markupAmount from seats if present
+    if (payload && Array.isArray(payload.seats)) {
+      payload.seats = payload.seats.map((s) => {
+        if (typeof s === "object" && s !== null) {
+          const { markupAmount, MarkupAmount, ...rest } = s;
+          return rest;
+        }
+        return s;
+      });
+    }
+
+    console.log(`[BusService] bookSeats Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/book`);
     console.log("[BusService] bookSeats calling API via Axios", {
       baseURL: BASE_URL,
-      url: `/api/BusBookings/${busId}/book`,
+      url: "/api/BusBookings/book",
       payload,
     });
 
     const token = authToken || (await getStoredAuthToken());
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-    const response = await client.post(`/api/BusBookings/${busId}/book`, payload, {
+    const response = await client.post("/api/BusBookings/book", payload, {
       headers,
     });
     console.log("[BusService] bookSeats response status:", response?.status);
@@ -682,16 +700,26 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
 }
 
 /**
- * Pricing Preview via POST /api/BusBookings/{busId}/pricing-preview
- * Step 4 of End-to-End Bus Booking flow.
+ * Option B: Pricing Preview via POST /api/BusBookings/pricing-preview
  */
-export async function getPricingPreview(busId, payload) {
+export async function getPricingPreview(arg1, arg2) {
   try {
-    const cleanId = String(busId || "").trim();
-    console.log(`[BusService] getPricingPreview Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/${cleanId}/pricing-preview`);
+    const payload = typeof arg1 === "object" && arg1 !== null ? arg1 : arg2;
+
+    // Strip out markupAmount from seats array
+    if (payload && Array.isArray(payload.seats)) {
+      payload.seats = payload.seats.map((s) => ({
+        seatCode: String(s.seatCode || ""),
+        seatType: String(s.seatType || "Seater"),
+        baseFare: Number(s.baseFare || 0),
+        externalGst: Number(s.externalGst || 0),
+      }));
+    }
+
+    console.log(`[BusService] getPricingPreview Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/pricing-preview`);
     console.log("[BusService] getPricingPreview payload:", JSON.stringify(payload, null, 2));
 
-    const response = await client.post(`/api/BusBookings/${cleanId}/pricing-preview`, payload);
+    const response = await client.post("/api/BusBookings/pricing-preview", payload);
     console.log("[BusService] getPricingPreview response status:", response?.status);
     console.log("[BusService] getPricingPreview response data:", JSON.stringify(response?.data, null, 2));
     return response.data;

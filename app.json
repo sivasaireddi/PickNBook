@@ -52,7 +52,9 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow PickNbook to access your location even in the background.",
           "locationAlwaysPermission": "Allow PickNbook to access your location always.",
-          "locationWhenInUsePermission": "Allow PickNbook to access your location while using the app."
+          "locationWhenInUsePermission": "Allow PickNbook to access your location while using the app.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ]
     ],

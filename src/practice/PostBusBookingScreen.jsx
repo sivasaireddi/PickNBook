@@ -36,15 +36,9 @@ const BASE_URL =
 
 const COUPONS_API_URL = `${BASE_URL}/api/busbookings/user/available`;
 
-const PRICING_PREVIEW_API_URL = (busId) =>
-  `${BASE_URL}/api/BusBookings/${encodeURIComponent(
-    String(busId)
-  )}/pricing-preview`;
+const PRICING_PREVIEW_API_URL = `${BASE_URL}/api/BusBookings/pricing-preview`;
 
-const BOOKING_API_URL = (busId) =>
-  `${BASE_URL}/api/BusBookings/${encodeURIComponent(
-    String(busId)
-  )}/book`;
+const BOOKING_API_URL = `${BASE_URL}/api/BusBookings/book`;
 
 const SEATS_API_URL = (busId) =>
   `${BASE_URL}/api/BusBookings/${encodeURIComponent(
@@ -563,8 +557,10 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   const busId = normalizeIdValue(route?.params?.busId) ?? 11;
 
   const idProofRequired = Boolean(
-    route?.params?.bus?.idProofRequired ??
+    route?.params?.bus?.isIdProofRequired ??
+      route?.params?.bus?.idProofRequired ??
       route?.params?.bus?.IdProofRequired ??
+      route?.params?.isIdProofRequired ??
       route?.params?.idProofRequired ??
       route?.params?.IdProofRequired ??
       false
@@ -806,23 +802,38 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         });
       }
 
+      const busObj = route?.params?.bus || {};
+      const fromCity = String(busObj.fromCity ?? busObj.from ?? route?.params?.from ?? route?.params?.sourceCity ?? "");
+      const toCity = String(busObj.toCity ?? busObj.to ?? route?.params?.to ?? route?.params?.destinationCity ?? "");
+      const departureTime = String(busObj.departureTimeUtc ?? busObj.departureTime ?? busObj.DepartureTime ?? route?.params?.departureTime ?? route?.params?.dateValue ?? "");
+      const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
+      const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
+      const totalFare = Number(busObj.priceInr ?? busObj.price ?? busObj.b2cDisplayFare ?? 0);
+      const traceId = String(route?.params?.traceId ?? busObj.traceId ?? "");
+
       const seatsPayload = finalSeats.map((s) => ({
         seatCode: String(s.seatCode),
-        seatType: String(s.seatType),
-        baseFare: Number(s.baseFare),
-        externalGst: Number(s.externalGst),
+        seatType: String(s.seatType || "Seater"),
+        baseFare: Number(s.baseFare || 0),
+        externalGst: Number(s.externalGst || 0),
       }));
 
       const requestPayload = {
-        traceId: String(route?.params?.traceId ?? route?.params?.bus?.traceId ?? ""),
-        seats: seatsPayload,
+        traceId,
         couponCode: couponCode || null,
+        selectedFeaturedOfferId: normalizeIdValue(route?.params?.selectedFeaturedOfferId) ?? null,
+        fromCity,
+        toCity,
+        departureTime,
+        operatorName,
+        busType,
+        totalFare,
+        seats: seatsPayload,
       };
 
-      console.log("[PostBusBookingScreen] Fetching pricing preview for busId:", busId);
-      console.log("[PostBusBookingScreen] Pricing preview payload:", JSON.stringify(requestPayload, null, 2));
+      console.log("[PostBusBookingScreen] Fetching pricing preview payload:", JSON.stringify(requestPayload, null, 2));
 
-      const apiData = await getPricingPreview(busId, requestPayload);
+      const apiData = await getPricingPreview(requestPayload);
       const pricingPayload = extractPricingPayload(apiData) || apiData;
 
       console.log("[PostBusBookingScreen] Resolved Pricing Payload:", pricingPayload);
@@ -1360,102 +1371,87 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                        blockResponse?.srdvBookingId ?? 
                        blockResponse?.Result?.SrdvBookingId ?? "";
 
-      // 2. Build Book payload (gender as string, containing block key)
-      const bookPassengers = normalizedPassengers.map((p) => ({
-        fullName: p.fullName,
-        fullName: p.fullName,
-        title: p.title,
-        Title: p.title,
-        firstName: p.firstName,
-        FirstName: p.firstName,
-        lastName: p.lastName,
-        LastName: p.lastName,
-        age: p.age,
-        Age: p.age,
-        gender: p.genderStr,
-        Gender: p.genderStr,
-        seatName: p.seatName,
-        SeatName: p.seatName,
-        seatNumber: p.seatNumber,
-        SeatNumber: p.seatNumber,
-        fare: p.fare,
-        Fare: p.fare,
-        baseFare: p.baseFare,
-        BaseFare: p.baseFare,
-        seatType: p.seatType,
-        SeatType: p.seatType,
-        externalGst: p.externalGst,
-        ExternalGst: p.externalGst,
-        contactNo: p.contactNo,
-        ContactNo: p.contactNo,
-        passengerPhone: p.contactNo,
-        PassengerPhone: p.contactNo,
-        email: p.email,
-        Email: p.email,
-        passengerEmail: p.email,
-        PassengerEmail: p.email,
-        address: p.address,
-        Address: p.address,
-        city: p.city,
-        City: p.city,
-        state: p.state,
-        State: p.state,
-      }));
+      // 2. Option B Book payload construction
+      const busObj = route?.params?.bus || {};
+      const routeId = String(busObj.routeId ?? busObj.RouteId ?? route?.params?.routeId ?? "");
+      const fromCity = String(busObj.fromCity ?? busObj.from ?? route?.params?.from ?? route?.params?.sourceCity ?? "");
+      const toCity = String(busObj.toCity ?? busObj.to ?? route?.params?.to ?? route?.params?.destinationCity ?? "");
+      const departureTime = String(busObj.departureTimeUtc ?? busObj.departureTime ?? busObj.DepartureTime ?? route?.params?.departureTime ?? route?.params?.dateValue ?? "");
+      const arrivalTime = String(busObj.arrivalTimeUtc ?? busObj.arrivalTime ?? busObj.ArrivalTime ?? route?.params?.arrivalTime ?? "");
+      const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
+      const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
+      const totalFare = Number(fareSummary.grandTotal || busObj.priceInr || 0);
+      const srdvBlockKey = String(blockKey || "");
+
+      const bookPassengers = normalizedPassengers.map((p) => {
+        const passengerObj = {
+          fullName: p.fullName,
+          title: p.title,
+          firstName: p.firstName,
+          lastName: p.lastName,
+          age: Number(p.age) || 25,
+          gender: p.genderStr,
+          seatName: p.seatName,
+          seatNumber: p.seatNumber,
+          fare: p.fare,
+          baseFare: p.baseFare,
+          seatType: p.seatType,
+          externalGst: p.externalGst,
+          contactNo: p.contactNo,
+          email: p.email,
+          address: p.address,
+          city: p.city,
+          state: p.state,
+        };
+
+        if (idProofRequired) {
+          passengerObj.idType = "Aadhar Card";
+          passengerObj.idNumber = String(p.idNumber || "").trim();
+        }
+
+        return passengerObj;
+      });
 
       const bookRequestBody = {
-        traceId,
-        TraceId: traceId,
-        resultIndex,
-        ResultIndex: resultIndex,
-        srdvIndex: Number(bus.srdvIndex ?? 0),
-        SrdvIndex: Number(bus.srdvIndex ?? 0),
-        boardingPointId,
-        BoardingPointId: boardingPointId,
-        boardingPointName,
-        BoardingPointName: boardingPointName,
-        boardingPointTime,
-        BoardingPointTime: boardingPointTime,
-        droppingPointId,
-        DroppingPointId: droppingPointId,
-        droppingPointName,
-        DroppingPointName: droppingPointName,
-        droppingPointTime,
-        DroppingPointTime: droppingPointTime,
-        passengerName: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
-        PassengerName: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
-        passengerPhone: passengerPhone.trim(),
-        PassengerPhone: passengerPhone.trim(),
-        passengerEmail: passengerEmail.trim(),
-        PassengerEmail: passengerEmail.trim(),
-        paymentMethod: "Razorpay",
-        PaymentMethod: "Razorpay",
+        routeId,
+        traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
+        srdvBlockKey,
+        blockKey: srdvBlockKey,
+        fromCity,
+        toCity,
+        departureTime,
+        arrivalTime,
+        operatorName,
+        busType,
+        isIdProofRequired: idProofRequired,
+        totalFare,
         couponCode: couponCode || null,
-        CouponCode: couponCode || null,
+        boardingPointId,
+        boardingPointName,
+        boardingPointTime,
+        droppingPointId,
+        droppingPointName,
+        droppingPointTime,
+        passengerName: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
+        passengerPhone: passengerPhone.trim(),
+        passengerEmail: passengerEmail.trim(),
+        contactNo: passengerPhone.trim(),
+        email: passengerEmail.trim(),
+        paymentMethod: "Razorpay",
         selectedSeats: selectedSeatCodes,
-        SelectedSeats: selectedSeatCodes,
-        seats: selectedSeatCodes?.length || 1,
-        Seats: selectedSeatCodes?.length || 1,
         passengers: bookPassengers,
-        Passengers: bookPassengers,
-        
-        // Pass block keys to resolve booking session
-        blockKey: blockKey,
-        BlockKey: blockKey,
-        srdvBookingId: blockKey,
-        SrdvBookingId: blockKey,
-        bookingId: blockKey,
-        BookingId: blockKey,
+        srdvBookingId: srdvBlockKey,
+        bookingId: srdvBlockKey,
       };
 
       const finalBookRequestBody = {
         ...bookRequestBody,
         request: bookRequestBody,
-        Request: bookRequestBody,
       };
 
-      // 3. Book Seats
+      // 3. Book Seats via Option B endpoint
       console.log("[PostBusBookingScreen] Booking seats with payload:", JSON.stringify(finalBookRequestBody, null, 2));
-      const bookResponse = await bookSeats(busId, finalBookRequestBody, authToken);
+      const bookResponse = await bookSeats(finalBookRequestBody, authToken);
       console.log("[PostBusBookingScreen] Booking success:", bookResponse);
 
       const bookingDetails = buildBookingDetailsPayload({

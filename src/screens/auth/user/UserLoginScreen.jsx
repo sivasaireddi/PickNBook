@@ -675,21 +675,24 @@ const UserLoginScreen = ({ navigation }) => {
                 </Animated.View>
               </Animated.View>
 
-              {/* Commented out navigation links per strict requirements
-              <View style={styles.links}>
+              {/* Navigation Links to Forgot Password & Create Account */}
+              <View style={styles.authLinksContainer}>
                 <TouchableOpacity
                   onPress={() => navigation.navigate("ForgotPassword")}
+                  activeOpacity={0.7}
                 >
-                  <Text>Forgot Password</Text>
+                  <Text style={styles.authLinkText}>Forgot Password?</Text>
                 </TouchableOpacity>
- 
+
+                <View style={styles.authDotSeparator} />
+
                 <TouchableOpacity
                   onPress={() => navigation.navigate("CreateAccount")}
+                  activeOpacity={0.7}
                 >
-                  <Text>Create Account</Text>
+                  <Text style={styles.authLinkTextBold}>Create Account</Text>
                 </TouchableOpacity>
               </View>
-              */}
             </Animated.View>
           </ScrollView>
         </TouchableWithoutFeedback>
@@ -960,5 +963,28 @@ const styles = StyleSheet.create({
   },
   message: {
     fontSize: 13,
+  },
+  authLinksContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 22,
+    gap: 12,
+  },
+  authLinkText: {
+    color: "#64748B",
+    fontSize: 13.5,
+    fontWeight: "600",
+  },
+  authDotSeparator: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#94A3B8",
+  },
+  authLinkTextBold: {
+    color: "#D11A2A",
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

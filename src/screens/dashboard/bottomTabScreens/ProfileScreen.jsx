@@ -418,6 +418,42 @@ const ProfileScreen = () => {
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          {/* Create Account Screen Shortcut */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('CreateAccount')}
+          >
+            <View style={[styles.iconBox, { backgroundColor: '#FEF2F2' }]}>
+              <Ionicons name="person-add-outline" size={22} color="#E53935" />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={styles.menuTitle}>Create Account</Text>
+              <Text style={styles.menuSubtitle}>Register a new user account</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          {/* Sign In Screen Shortcut */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('Login')}
+          >
+            <View style={[styles.iconBox, { backgroundColor: '#EFF6FF' }]}>
+              <Ionicons name="log-in-outline" size={22} color="#2563EB" />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={styles.menuTitle}>Sign In / Login</Text>
+              <Text style={styles.menuSubtitle}>Access your account with credentials</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
         </View>
 
         {/* Logout Button Card */}
