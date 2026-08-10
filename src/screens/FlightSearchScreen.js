@@ -74,6 +74,11 @@ export default function FlightSearchScreen({ navigation }) {
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 1: FLIGHT SEARCH SCREEN MOUNTED]");
+    console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+    console.log("================================================================================");
+
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -107,15 +112,19 @@ export default function FlightSearchScreen({ navigation }) {
     if (selectedDate) {
       if (datePickerMode === "multicity") {
         updateMultiCitySegment(datePickerSegIndex, "date", selectedDate);
+        console.log(`[FlightSearchScreen] Multi-city segment ${datePickerSegIndex} date updated:`, selectedDate);
       } else if (datePickerMode === "departure") {
         setDepartureDate(selectedDate);
+        console.log("[FlightSearchScreen] Departure date updated:", selectedDate.toISOString().slice(0, 10));
         if (returnDate && selectedDate > returnDate) {
           const nextDay = new Date(selectedDate);
           nextDay.setDate(nextDay.getDate() + 1);
           setReturnDate(nextDay);
+          console.log("[FlightSearchScreen] Return date adjusted to:", nextDay.toISOString().slice(0, 10));
         }
       } else {
         setReturnDate(selectedDate);
+        console.log("[FlightSearchScreen] Return date updated:", selectedDate.toISOString().slice(0, 10));
       }
     }
   };
@@ -128,6 +137,7 @@ export default function FlightSearchScreen({ navigation }) {
   const handleOpenReturnDate = useCallback(() => {
     if (tripType === "oneway") {
       setTripType("roundtrip");
+      console.log("[FlightSearchScreen] Trip type automatically switched to roundtrip");
     }
     setDatePickerMode("return");
     setShowDatePicker(true);
@@ -142,7 +152,12 @@ export default function FlightSearchScreen({ navigation }) {
   // Search Submission
   const handleSearchFlights = async () => {
     const { isValid, message } = validate();
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 1: VALIDATING SEARCH PARAMETERS]");
+    console.log(`[FlightSearchScreen] Validation Result: ${isValid ? "VALID ✅" : "INVALID ❌"}`);
     if (!isValid) {
+      console.warn(`[FlightSearchScreen] Validation Error: ${message}`);
+      console.log("================================================================================");
       showToast(message || "Please check your search parameters.");
       return;
     }
@@ -186,19 +201,18 @@ export default function FlightSearchScreen({ navigation }) {
         ...(isMultiCity ? { segments: formattedSegments } : {}),
       };
 
-      console.log("\n==========================================");
-      console.log("✈️ [FLIGHT BOOKING FLOW - STEP 1: SEARCH]");
-      console.log("[FlightSearchScreen] User submitted search form parameters:");
-      console.log(JSON.stringify(searchParams, null, 2));
-      console.log("==========================================\n");
+      console.log("--------------------------------------------------------------------------------");
+      console.log("✈️ [FLIGHT BOOKING FLOW - STEP 1: SUBMITTING SEARCH]");
+      console.log("[FlightSearchScreen] Search Parameters:", JSON.stringify(searchParams, null, 2));
+      console.log("--------------------------------------------------------------------------------");
 
       let fetchedFlights = [];
       try {
-        console.log("[FlightSearchScreen] Invoking /api/flight/srdv/Search...");
+        console.log("[FlightSearchScreen] Requesting /api/flight/srdv/Search API...");
         fetchedFlights = await searchFlights(searchParams);
-        console.log(`[FlightSearchScreen] Search successful! Retrieved ${fetchedFlights?.length || 0} flights.`);
+        console.log(`[FlightSearchScreen] Search API Success! Returned ${fetchedFlights?.length || 0} flight results.`);
       } catch (apiErr) {
-        console.warn("[FlightSearchScreen] Search API warning/error:", apiErr?.message);
+        console.warn("[FlightSearchScreen] Search API call warning:", apiErr?.message);
       }
 
       const searchTraceId = fetchedFlights?.[0]?.traceId || fetchedFlights?.[0]?.TraceId || fetchedFlights?.traceId;
@@ -212,12 +226,17 @@ export default function FlightSearchScreen({ navigation }) {
         ...searchParams,
       };
 
+      console.log(`[FlightSearchScreen] Trace ID assigned: ${searchTraceId || "N/A"}`);
+      console.log("[FlightSearchScreen] Navigating to FlightListingScreen with search results...");
+      console.log("================================================================================");
+
       if (navigation && typeof navigation.navigate === "function") {
         navigation.navigate("FlightListingScreen", navPayload);
       } else {
-        console.log("[FlightSearchScreen] Navigating to FlightListingScreen with payload:", navPayload);
+        console.log("[FlightSearchScreen] Navigation object unavailable. Payload:", navPayload);
       }
     } catch (err) {
+      console.error("[FlightSearchScreen] Search submission failed:", err?.message);
       showToast(err?.message || "Failed to process search.");
     } finally {
       setSearching(false);

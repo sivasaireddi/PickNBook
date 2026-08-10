@@ -30,13 +30,13 @@ import DriverIndicator from "../components/busSeats/DriverIndicator";
 import SeatBottomSheet from "../components/busSeats/SeatBottomSheet";
 
 const DEFAULT_BUS_ID = 658;
-const SLEEPER_W = 38;
-const SLEEPER_H = 90;
-const SEATER_H = 40;
-const CELL_GAP = 6;
-const ROW_GAP = 10;
-const AISLE_W = 16;
-const CARD_PADDING = 12;
+const SLEEPER_W = 33;
+const SLEEPER_H = 79;
+const SEATER_H = 35;
+const CELL_GAP = 5;
+const ROW_GAP = 9;
+const AISLE_W = 12;
+const CARD_PADDING = 10;
 
 const normalizeAmount = (value) => {
   const amount = Number(value);
@@ -67,10 +67,10 @@ const getSeatPrice = (seat, layoutPrice) =>
 const buildDeckData = (layout) => {
   const seatDefinitions = Array.isArray(layout?.seatDefinitions) &&
     layout.seatDefinitions.length > 0
-      ? layout.seatDefinitions
-      : Array.isArray(layout?.seats)
-        ? layout.seats
-        : [];
+    ? layout.seatDefinitions
+    : Array.isArray(layout?.seats)
+      ? layout.seats
+      : [];
 
   const grouped = seatDefinitions.reduce((acc, def) => {
     const deckKey = getSeatDeckKey(def);
@@ -148,11 +148,24 @@ const DeckCard = memo(
       };
     }, [seats, deck.aisleAfterGridRow]);
 
+    const actualCardWidth = useMemo(() => {
+      let maxCol = 0;
+      seats.forEach((s) => {
+        const rawGridRow = s.gridRow ?? 0;
+        const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
+        if (mappedCol > maxCol) maxCol = mappedCol;
+      });
+
+      const cellW = SLEEPER_W + CELL_GAP;
+      const aisleOff = hasAisle && maxCol > 1 ? AISLE_W : 0;
+      return CARD_PADDING + (maxCol + 1) * cellW - CELL_GAP + aisleOff + CARD_PADDING + 6;
+    }, [seats, columnMap, hasAisle]);
+
     const cellW = SLEEPER_W + CELL_GAP;
-    const cellH = (40 + ROW_GAP);
+    const cellH = SEATER_H + ROW_GAP;
 
     return (
-      <View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, { width: cardWidth }]}>
+      <View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, { width: actualCardWidth }]}>
         <DeckHeader title={deck.title} />
         {deck.isLower && <DriverIndicator />}
         <View style={styles.cabinDivider} />
@@ -349,14 +362,14 @@ const Sleeper = ({ navigation, route }) => {
             </ScrollView>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalDecksContainer}>
+          <View style={styles.decksRowContainer}>
             {lowerDeckData && (
-              <DeckCard deck={lowerDeckData} onPressSeat={handlePressSeat} seatMap={seatMap} selectedSeatSet={selectedSeatSet} selectedPrice={selectedPrice} layoutPrice={layout?.priceInr} cardWidth={unifiedCardWidth} cardCanvasHeight={unifiedCanvasHeight} />
+              <DeckCard deck={lowerDeckData} onPressSeat={handlePressSeat} seatMap={seatMap} selectedSeatSet={selectedSeatSet} selectedPrice={selectedPrice} layoutPrice={layout?.priceInr} cardCanvasHeight={unifiedCanvasHeight} />
             )}
             {upperDeckData && (
-              <DeckCard deck={upperDeckData} onPressSeat={handlePressSeat} seatMap={seatMap} selectedSeatSet={selectedSeatSet} selectedPrice={selectedPrice} layoutPrice={layout?.priceInr} cardWidth={unifiedCardWidth} cardCanvasHeight={unifiedCanvasHeight} />
+              <DeckCard deck={upperDeckData} onPressSeat={handlePressSeat} seatMap={seatMap} selectedSeatSet={selectedSeatSet} selectedPrice={selectedPrice} layoutPrice={layout?.priceInr} cardCanvasHeight={unifiedCanvasHeight} />
             )}
-          </ScrollView>
+          </View>
         </ScrollView>
 
         <SeatBottomSheet selectedSeats={selectedSeats} totalPrice={totalPrice} onNext={handleNext} disabled={selectedSeats.length === 0} insets={insets} />
@@ -382,7 +395,7 @@ const styles = StyleSheet.create({
   priceChipPressed: { opacity: 0.85 },
   priceChipText: { color: BUS_SEAT_COLORS.textSecondary, fontSize: moderateScale(11.5), fontWeight: "600" },
   priceChipTextActive: { color: BUS_SEAT_COLORS.primaryRed, fontWeight: "700" },
-  horizontalDecksContainer: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 16, gap: 16, alignItems: "flex-start" },
-  deckCard: { backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "rgba(240, 77, 77, 0.22)", padding: CARD_PADDING, position: "relative" },
+  decksRowContainer: { flexDirection: "row", paddingHorizontal: 12, paddingTop: 4, paddingBottom: 16, gap: 12, width: "100%", justifyContent: "center" },
+  deckCard: { backgroundColor: "#FFFFFF", borderRadius: 14, borderWidth: 1, borderColor: "rgba(240, 77, 77, 0.22)", padding: CARD_PADDING, position: "relative" },
   cabinDivider: { height: 1, backgroundColor: "#F3F4F6", marginVertical: 4 },
 });

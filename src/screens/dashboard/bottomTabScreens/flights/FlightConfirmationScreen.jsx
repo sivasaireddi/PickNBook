@@ -30,16 +30,19 @@ export default function FlightConfirmationScreen({ route, navigation }) {
   const isPending = String(flowState.ticketStatus || "").toLowerCase().includes("pending");
 
   useEffect(() => {
-    console.log("\n==========================================");
-    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 6: CONFIRMATION]");
-    console.log("[FlightConfirmationScreen] Confirmed Booking Summary:", {
-      bookingId: flowState.bookingId || flowState.bookingReference,
-      pnr: flowState.pnr,
-      status: flowState.ticketStatus,
-      payableAmount: flowState.payableAmount,
-      passengersCount: flowState.passengers?.length,
-    });
-    console.log("==========================================\n");
+    console.log("================================================================================");
+    console.log("🎉 [FLIGHT BOOKING FLOW - STEP 6: BOOKING CONFIRMATION & E-TICKET]");
+    console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+    console.log(`🆔 Booking ID / Reference: ${flowState.bookingId || flowState.bookingReference || "N/A"}`);
+    console.log(`✈️ Airline PNR: ${flowState.pnr || "N/A"}`);
+    console.log(`📋 Ticket Status: ${flowState.ticketStatus || "Confirmed"}`);
+    console.log(`💵 Total Amount Paid: ₹${flowState.payableAmount || flowState.fareSummary?.totalFare || 0}`);
+    console.log(`🛫 Flight Details: ${flowState.flight?.airline || flowState.flight?.airlineName} (${flowState.flight?.flightNumber || flowState.flight?.flightNo || ""})`);
+    console.log(`📍 Route: ${flowState.flight?.from || flowState.searchContext?.from} ✈️ ${flowState.flight?.to || flowState.searchContext?.to}`);
+    console.log(`👥 Passengers (${flowState.passengers?.length || 0}):`, JSON.stringify(flowState.passengers, null, 2));
+    console.log(`💺 Selected Seats: ${flowState.selectedSeatLabels ? flowState.selectedSeatLabels.join(", ") : "Auto-assigned"}`);
+    console.log(`📧 Contact Email: ${flowState.contact?.email || "N/A"} | Mobile: ${flowState.contact?.mobile || "N/A"}`);
+    console.log("================================================================================");
 
     Animated.parallel([
       Animated.spring(checkmarkScale, {
@@ -57,10 +60,12 @@ export default function FlightConfirmationScreen({ route, navigation }) {
   }, []);
 
   const handleDownload = () => {
+    console.log(`[FlightConfirmationScreen] User clicked Download E-Ticket. PNR: ${flowState.pnr || "N/A"}`);
     Alert.alert("E-Ticket Download", "Your ticket PDF is downloading. PNR: " + (flowState.pnr || "N/A"));
   };
 
   const handleEmail = () => {
+    console.log(`[FlightConfirmationScreen] User clicked Email E-Ticket. Sending to: ${flowState.contact?.email || "N/A"}`);
     Alert.alert("E-Ticket Sent", "E-Ticket has been successfully emailed to " + (flowState.contact?.email || "your email"));
   };
 

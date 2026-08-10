@@ -66,7 +66,9 @@ export function calculateFareBreakdown({
  */
 export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId = "", availableOffers = [] }) {
   const cleanCode = String(code || "").trim().toUpperCase();
+  console.log(`[flightCouponService] 🏷️ Validating coupon code: '${cleanCode}' for cart total: ₹${cartTotal}`);
   if (!cleanCode) {
+    console.log("[flightCouponService] Coupon code empty.");
     return { valid: false, reason: "Please enter a valid coupon code." };
   }
 
@@ -93,6 +95,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
     );
 
     if (minFare > 0 && cartTotal < minFare) {
+      console.log(`[flightCouponService] ❌ Coupon '${cleanCode}' failed: cart total ₹${cartTotal} < minFare ₹${minFare}`);
       return {
         valid: false,
         reason: `Minimum fare of ₹${minFare.toLocaleString()} required for coupon ${cleanCode}.`,
@@ -109,7 +112,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
       calculatedDiscount = rawVal;
     }
 
-    return {
+    const resObj = {
       valid: true,
       code: String(liveOffer.code || liveOffer.Code || liveOffer.title || liveOffer.Title || cleanCode),
       type: rawType,
@@ -119,6 +122,8 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
       title: String(liveOffer.title || liveOffer.Title || liveOffer.code || liveOffer.Code || cleanCode),
       description: String(liveOffer.description || liveOffer.Description || "Flat ₹500 instant discount on summer flights"),
     };
+    console.log(`[flightCouponService] ✅ Coupon '${cleanCode}' validated successfully! Discount: ₹${resObj.discountAmount}`);
+    return resObj;
   }
 
   // 2. Try server-side validation if endpoint is available
@@ -129,6 +134,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
       { headers: { "ngrok-skip-browser-warning": "true" }, timeout: 6000 }
     );
     if (response?.data && response.data.valid !== undefined) {
+      console.log(`[flightCouponService] Server coupon validation response:`, response.data);
       return response.data;
     }
   } catch (err) {

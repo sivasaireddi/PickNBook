@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
   },
   seatCard: {
     flex: 1,
-    borderRadius: 8,
+    borderRadius: 7,
     borderWidth: 1,
     justifyContent: "space-between",
     alignItems: "center",
@@ -228,23 +228,23 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 2,
+    paddingHorizontal: 1.5,
     paddingVertical: 1,
   },
   seatName: {
-    fontSize: moderateScale(12),
+    fontSize: moderateScale(10.5),
     fontWeight: "600",
     textAlign: "center",
   },
   priceText: {
-    fontSize: moderateScale(9.5),
+    fontSize: moderateScale(9),
     fontWeight: "600",
     textAlign: "center",
-    marginTop: 1,
+    marginTop: 0.5,
   },
   bottomStrip: {
     width: "100%",
-    height: 3,
+    height: 2.8,
   },
   filteredOut: {
     opacity: 0.25,

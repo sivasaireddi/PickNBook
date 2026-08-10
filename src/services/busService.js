@@ -276,10 +276,22 @@ function flattenSeats(data) {
  * Get seat layout via POST /api/BusBookings/seat-layout
  */
 export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
+  const cleanTraceId = String(traceId || "").trim();
+  const cleanResultIndex = resultIndex !== undefined && resultIndex !== null ? String(resultIndex).trim() : "";
+  const cleanSrdvIndex = String(srdvIndex !== undefined && srdvIndex !== null ? srdvIndex : "").trim();
+
+  const innerPayload = {
+    traceId: cleanTraceId,
+    resultIndex: cleanResultIndex,
+    srdvIndex: cleanSrdvIndex,
+    TraceId: cleanTraceId,
+    ResultIndex: cleanResultIndex,
+    SrdvIndex: cleanSrdvIndex,
+  };
+
   const payload = {
-    traceId: String(traceId || "").trim(),
-    resultIndex: resultIndex !== undefined && resultIndex !== null ? String(resultIndex).trim() : "",
-    srdvIndex: String(srdvIndex !== undefined && srdvIndex !== null ? srdvIndex : "").trim(),
+    ...innerPayload,
+    request: innerPayload,
   };
 
   console.log(`[SeatLayout] Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/seat-layout`);
@@ -578,6 +590,7 @@ export async function bookSeats(arg1, arg2, arg3) {
     }
 
     console.log(`[BusService] bookSeats Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/book`);
+    console.log("Booking Payload:\n", JSON.stringify(payload, null, 2));
     console.log("[BusService] bookSeats calling API via Axios", {
       baseURL: BASE_URL,
       url: "/api/BusBookings/book",

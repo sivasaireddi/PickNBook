@@ -48,12 +48,23 @@ export default function FlightListingScreen({ route, navigation }) {
   const travelClass = routeParams.travelClass || searchParams.travelClass || "Economy";
   const traceId = routeParams.traceId || searchParams.traceId || rawFlights?.[0]?.traceId || rawFlights?.[0]?.TraceId;
 
+  React.useEffect(() => {
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 2: FLIGHT RESULTS / LISTING SCREEN MOUNTED]");
+    console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+    console.log(`📍 Route: ${origin} ✈️ ${destination}`);
+    console.log(`📅 Date: ${date} | Passengers: ${adults} | Class: ${travelClass}`);
+    console.log(`📊 Flights Available: ${rawFlights.length} | Trace ID: ${traceId || "N/A"}`);
+    console.log("================================================================================");
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [sortSheetVisible, setSortSheetVisible] = useState(false);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
   const handleCalendarDateSelect = useCallback(async (selectedDateObj) => {
     const formattedDate = selectedDateObj.toISOString().slice(0, 10);
+    console.log(`[FlightListingScreen] Calendar fare date clicked: ${formattedDate}. Re-querying search API...`);
     setLoading(true);
     try {
       const newResults = await searchFlights({
@@ -63,6 +74,7 @@ export default function FlightListingScreen({ route, navigation }) {
         adults,
         travelClass,
       });
+      console.log(`[FlightListingScreen] Re-search successful. Loaded ${newResults?.length || 0} flights for ${formattedDate}`);
       navigation.setParams({
         departureDate: formattedDate,
         flights: newResults,
@@ -98,25 +110,29 @@ export default function FlightListingScreen({ route, navigation }) {
       const resultIndex = flightObj?.resultIndex || flightObj?.ResultIndex;
       const activeTraceId = traceId || selectedFlight.traceId || selectedFlight.TraceId || flightObj.traceId || flightObj.TraceId || rawFlights?.[0]?.traceId || rawFlights?.[0]?.TraceId;
 
-      console.log("\n==========================================");
-      console.log("✈️ [FLIGHT RESULTS SCREEN - SELECT FLIGHT]");
-      console.log("[FlightListingScreen] Selected Flight ID:", selectedFlight.id);
-      console.log("[FlightListingScreen] Trace ID:", activeTraceId);
-      console.log("[FlightListingScreen] Airline:", selectedFlight.airlineName);
-      console.log("[FlightListingScreen] Price:", selectedFlight.price);
-      console.log("==========================================\n");
+      console.log("================================================================================");
+      console.log("✈️ [FLIGHT BOOKING FLOW - STEP 2: USER SELECTED FLIGHT]");
+      console.log(`🆔 Flight ID: ${selectedFlight.id || resultIndex}`);
+      console.log(`✈️ Airline: ${selectedFlight.airlineName || flightObj.airlineName || flightObj.airline} (${selectedFlight.airlineCode || flightObj.airlineCode || ""})`);
+      console.log(`🔢 Flight No: ${selectedFlight.flightNumber || flightObj.flightNumber || flightObj.flightNo || ""}`);
+      console.log(`🛫 Departure: ${selectedFlight.departureTime || flightObj.departureTime || ""} -> 🛬 Arrival: ${selectedFlight.arrivalTime || flightObj.arrivalTime || ""}`);
+      console.log(`💰 Base Offered Price: ₹${selectedFlight.price || flightObj.offeredFare || flightObj.fare || 0}`);
+      console.log(`🏷️ Result Index: ${resultIndex} | Trace ID: ${activeTraceId}`);
+      console.log(`⚡ Is LCC: ${flightObj.isLCC ? "YES (Low Cost Carrier)" : "NO (GDS Full Service)"}`);
+      console.log("================================================================================");
 
       setLoading(true);
       try {
         let fareQuoteRes = null;
         if (activeTraceId && resultIndex) {
-          console.log("[FlightListingScreen] Fetching Live FareQuote...");
+          console.log("[FlightListingScreen] Requesting /api/flight/srdv/FareQuote API to verify live pricing...");
           fareQuoteRes = await getFlightFareQuote({
             traceId: activeTraceId,
             resultIndex,
             srdvType: flightObj.srdvType || "MixAPI",
             srdvIndex: flightObj.srdvIndex || "2",
           });
+          console.log("[FlightListingScreen] FareQuote API response received:", JSON.stringify(fareQuoteRes?.Results || fareQuoteRes, null, 2).slice(0, 350));
         }
 
         const fareObj = fareQuoteRes?.Results?.Fare || fareQuoteRes?.Fare || fareQuoteRes?.Results;
@@ -126,12 +142,16 @@ export default function FlightListingScreen({ route, navigation }) {
         const markup = Number(fareQuoteRes?.Results?.PickNBookMarkup || 0);
         const discount = Number(fareQuoteRes?.Results?.PickNBookDiscount || 0);
         const convenienceFee = Number(fareObj?.TransactionFee || fareObj?.OtherCharges || 0);
+        const computedTotalFare = activeFare + markup + convenienceFee - discount;
+
+        console.log(`[FlightListingScreen] Live Fare Quote summary: Base ₹${baseFare}, Tax ₹${tax}, Markup ₹${markup}, Fee ₹${convenienceFee}, Discount ₹${discount} -> Total ₹${computedTotalFare}`);
 
         const payload = {
           traceId: activeTraceId,
           resultIndex,
           srdvType: flightObj.srdvType || "MixAPI",
           srdvIndex: flightObj.srdvIndex || "2",
+          isLCC: flightObj.isLCC,
           flight: {
             ...flightObj,
             traceId: activeTraceId,
@@ -152,11 +172,15 @@ export default function FlightListingScreen({ route, navigation }) {
             markup,
             convenienceFee,
             discount,
-            totalFare: activeFare + markup + convenienceFee - discount,
+            totalFare: computedTotalFare,
           },
         };
 
+        console.log("[FlightListingScreen] Saving booking flow state via writeFlightBookingFlowState...");
         await writeFlightBookingFlowState(payload);
+
+        console.log("[FlightListingScreen] Navigating to FlightPassengerDetailsScreen...");
+        console.log("================================================================================");
         navigation.navigate("FlightPassengerDetailsScreen", payload);
       } catch (e) {
         console.error("[FlightListingScreen] Select flight error:", e?.message);

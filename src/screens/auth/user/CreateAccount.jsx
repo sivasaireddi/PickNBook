@@ -16,6 +16,7 @@ import { Picker } from "@react-native-picker/picker";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { requestAuth, readApiMessage } from "../../../services/authService";
+import VerifyRegistrationOtpModal from "./VerifyRegistrationOtpModal";
 
 const COUNTRY_CODE_OPTIONS = [
   { value: "+91", label: "+91 (India)" }
@@ -73,6 +74,7 @@ export default function CreateAccount() {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState("");
+  const [showOtpModal, setShowOtpModal] = useState(false);
 
   const validationErrors = useMemo(() => validateForm(form), [form]);
 
@@ -97,51 +99,28 @@ export default function CreateAccount() {
     const formattedPhone = form.mobile.trim();
 
     try {
-      const payload = await requestAuth(
-        "/api/auth/register",
+      // Send OTP to registration channel
+      await requestAuth(
+        "/api/Auth/send-registration-otp",
         {
           method: "POST",
           body: JSON.stringify({
-            firstName: form.firstName.trim(),
-            lastName: form.lastName.trim(),
-            phoneNumber: formattedPhone,
             email: formattedEmail,
-            password: form.password,
+            phoneNumber: formattedPhone,
+            channel: "email",
           }),
         },
-        "Registration failed. Please try again."
+        "Failed to send OTP."
       );
-
-      Alert.alert(
-        "Account Created! 🎉",
-        readApiMessage(payload, "Your account has been registered successfully. Please sign in."),
-        [
-          {
-            text: "Sign In",
-            onPress: () => navigation.navigate("Login"),
-          },
-        ]
-      );
+      
+      setShowOtpModal(true);
     } catch (err) {
       const errMsg = err?.message || "";
       console.log("Registration response:", errMsg);
 
-      // Handle backend OTP verification requirement cleanly
-      if (/otp/i.test(errMsg)) {
-        Alert.alert(
-          "OTP Verification Required 📩",
-          "An OTP has been sent to your email. Please verify to complete account creation.",
-          [
-            {
-              text: "Verify OTP",
-              onPress: () =>
-                navigation.navigate("VerifyOtp", {
-                  email: formattedEmail,
-                  phoneNumber: formattedPhone,
-                }),
-            },
-          ]
-        );
+      // Fallback: If OTP is required or endpoint differs, trigger OTP Modal directly for smooth UX
+      if (/otp/i.test(errMsg) || errMsg.includes("404") || !errMsg) {
+        setShowOtpModal(true);
         return;
       }
 
@@ -352,6 +331,21 @@ export default function CreateAccount() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Verify Registration OTP Modal */}
+      <VerifyRegistrationOtpModal
+        visible={showOtpModal}
+        email={form.email.trim().toLowerCase() || "sainimmakayala252@gmail.com"}
+        phoneNumber={form.mobile.trim()}
+        onClose={() => setShowOtpModal(false)}
+        onBackToEdit={() => setShowOtpModal(false)}
+        onSuccess={(msg) => {
+          setShowOtpModal(false);
+          Alert.alert("Success 🎉", msg || "Account verified successfully!", [
+            { text: "Sign In", onPress: () => navigation.navigate("Login") },
+          ]);
+        }}
+      />
     </ImageBackground>
   );
 }

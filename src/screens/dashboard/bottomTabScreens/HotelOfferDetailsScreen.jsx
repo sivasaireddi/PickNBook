@@ -15,12 +15,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { getHotelInfo, getHotelRoom } from "../../../services/hotelService";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
 
-const formatCurrency = (value, currency = "INR") =>
-  new Intl.NumberFormat("en-IN", {
+const formatCurrency = (value, currency = "INR") => {
+  const num = Number(value || 0);
+  return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency,
-    maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+    minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+};
 
 export default function HotelOfferDetailsScreen({ route, navigation }) {
   const { width } = useWindowDimensions();
@@ -395,6 +398,21 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
                               </Text>
                             ) : null}
 
+                            {Array.isArray(rm.amenities) && rm.amenities.length > 0 ? (
+                              <View style={styles.roomAmenitiesRow}>
+                                {rm.amenities.map((am, amIdx) => {
+                                  const amName = typeof am === "object" ? (am?.name || am?.detail || "") : String(am);
+                                  if (!amName) return null;
+                                  return (
+                                    <View key={amIdx} style={styles.roomAmenityChip}>
+                                      <Ionicons name="checkmark-circle-outline" size={12} color="#059669" />
+                                      <Text style={styles.roomAmenityChipText}>{amName}</Text>
+                                    </View>
+                                  );
+                                })}
+                              </View>
+                            ) : null}
+
                             <View style={styles.roomOptionBottom}>
                               <View style={styles.flagRow}>
                                 {rm.isPANMandatory ? <Text style={styles.flagBadge}>PAN Required</Text> : null}
@@ -679,6 +697,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748B",
     marginTop: 4,
+  },
+  roomAmenitiesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  roomAmenityChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#DCFCE7",
+  },
+  roomAmenityChipText: {
+    fontSize: 10,
+    color: "#15803D",
+    fontWeight: "700",
   },
   roomOptionBottom: {
     flexDirection: "row",

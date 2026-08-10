@@ -3,7 +3,11 @@ import { StyleSheet, Text, View } from "react-native";
 
 const formatAmount = (value) => {
   const amount = Number(value);
-  return Number.isFinite(amount) ? amount.toFixed(3) : "0.000";
+  if (!Number.isFinite(amount)) return "0";
+  return amount.toLocaleString("en-IN", {
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
 };
 
 export default function FareSummaryCard({

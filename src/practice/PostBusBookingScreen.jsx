@@ -34,8 +34,6 @@ import {
 const BASE_URL =
   "https://paycheck-baton-overfull.ngrok-free.dev";
 
-const COUPONS_API_URL = `${BASE_URL}/api/busbookings/user/available`;
-
 const PRICING_PREVIEW_API_URL = `${BASE_URL}/api/BusBookings/pricing-preview`;
 
 const BOOKING_API_URL = `${BASE_URL}/api/BusBookings/book`;
@@ -593,7 +591,6 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
   const [loading, setLoading] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(true);
-  const [couponLoading, setCouponLoading] = useState(false);
   const [pricingLoading, setPricingLoading] = useState(false);
   const [seatPricingLoading, setSeatPricingLoading] = useState(false);
 
@@ -609,7 +606,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   const [passengerEmail, setPassengerEmail] = useState("");
 
   const [couponCode, setCouponCode] = useState("");
-  const [coupons, setCoupons] = useState([]);
+  const [couponInputText, setCouponInputText] = useState("");
   const [pricing, setPricing] = useState(null);
   const [selectedSeatDetails, setSelectedSeatDetails] = useState(routeSeatDetails);
 
@@ -653,29 +650,6 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       console.log("Session Load Error:", error);
     } finally {
       setSessionLoading(false);
-    }
-  };
-
-  const fetchCoupons = async () => {
-    if (!authToken) {
-      setCoupons([]);
-      return;
-    }
-
-    try {
-      setCouponLoading(true);
-
-      const response = await axios.get(COUPONS_API_URL, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-        },
-      });
-
-      setCoupons(Array.isArray(response.data) ? response.data : []);
-    } catch (error) {
-      console.log("Coupon Error:", error?.response?.data || error.message);
-    } finally {
-      setCouponLoading(false);
     }
   };
 
@@ -1093,7 +1067,6 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
   useEffect(() => {
     if (!sessionLoading && authToken) {
-      fetchCoupons();
       fetchSavedTravelers(authToken);
     }
   }, [authToken, sessionLoading]);
@@ -1283,42 +1256,55 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const droppingPointName = droppingPoint?.Name ?? droppingPoint?.name ?? "";
       const droppingPointTime = parseToDateTime(droppingPoint?.Time ?? droppingPoint?.time ?? "", baseDate);
 
-      // 1. Build Block payload (idType and idNumber included only if idProofRequired is true)
+      // 1. Build Block payload matching API Integration Guide schema
       const blockPassengers = normalizedPassengers.map((p) => {
         const passengerObj = {
-          title: p.title,
-          firstName: p.firstName,
-          lastName: p.lastName,
-          age: p.age,
-          gender: p.genderInt,
-          seatName: p.seatName,
-          fare: p.fare,
-          address: p.address,
-          city: p.city,
-          state: p.state,
-          contactNo: p.contactNo,
-          email: p.email,
+          title: String(p.title || "Mr"),
+          firstName: String(p.firstName || p.fullName || "Passenger"),
+          lastName: String(p.lastName || ""),
+          age: Number(p.age) || 25,
+          gender: p.genderInt !== undefined ? p.genderInt : (String(p.genderStr || p.gender).toLowerCase() === "female" ? 2 : 1),
+          seatName: String(p.seatName || p.seatNumber || ""),
+          fare: Number(p.fare) || 0,
+          address: String(p.address || "Default Address"),
+          city: String(p.city || "Default City"),
+          state: String(p.state || "Default State"),
+          contactNo: String(p.contactNo || passengerPhone),
+          email: String(p.email || passengerEmail),
         };
 
         if (idProofRequired) {
           passengerObj.idType = "Aadhar Card";
-          passengerObj.idNumber = p.idNumber;
+          passengerObj.idNumber = String(p.idNumber || "").trim();
         }
 
         return passengerObj;
       });
 
+      const busObj = route?.params?.bus || {};
+      const routeId = String(busObj.routeId ?? busObj.RouteId ?? route?.params?.routeId ?? "");
+      const fromCity = String(busObj.fromCity ?? busObj.from ?? route?.params?.from ?? route?.params?.sourceCity ?? "");
+      const toCity = String(busObj.toCity ?? busObj.to ?? route?.params?.to ?? route?.params?.destinationCity ?? "");
+      const departureTime = String(busObj.departureTimeUtc ?? busObj.departureTime ?? busObj.DepartureTime ?? route?.params?.departureTime ?? route?.params?.dateValue ?? "");
+      const arrivalTime = String(busObj.arrivalTimeUtc ?? busObj.arrivalTime ?? busObj.ArrivalTime ?? route?.params?.arrivalTime ?? "");
+      const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
+      const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
+      const totalFare = Number(fareSummary.grandTotal || busObj.priceInr || 0);
+
       const blockRequestBody = {
-        traceId,
-        resultIndex,
-        srdvIndex: Number(bus.srdvIndex ?? 0),
-        boardingPointId,
-        droppingPointId,
-        passengerName: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
-        passengerPhone: passengerPhone.trim(),
-        passengerEmail: passengerEmail.trim(),
-        couponCode: couponCode || null,
-        selectedSeats: selectedSeatCodes,
+        traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
+        resultIndex: String(busObj.resultIndex ?? busObj.ResultIndex ?? route?.params?.resultIndex ?? ""),
+        srdvIndex: Number(busObj.srdvIndex ?? busObj.SrdvIndex ?? route?.params?.srdvIndex ?? 0),
+        boardingPointId: String(boardingPointId || "").trim(),
+        droppingPointId: String(droppingPointId || "").trim(),
+        fromCity,
+        toCity,
+        departureTime,
+        arrivalTime,
+        operatorName,
+        busType,
+        totalFare,
+        couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : null,
         passengers: blockPassengers,
       };
 
@@ -1371,83 +1357,57 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                        blockResponse?.srdvBookingId ?? 
                        blockResponse?.Result?.SrdvBookingId ?? "";
 
-      // 2. Option B Book payload construction
-      const busObj = route?.params?.bus || {};
-      const routeId = String(busObj.routeId ?? busObj.RouteId ?? route?.params?.routeId ?? "");
-      const fromCity = String(busObj.fromCity ?? busObj.from ?? route?.params?.from ?? route?.params?.sourceCity ?? "");
-      const toCity = String(busObj.toCity ?? busObj.to ?? route?.params?.to ?? route?.params?.destinationCity ?? "");
-      const departureTime = String(busObj.departureTimeUtc ?? busObj.departureTime ?? busObj.DepartureTime ?? route?.params?.departureTime ?? route?.params?.dateValue ?? "");
-      const arrivalTime = String(busObj.arrivalTimeUtc ?? busObj.arrivalTime ?? busObj.ArrivalTime ?? route?.params?.arrivalTime ?? "");
-      const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
-      const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
-      const totalFare = Number(fareSummary.grandTotal || busObj.priceInr || 0);
       const srdvBlockKey = String(blockKey || "");
 
+      // 2. Build Book payload matching API Integration Guide schema
       const bookPassengers = normalizedPassengers.map((p) => {
         const passengerObj = {
-          fullName: p.fullName,
-          title: p.title,
-          firstName: p.firstName,
-          lastName: p.lastName,
+          fullName: String(p.fullName || `${p.firstName || ""} ${p.lastName || ""}`).trim() || "Passenger",
+          gender: (p.genderStr && ["Male", "Female"].includes(p.genderStr)) 
+            ? p.genderStr 
+            : (p.genderInt === 2 ? "Female" : "Male"),
+          seatNumber: String(p.seatNumber || p.seatName || ""),
           age: Number(p.age) || 25,
-          gender: p.genderStr,
-          seatName: p.seatName,
-          seatNumber: p.seatNumber,
-          fare: p.fare,
-          baseFare: p.baseFare,
-          seatType: p.seatType,
-          externalGst: p.externalGst,
-          contactNo: p.contactNo,
-          email: p.email,
-          address: p.address,
-          city: p.city,
-          state: p.state,
+          baseFare: Number(p.baseFare || p.fare) || 0,
+          seatType: String(p.seatType || "Seater"),
+          externalGst: Number(p.externalGst) || 0,
         };
-
-        if (idProofRequired) {
-          passengerObj.idType = "Aadhar Card";
-          passengerObj.idNumber = String(p.idNumber || "").trim();
-        }
 
         return passengerObj;
       });
 
+      const parsedSrdvIndex = Number(busObj.srdvIndex ?? busObj.SrdvIndex ?? route?.params?.srdvIndex ?? 0);
+
       const bookRequestBody = {
-        routeId,
         traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
-        srdvBlockKey,
+        resultIndex: String(busObj.resultIndex ?? busObj.ResultIndex ?? route?.params?.resultIndex ?? ""),
+        srdvIndex: !isNaN(parsedSrdvIndex) ? parsedSrdvIndex : 0,
         blockKey: srdvBlockKey,
+        boardingPointId: String(boardingPointId || "").trim(),
+        boardingPointName: String(boardingPointName || "").trim(),
+        boardingPointTime: (boardingPointTime && String(boardingPointTime).trim()) ? String(boardingPointTime).trim() : (departureTime || null),
+        droppingPointId: String(droppingPointId || "").trim(),
+        droppingPointName: String(droppingPointName || "").trim(),
+        droppingPointTime: (droppingPointTime && String(droppingPointTime).trim()) ? String(droppingPointTime).trim() : (arrivalTime || null),
         fromCity,
         toCity,
         departureTime,
         arrivalTime,
         operatorName,
         busType,
-        isIdProofRequired: idProofRequired,
-        totalFare,
-        couponCode: couponCode || null,
-        boardingPointId,
-        boardingPointName,
-        boardingPointTime,
-        droppingPointId,
-        droppingPointName,
-        droppingPointTime,
+        totalFare: Number(totalFare) || 0,
         passengerName: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
         passengerPhone: passengerPhone.trim(),
         passengerEmail: passengerEmail.trim(),
-        contactNo: passengerPhone.trim(),
-        email: passengerEmail.trim(),
-        paymentMethod: "Razorpay",
-        selectedSeats: selectedSeatCodes,
+        couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : (pricing?.appliedPromotionCode || pricing?.autoPromotionCode || null),
+        seats: selectedSeatCodes.length || 1,
         passengers: bookPassengers,
-        srdvBookingId: srdvBlockKey,
-        bookingId: srdvBlockKey,
+        promotionId: normalizeIdValue(pricing?.promotionId ?? pricing?.appliedPromotionId ?? route?.params?.promotionId) || null,
+        selectedFeaturedOfferId: normalizeIdValue(route?.params?.selectedFeaturedOfferId ?? pricing?.selectedFeaturedOfferId) || null,
+        paymentMethod: "Razorpay",
       };
 
-      const finalBookRequestBody = {
-        ...bookRequestBody,
-        request: bookRequestBody,
-      };
+      const finalBookRequestBody = bookRequestBody;
 
       // 3. Book Seats via Option B endpoint
       console.log("[PostBusBookingScreen] Booking seats with payload:", JSON.stringify(finalBookRequestBody, null, 2));
@@ -1682,80 +1642,67 @@ const PostBusBookingScreen = ({ route, navigation }) => {
               <SectionCard
                 title="Offers & Coupons"
                 subtitle={
-                  couponLoading
-                    ? "Loading available offers"
-                    : couponCode
-                      ? `Coupon ${couponCode} applied`
-                      : "Apply a coupon before payment"
+                  couponCode
+                    ? `Coupon ${couponCode} applied`
+                    : "Apply a coupon before payment"
                 }
                 icon={<MaterialCommunityIcons name="ticket-percent-outline" size={18} color="#D11A2A" />}
               >
-                {couponLoading ? (
-                  <View style={styles.loadingInlineCard}>
-                    <ActivityIndicator color="#D11A2A" />
-                    <Text style={styles.loadingInlineText}>Fetching available coupons...</Text>
-                  </View>
-                ) : coupons.length > 0 ? (
-                  <View style={styles.couponSectionWrap}>
-                    {couponCode ? (
-                      <View style={styles.appliedCouponCard}>
-                        <View style={styles.appliedCouponInfo}>
-                          <View style={styles.appliedCouponBadge}>
-                            <MaterialCommunityIcons name="ticket-percent" size={18} color="#D11A2A" />
-                            <Text style={styles.appliedCouponCodeText}>{couponCode}</Text>
-                          </View>
-                          <Text style={styles.appliedCouponSubtext}>
-                            {fareSummary.couponAmount > 0
-                              ? `Saves ${formatCurrencyDetailed(fareSummary.couponAmount)} on this booking`
-                              : "Coupon applied"}
-                          </Text>
+                <View style={styles.couponSectionWrap}>
+                  {couponCode ? (
+                    <View style={styles.appliedCouponCard}>
+                      <View style={styles.appliedCouponInfo}>
+                        <View style={styles.appliedCouponBadge}>
+                          <MaterialCommunityIcons name="ticket-percent" size={18} color="#D11A2A" />
+                          <Text style={styles.appliedCouponCodeText}>{couponCode}</Text>
                         </View>
-
-                        <TouchableOpacity
-                          style={styles.removeCouponBtn}
-                          onPress={() => setCouponCode("")}
-                          activeOpacity={0.8}
-                        >
-                          <Ionicons name="close-circle-outline" size={18} color="#DC2626" />
-                          <Text style={styles.removeCouponBtnText}>Remove</Text>
-                        </TouchableOpacity>
+                        <Text style={styles.appliedCouponSubtext}>
+                          {fareSummary.couponAmount > 0
+                            ? `Saves ${formatCurrencyDetailed(fareSummary.couponAmount)} on this booking`
+                            : "Coupon applied"}
+                        </Text>
                       </View>
-                    ) : null}
 
-                    <View style={styles.pickerShell}>
-                      <Picker
-                        selectedValue={couponCode}
-                        onValueChange={(value) => setCouponCode(value)}
-                        style={styles.pickerControl}
-                        accessibilityLabel="Coupon selection"
-                        dropdownIconColor="#D11A2A"
+                      <TouchableOpacity
+                        style={styles.removeCouponBtn}
+                        onPress={() => {
+                          setCouponCode("");
+                          setCouponInputText("");
+                        }}
+                        activeOpacity={0.8}
                       >
-                        <Picker.Item
-                          label={couponCode ? "Change Coupon Code" : "Select Coupon"}
-                          value=""
-                          color="#0F172A"
-                        />
-
-                        {coupons.map((coupon) => (
-                          <Picker.Item
-                            key={coupon.id}
-                            label={`${coupon.couponCode}`}
-                            value={coupon.couponCode}
-                            color="#0F172A"
-                          />
-                        ))}
-                      </Picker>
+                        <Ionicons name="close-circle-outline" size={18} color="#DC2626" />
+                        <Text style={styles.removeCouponBtnText}>Remove</Text>
+                      </TouchableOpacity>
                     </View>
-                  </View>
-                ) : (
-                  <View style={styles.emptyStateCard}>
-                    <MaterialCommunityIcons name="ticket-outline" size={20} color="#64748B" />
-                    <Text style={styles.emptyStateTitle}>No coupons available</Text>
-                    <Text style={styles.emptyStateText}>
-                      We’ll show offers here when they are available for your account.
-                    </Text>
-                  </View>
-                )}
+                  ) : (
+                    <View style={styles.couponInputRow}>
+                      <TextInput
+                        style={styles.couponTextInput}
+                        placeholder="Enter coupon code"
+                        placeholderTextColor="#94A3B8"
+                        value={couponInputText}
+                        onChangeText={setCouponInputText}
+                        autoCapitalize="characters"
+                      />
+                      <TouchableOpacity
+                        style={[
+                          styles.applyCouponBtn,
+                          !couponInputText.trim() && styles.applyCouponBtnDisabled,
+                        ]}
+                        onPress={() => {
+                          if (couponInputText.trim()) {
+                            setCouponCode(couponInputText.trim().toUpperCase());
+                          }
+                        }}
+                        disabled={!couponInputText.trim()}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.applyCouponBtnText}>Apply</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               </SectionCard>
             </AnimatedCard>
 
@@ -2702,6 +2649,40 @@ const styles = StyleSheet.create({
   },
   couponSectionWrap: {
     gap: 8,
+  },
+  couponInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  couponTextInput: {
+    flex: 1,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#0F172A",
+    fontWeight: "600",
+  },
+  applyCouponBtn: {
+    backgroundColor: "#D11A2A",
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  applyCouponBtnDisabled: {
+    backgroundColor: "#94A3B8",
+    opacity: 0.7,
+  },
+  applyCouponBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
   appliedCouponCard: {
     flexDirection: "row",

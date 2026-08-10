@@ -54,6 +54,13 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
   const [currentFlowState, setCurrentFlowState] = useState(routeParams);
 
   useEffect(() => {
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 4: SEAT & SSR SELECTION SCREEN MOUNTED]");
+    console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+    console.log(`🆔 Trace ID: ${routeParams.traceId || routeParams.flight?.traceId || "N/A"}`);
+    console.log(`🏷️ Result Index: ${routeParams.resultIndex || routeParams.flight?.resultIndex || "N/A"}`);
+    console.log("================================================================================");
+
     (async () => {
       const stored = await readFlightBookingFlowState();
       if (stored) {
@@ -214,6 +221,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
 
   const handleContinue = useCallback(async () => {
     if (!seatNotApplicable && activeSeatsList.length !== passengerCount) {
+      console.warn(`[FlightSeatSelectionScreen] Incomplete seat selection: ${activeSeatsList.length}/${passengerCount} seats selected.`);
       return;
     }
 
@@ -223,14 +231,16 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
       seatNumber: selectedSeatLabels[index] || "",
     }));
 
-    console.log("\n==========================================");
-    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 4: SEAT & SSR SELECTION]");
-    console.log("[FlightSeatSelectionScreen] Selected seats:", activeSeatsList);
-    console.log("[FlightSeatSelectionScreen] Seat Surcharge:", seatCharges);
-    console.log("[FlightSeatSelectionScreen] Selected Baggage SSR:", selectedSsrBaggage);
-    console.log("[FlightSeatSelectionScreen] Selected Meal SSR:", selectedSsrMeal);
-    console.log("[FlightSeatSelectionScreen] Total Payable Amount:", total);
-    console.log("==========================================\n");
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 4: SUBMITTING SEAT & SSR SELECTIONS]");
+    console.log(`💺 Selected Seats: ${activeSeatsList.join(", ") || "Auto-assigned by Airline"}`);
+    console.log(`💰 Seat Surcharge: ₹${seatCharges}`);
+    console.log(`🧳 SSR Extra Baggage: ${selectedSsrBaggage ? JSON.stringify(selectedSsrBaggage) : "None"}`);
+    console.log(`🍱 SSR Meal Service: ${selectedSsrMeal ? JSON.stringify(selectedSsrMeal) : "None"}`);
+    console.log(`💵 SSR Charges Total: ₹${ssrCharges}`);
+    console.log(`💳 Grand Total Amount: ₹${total} (Base ₹${baseFare} + Taxes ₹${taxes} + Seats ₹${seatCharges} + SSR ₹${ssrCharges})`);
+    console.log("[FlightSeatSelectionScreen] Passenger Seat Map:", JSON.stringify(passengerSeatMap, null, 2));
+    console.log("================================================================================");
 
     const nextState = await writeFlightBookingFlowState({
       ...flowState,
@@ -263,7 +273,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
       payableAmount: total,
     });
 
-    console.log("[FlightSeatSelectionScreen] Navigating to FlightPaymentScreen");
+    console.log("[FlightSeatSelectionScreen] Navigating to FlightPaymentScreen...");
     navigation.navigate("FlightPaymentScreen", nextState);
   }, [baseFare, flowState, navigation, passengerCount, passengers, seatCharges, ssrCharges, activeSeatsList, selectedSeatLabels, selectedSeats, selectedSsrBaggage, selectedSsrMeal, taxes, total, seatNotApplicable]);
 

@@ -33,15 +33,15 @@ import SeatBottomSheet from "../components/busSeats/SeatBottomSheet";
 const DEFAULT_BUS_ID = 658;
 const SPACING = { 4: 4, 8: 8, 12: 12, 16: 16, 20: 20, 24: 24, 32: 32 };
 
-/* ── Standard Coach Dimensions ── */
-const SEATER_W = 38;         // 38px seat width
-const SEATER_H = 40;         // 40px seat height
-const SLEEPER_W = 38;        // 38px sleeper width
-const SLEEPER_H = 90;        // 90px sleeper height (spans exactly 2 seater rows: 40 + 10 + 40)
-const CELL_GAP = 6;          // 6px gap between adjacent seats
-const ROW_GAP = 10;          // 10px vertical gap between seat rows
-const AISLE_W = 16;          // 16px walking aisle gap
-const CARD_PADDING = 12;     // 12px internal padding on all sides
+/* ── Standard Coach Dimensions (Moderately reduced for optimal fit without horizontal scrolling) ── */
+const SEATER_W = 33;         // 33px seat width (moderately reduced from 38)
+const SEATER_H = 35;         // 35px seat height (moderately reduced from 40)
+const SLEEPER_W = 33;        // 33px sleeper width (moderately reduced from 38)
+const SLEEPER_H = 79;        // 79px sleeper height (spans 2 seater rows: 35 + 9 + 35)
+const CELL_GAP = 5;          // 5px gap between adjacent seats
+const ROW_GAP = 9;           // 9px vertical gap between seat rows
+const AISLE_W = 12;          // 12px walking aisle gap
+const CARD_PADDING = 10;     // 10px internal padding
 
 /* ── Vertical Coach Helpers ── */
 const normalizeAmount = (value) => {
@@ -107,10 +107,10 @@ const getSeatPrice = (seat, layoutPrice) =>
 const buildDeckData = (layout) => {
   const seatDefinitions = Array.isArray(layout?.seatDefinitions) &&
     layout.seatDefinitions.length > 0
-      ? layout.seatDefinitions
-      : Array.isArray(layout?.seats)
-        ? layout.seats
-        : [];
+    ? layout.seatDefinitions
+    : Array.isArray(layout?.seats)
+      ? layout.seats
+      : [];
 
   const grouped = seatDefinitions.reduce((acc, def) => {
     const deckKey = getSeatDeckKey(def);
@@ -175,7 +175,6 @@ const DeckCardContainer = memo(
     selectedSeatSet,
     selectedPrice,
     layoutPrice,
-    cardWidth,
     cardCanvasHeight,
   }) => {
     const seats = deck.definitions;
@@ -221,11 +220,24 @@ const DeckCardContainer = memo(
       };
     }, [seats, deck.aisleAfterGridRow]);
 
+    const actualCardWidth = useMemo(() => {
+      let maxCol = 0;
+      seats.forEach((s) => {
+        const rawGridRow = s.gridRow ?? 0;
+        const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
+        if (mappedCol > maxCol) maxCol = mappedCol;
+      });
+
+      const cellW = SEATER_W + CELL_GAP;
+      const aisleOff = hasAisle && maxCol > 1 ? AISLE_W : 0;
+      return CARD_PADDING + (maxCol + 1) * cellW - CELL_GAP + aisleOff + CARD_PADDING + 6;
+    }, [seats, columnMap, hasAisle]);
+
     const cellW = SEATER_W + CELL_GAP;
-    const cellH = SEATER_H + ROW_GAP; // 50px per row step
+    const cellH = SEATER_H + ROW_GAP; // 44px per row step
 
     return (
-      <View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, { width: cardWidth }]}>
+      <View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, { width: actualCardWidth }]}>
         {/* Deck Header Text Only (no icon) */}
         <DeckHeader title={deck.title} />
 
@@ -251,7 +263,12 @@ const DeckCardContainer = memo(
             // Apply aisle offset cleanly if column is after aisle
             const aisleOff = hasAisle && mappedCol > 1 ? AISLE_W : 0;
             const isH = isHorizontalSleeper(seat);
-            const seatW = isH ? SLEEPER_W : SEATER_W;
+            const seatWidthMult = Number(seat.width ?? seat.Width ?? 1);
+            const baseW = isH ? SLEEPER_W : SEATER_W;
+            const seatW =
+              seatWidthMult > 1
+                ? baseW * seatWidthMult + CELL_GAP * (seatWidthMult - 1)
+                : baseW;
             const renderedHeight = isH ? SLEEPER_H : SEATER_H;
 
             // Use raw column index directly so horizontal sleepers align with seater row scale (0, 2, 4, 6, 8)
@@ -345,19 +362,15 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   const lowerDeckData = useMemo(() => deckCards.find(d => d.isLower), [deckCards]);
   const upperDeckData = useMemo(() => deckCards.find(d => !d.isLower), [deckCards]);
 
-  // Unified card width AND unified card height so Lower Deck and Upper Deck match 100% in width and bottom alignment!
-  const { unifiedCardWidth, unifiedCanvasHeight } = useMemo(() => {
-    let maxDeckCols = 3;
-    let maxCanvasBottom = 380;
+  // Calculate canvas height so Lower Deck and Upper Deck match 100% in height & alignment
+  const unifiedCanvasHeight = useMemo(() => {
+    let maxCanvasBottom = 260;
 
     deckCards.forEach((deck) => {
-      const uniqueGridRows = [...new Set(deck.definitions.map((s) => s.gridRow ?? 0))];
-      if (uniqueGridRows.length > maxDeckCols) maxDeckCols = uniqueGridRows.length;
-
       deck.definitions.forEach((seat) => {
         const gc = Number(seat.column ?? seat.gridCol ?? seat.ColumnNo ?? 0);
         const isH = isHorizontalSleeper(seat);
-        const cellH = 50; // SEATER_H (40) + ROW_GAP (10)
+        const cellH = SEATER_H + ROW_GAP; // 38px per row step
         const topPos = CARD_PADDING + gc * cellH;
         const hPos = isH ? SLEEPER_H : SEATER_H;
         const bottomPos = topPos + hPos;
@@ -365,11 +378,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
       });
     });
 
-    const dynWidth = maxDeckCols >= 5 ? 268 : maxDeckCols >= 4 ? 224 : 180;
-    return {
-      unifiedCardWidth: dynWidth,
-      unifiedCanvasHeight: maxCanvasBottom + CARD_PADDING,
-    };
+    return maxCanvasBottom + CARD_PADDING;
   }, [deckCards]);
 
   const priceFilters = useMemo(() => {
@@ -524,12 +533,8 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
             </ScrollView>
           </View>
 
-          {/* Horizontal ScrollView wrapping Lower Deck (Left) & Upper Deck (Right) side-by-side without seat compression */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalDecksContainer}
-          >
+          {/* Decks Row: Lower Deck (Left) & Upper Deck (Right) side-by-side fitting 100% within screen width without horizontal scroll */}
+          <View style={styles.decksRowContainer}>
             {lowerDeckData && (
               <DeckCardContainer
                 deck={lowerDeckData}
@@ -538,7 +543,6 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
                 selectedSeatSet={selectedSeatSet}
                 selectedPrice={selectedPrice}
                 layoutPrice={layout?.priceInr}
-                cardWidth={unifiedCardWidth}
                 cardCanvasHeight={unifiedCanvasHeight}
               />
             )}
@@ -551,11 +555,10 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
                 selectedSeatSet={selectedSeatSet}
                 selectedPrice={selectedPrice}
                 layoutPrice={layout?.priceInr}
-                cardWidth={unifiedCardWidth}
                 cardCanvasHeight={unifiedCanvasHeight}
               />
             )}
-          </ScrollView>
+          </View>
         </ScrollView>
 
         {/* Fixed Bottom Sheet Summary Bar */}
@@ -692,21 +695,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  /* ── Outer Horizontal Scroll Content Container ── */
-  horizontalDecksContainer: {
-    paddingHorizontal: 16,
+  /* ── Responsive Decks Row Container (Centered, Fits 100% within device width) ── */
+  decksRowContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 12,
     paddingTop: 4,
     paddingBottom: 16,
-    gap: 16, // 16px spacing between Lower Deck card and Upper Deck card
-    alignItems: "flex-start",
+    gap: 12,
+    width: "100%",
+    justifyContent: "center",
   },
 
-  /* ── Deck Card Base Style: White BG, Thin Light Red Border (18px Radius) ── */
+  /* ── Deck Card Base Style: Content-fitting Width, White BG, Thin Light Red Border ── */
   deckCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 18,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(240, 77, 77, 0.22)", // Thin light-red border
+    borderColor: "rgba(240, 77, 77, 0.22)",
     padding: CARD_PADDING,
     position: "relative",
   },

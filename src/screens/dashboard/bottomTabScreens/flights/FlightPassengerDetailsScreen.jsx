@@ -26,9 +26,17 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
 
   // Sync stored flowState if parameters missing in route
   useEffect(() => {
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 3: PASSENGER DETAILS SCREEN MOUNTED]");
+    console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+    console.log(`🆔 Trace ID: ${routeParams.traceId || routeParams.flight?.traceId || "N/A"}`);
+    console.log(`🏷️ Result Index: ${routeParams.resultIndex || routeParams.flight?.resultIndex || "N/A"}`);
+    console.log("================================================================================");
+
     (async () => {
       const stored = await readFlightBookingFlowState();
       if (stored) {
+        console.log("[FlightPassengerDetailsScreen] Restored flow state from SecureStore storage:", Object.keys(stored));
         setCurrentFlowState((prev) => ({
           ...stored,
           ...prev,
@@ -268,8 +276,13 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
 
   // Handle Continue to Seat Selection
   const handleContinue = useCallback(async () => {
-    if (!validateDetails()) {
-      console.warn("[FlightPassengerDetailsScreen] Validation failed:", errors);
+    const isValid = validateDetails();
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 3: SUBMITTING PASSENGER DETAILS]");
+    console.log(`[FlightPassengerDetailsScreen] Validation Status: ${isValid ? "PASSED ✅" : "FAILED ❌"}`);
+    if (!isValid) {
+      console.warn("[FlightPassengerDetailsScreen] Validation Errors:", JSON.stringify(errors, null, 2));
+      console.log("================================================================================");
       Alert.alert("Incomplete Details", "Please correct the errors before continuing.");
       return;
     }
@@ -279,14 +292,10 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     const activeSrdvType = flowState.srdvType || flowState.flight?.srdvType || routeParams.srdvType || routeParams.flight?.srdvType || "MixAPI";
     const activeSrdvIndex = flowState.srdvIndex || flowState.flight?.srdvIndex || routeParams.srdvIndex || routeParams.flight?.srdvIndex || "2";
 
-    console.log("\n==========================================");
-    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 3: PASSENGER DETAILS]");
-    console.log("[FlightPassengerDetailsScreen] Trace ID:", activeTraceId);
-    console.log("[FlightPassengerDetailsScreen] Result Index:", activeResultIndex);
-    console.log("[FlightPassengerDetailsScreen] Saved passenger count:", passengers.length);
-    console.log("[FlightPassengerDetailsScreen] Passengers list:", JSON.stringify(passengers, null, 2));
-    console.log("[FlightPassengerDetailsScreen] Contact details:", JSON.stringify(contact, null, 2));
-    console.log("==========================================\n");
+    console.log(`🆔 Trace ID: ${activeTraceId} | Result Index: ${activeResultIndex}`);
+    console.log(`👥 Passengers Count: ${passengers.length} | Contact Email: ${contact.email} | Mobile: ${contact.mobile}`);
+    console.log("[FlightPassengerDetailsScreen] Passengers Payload:", JSON.stringify(passengers, null, 2));
+    console.log("================================================================================");
 
     const nextState = {
       ...flowState,
@@ -302,8 +311,9 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       },
     };
 
+    console.log("[FlightPassengerDetailsScreen] Persisting state to SecureStore via writeFlightBookingFlowState...");
     await writeFlightBookingFlowState(nextState);
-    console.log("[FlightPassengerDetailsScreen] Navigating to FlightSeatSelectionScreen with traceId:", activeTraceId);
+    console.log("[FlightPassengerDetailsScreen] Navigating to FlightSeatSelectionScreen...");
     navigation.navigate("FlightSeatSelectionScreen", nextState);
   }, [validateDetails, errors, passengers, contact, flowState, routeParams, navigation]);
 

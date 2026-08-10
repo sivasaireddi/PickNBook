@@ -18,12 +18,15 @@ import { useHotelBooking } from "../context/HotelBookingContext";
 import GuestDetailsForm from "../components/GuestDetailsForm";
 import FareSummaryCard from "../components/FareSummaryCard";
 
-const formatCurrency = (value, currency = "INR") =>
-  new Intl.NumberFormat("en-IN", {
+const formatCurrency = (value, currency = "INR") => {
+  const num = Number(value || 0);
+  return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency,
-    maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+    minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+};
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 const isValidPhone = (value) => /^\d{10}$/.test(String(value || "").trim());
@@ -278,10 +281,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     const priceObj = primaryRoom.price || primaryRoom.Price || {};
 
     const roomPriceVal = Number(
-      priceObj.roomPrice ??
-        priceObj.RoomPrice ??
-        priceObj.b2CBasePrice ??
+      priceObj.b2CBasePrice ??
         priceObj.B2CBasePrice ??
+        priceObj.offeredPrice ??
+        priceObj.OfferedPrice ??
+        priceObj.publishedPrice ??
+        priceObj.PublishedPrice ??
+        priceObj.roomPrice ??
+        priceObj.RoomPrice ??
         0
     );
 
@@ -291,10 +298,12 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         (sum, r) =>
           sum +
           Number(
-            r.price?.roomPrice ??
-              r.price?.RoomPrice ??
-              r.price?.b2CBasePrice ??
+            r.price?.b2CBasePrice ??
               r.price?.B2CBasePrice ??
+              r.price?.offeredPrice ??
+              r.price?.OfferedPrice ??
+              r.price?.roomPrice ??
+              r.price?.RoomPrice ??
               r.roomPrice ??
               r.offeredPrice ??
               0
@@ -305,10 +314,12 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         (sum, s) =>
           sum +
           Number(
-            s.price?.roomPrice ??
-              s.price?.RoomPrice ??
-              s.price?.b2CBasePrice ??
+            s.price?.b2CBasePrice ??
               s.price?.B2CBasePrice ??
+              s.price?.offeredPrice ??
+              s.price?.OfferedPrice ??
+              s.price?.roomPrice ??
+              s.price?.RoomPrice ??
               s.roomPrice ??
               s.offeredPrice ??
               0

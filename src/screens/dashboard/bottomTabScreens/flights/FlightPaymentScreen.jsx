@@ -28,6 +28,17 @@ export default function FlightPaymentScreen({ route, navigation }) {
   const { width } = useWindowDimensions();
   const flowState = route?.params || {};
   
+  React.useEffect(() => {
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 5: PAYMENT & TICKETING SCREEN MOUNTED]");
+    console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+    console.log(`🆔 Trace ID: ${flowState.traceId || flowState.flight?.traceId || "N/A"}`);
+    console.log(`🏷️ Result Index: ${flowState.resultIndex || flowState.flight?.resultIndex || "N/A"}`);
+    console.log(`⚡ Carrier Type: ${flowState.isLCC ? "LCC (Low-Cost Carrier)" : "GDS (Full Service Carrier)"}`);
+    console.log(`💵 Total Payable: ₹${flowState.payableAmount || flowState.fareSummary?.totalFare || 0}`);
+    console.log("================================================================================");
+  }, []);
+
   const [upiId, setUpiId] = useState("");
   const [card, setCard] = useState("");
   const [loading, setLoading] = useState(false);
@@ -195,10 +206,13 @@ export default function FlightPaymentScreen({ route, navigation }) {
           DateOfBirth: cleanDob ? `${cleanDob}T00:00:00` : "1995-05-15T00:00:00",
           Gender: String(p.gender === "Female" || p.gender === 2 || p.gender === "2" ? "2" : "1"),
           Nationality: nationalityCode,
-          ...(p.passportNo ? { PassportNo: String(p.passportNo) } : {}),
-          ...(p.passportExpiry ? { PassportExpiry: `${p.passportExpiry}T00:00:00` } : {}),
-          ...(p.passportIssueCountryCode ? { PassportIssueCountryCode: String(p.passportIssueCountryCode) } : {}),
-          AddressLine1: "PickNBook Street",
+          ...(p.passportNo && String(p.passportNo).trim()
+            ? {
+                PassportNo: String(p.passportNo).trim(),
+                ...(p.passportExpiry ? { PassportExpiry: `${p.passportExpiry}T00:00:00` } : {}),
+                ...(p.passportIssueCountryCode ? { PassportIssueCountryCode: String(p.passportIssueCountryCode) } : {}),
+              }
+            : {}),
           City: "Hyderabad",
           CountryCode: "IN",
           CountryName: "India",
@@ -222,14 +236,14 @@ export default function FlightPaymentScreen({ route, navigation }) {
 
     const apiPassengers = mapPassengersForApi(flowState.passengers, flowState.selectedSeatLabels);
 
-    console.log("\n==========================================");
-    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 5: PAYMENT & TICKETING]");
-    console.log("[FlightPaymentScreen] Carrier Type:", isLCC ? "LCC (Low-Cost Carrier)" : "GDS (Full Service Carrier)");
-    console.log("[FlightPaymentScreen] Total Fare:", totalFare);
-    console.log("[FlightPaymentScreen] Applied Coupon:", appliedCoupon || "None");
-    console.log("[FlightPaymentScreen] Mapped Passengers for Ticketing API:");
-    console.log(JSON.stringify(apiPassengers, null, 2));
-    console.log("==========================================\n");
+    console.log("================================================================================");
+    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 5: EXECUTING PAYMENT & TICKETING]");
+    console.log(`💳 Payment Mode: ${upiId.trim() ? `UPI (${upiId.trim()})` : "Credit/Debit Card"}`);
+    console.log(`⚡ Carrier Mode: ${isLCC ? "TicketLCC (Low-Cost Carrier)" : "HoldGDS + TicketGDS (GDS Carrier)"}`);
+    console.log(`💰 Grand Total Amount: ₹${totalFare}`);
+    console.log(`🏷️ Applied Coupon: ${appliedCoupon ? JSON.stringify(appliedCoupon) : "None"}`);
+    console.log("[FlightPaymentScreen] Mapped Passengers Payload:", JSON.stringify(apiPassengers, null, 2));
+    console.log("================================================================================");
 
     setLoading(true);
     try {
@@ -239,7 +253,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
       let ticketStatus = "Confirmed";
 
       if (isLCC) {
-        console.log("[FlightPaymentScreen] Requesting /api/flight/srdv/TicketLCC...");
+        console.log("[FlightPaymentScreen] Requesting /api/flight/srdv/TicketLCC API...");
         bookingRes = await ticketLCC({
           traceId,
           resultIndex,
@@ -249,13 +263,13 @@ export default function FlightPaymentScreen({ route, navigation }) {
           passengers: apiPassengers,
         });
 
-        console.log("[FlightPaymentScreen] TicketLCC API Response:", JSON.stringify(bookingRes, null, 2));
+        console.log("[FlightPaymentScreen] TicketLCC API Response received:", JSON.stringify(bookingRes, null, 2));
         const resData = bookingRes?.Response || bookingRes?.Results || bookingRes;
         pnr = String(resData?.PNR || resData?.pnr || resData?.FlightItinerary?.PNR || resData?.BookingRefNo || "");
         bookingId = String(resData?.BookingId || resData?.bookingId || resData?.FlightItinerary?.BookingId || resData?.TicketId || "");
         ticketStatus = String(resData?.TicketStatus === "1" || resData?.Status === "1" ? "Confirmed" : resData?.TicketStatus || resData?.Status || "Confirmed");
       } else {
-        console.log("[FlightPaymentScreen] Requesting /api/flight/srdv/HoldGDS...");
+        console.log("[FlightPaymentScreen] Requesting /api/flight/srdv/HoldGDS API...");
         const holdRes = await holdGDS({
           traceId,
           resultIndex,
@@ -265,23 +279,24 @@ export default function FlightPaymentScreen({ route, navigation }) {
           passengers: apiPassengers,
         });
 
-        console.log("[FlightPaymentScreen] HoldGDS API Response:", JSON.stringify(holdRes, null, 2));
+        console.log("[FlightPaymentScreen] HoldGDS API Response received:", JSON.stringify(holdRes, null, 2));
         const holdData = holdRes?.Response || holdRes?.Results || holdRes;
         pnr = String(holdData?.PNR || holdData?.pnr || holdData?.BookingRefNo || "");
         bookingId = String(holdData?.BookingId || holdData?.bookingId || "");
 
-        console.log("[FlightPaymentScreen] HoldGDS success. Issuing ticket via /api/flight/srdv/TicketGDS...");
+        console.log("[FlightPaymentScreen] HoldGDS success. Requesting /api/flight/srdv/TicketGDS API...");
         const ticketRes = await ticketGDS({ pnr, bookingId, traceId, resultIndex, srdvType, srdvIndex });
-        console.log("[FlightPaymentScreen] TicketGDS API Response:", JSON.stringify(ticketRes, null, 2));
+        console.log("[FlightPaymentScreen] TicketGDS API Response received:", JSON.stringify(ticketRes, null, 2));
         const ticketData = ticketRes?.Response || ticketRes?.Results || ticketRes;
         ticketStatus = String(ticketData?.TicketStatus || ticketData?.Status || "Pending Confirmation");
       }
 
-      console.log("\n🎉 [FLIGHT BOOKING FLOW SUCCESS]");
-      console.log("[FlightPaymentScreen] Airline PNR:", pnr);
-      console.log("[FlightPaymentScreen] Booking ID:", bookingId);
-      console.log("[FlightPaymentScreen] Ticket Status:", ticketStatus);
-      console.log("==========================================\n");
+      console.log("================================================================================");
+      console.log("🎉 [FLIGHT BOOKING FLOW - TICKETING SUCCESSFUL]");
+      console.log(`✈️ Airline PNR: ${pnr || "Generated PNR"}`);
+      console.log(`🆔 Booking ID: ${bookingId || "Generated BID"}`);
+      console.log(`📋 Ticket Status: ${ticketStatus}`);
+      console.log("================================================================================");
 
       const nextState = {
         ...flowState,
@@ -293,7 +308,10 @@ export default function FlightPaymentScreen({ route, navigation }) {
         appliedCoupon,
       };
 
+      console.log("[FlightPaymentScreen] Clearing booking flow persistent state via clearFlightBookingFlowState...");
       await clearFlightBookingFlowState();
+
+      console.log("[FlightPaymentScreen] Navigating to FlightConfirmationScreen...");
       navigation.navigate("FlightConfirmationScreen", nextState);
     } catch (error) {
       console.error("[FlightPaymentScreen] Booking API Error:", error?.message);

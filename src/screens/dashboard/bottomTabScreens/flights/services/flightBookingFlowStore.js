@@ -12,7 +12,13 @@ async function readRaw() {
 }
 
 export async function readFlightBookingFlowState() {
-  return readRaw();
+  const data = await readRaw();
+  if (data) {
+    console.log("[flightBookingFlowStore] 📖 Read stored state keys:", Object.keys(data));
+  } else {
+    console.log("[flightBookingFlowStore] 📖 Read stored state: (empty)");
+  }
+  return data;
 }
 
 export async function writeFlightBookingFlowState(partialState) {
@@ -56,6 +62,7 @@ export async function writeFlightBookingFlowState(partialState) {
     delete cleanState.fareQuote;
 
     await SecureStore.setItemAsync(KEY, JSON.stringify(cleanState));
+    console.log("[flightBookingFlowStore] 💾 Written state keys to SecureStore:", Object.keys(cleanState));
   } catch (err) {
     console.warn("[flightBookingFlowStore] Storage warning:", err?.message);
   }
@@ -65,5 +72,8 @@ export async function writeFlightBookingFlowState(partialState) {
 export async function clearFlightBookingFlowState() {
   try {
     await SecureStore.deleteItemAsync(KEY);
-  } catch {}
+    console.log("[flightBookingFlowStore] 🧹 Cleared stored flight booking flow state from SecureStore");
+  } catch (err) {
+    console.warn("[flightBookingFlowStore] Storage clear warning:", err?.message);
+  }
 }

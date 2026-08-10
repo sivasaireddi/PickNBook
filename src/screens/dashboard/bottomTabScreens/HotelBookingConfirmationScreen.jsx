@@ -10,10 +10,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
 
-const formatCurrency = (value = 0) =>
-  `₹ ${Number(value || 0).toLocaleString("en-IN", {
-    maximumFractionDigits: 0,
+const formatCurrency = (value = 0) => {
+  const num = Number(value || 0);
+  return `₹ ${num.toLocaleString("en-IN", {
+    minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
+    maximumFractionDigits: 2,
   })}`;
+};
 
 function InfoCard({ title, icon, children }) {
   return (
@@ -54,7 +57,13 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
   const guestName = String(bookingResult.guestName || "Guest");
   const checkIn = String(bookingResult.checkInDate || "N/A");
   const checkOut = String(bookingResult.checkOutDate || "N/A");
-  const baseFare = Number(bookingResult.fareBreakdown?.baseFare || bookingResult.fareBreakdown?.totalPaid || 0);
+  const totalPaidAmount = Number(
+    bookingResult.fareBreakdown?.totalPaid ??
+      bookingResult.fareBreakdown?.totalPaidAmount ??
+      bookingResult.fareBreakdown?.totalPrice ??
+      bookingResult.fareBreakdown?.baseFare ??
+      0
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -107,7 +116,7 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
           title="Payment Details"
           icon={<Ionicons name="card-outline" size={20} color="#EF4444" />}
         >
-          <Row label="Total Paid Amount" value={formatCurrency(baseFare)} />
+          <Row label="Total Paid Amount" value={formatCurrency(totalPaidAmount)} />
         </InfoCard>
 
         {/* Action Buttons */}
