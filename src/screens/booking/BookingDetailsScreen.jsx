@@ -1,14 +1,16 @@
-import React, { useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { getFlightBookingDetails } from "../dashboard/bottomTabScreens/flights/services/flightBookingService";
 
 // Sample booking object for integration, testing, and fallback shape reference.
 export const SAMPLE_BOOKING_DATA = {
@@ -53,14 +55,14 @@ const formatDateTime = (value) => {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (isNaN(date.getTime())) {
     return String(value);
   }
 
-  return new Intl.DateTimeFormat("en-IN", {
+  return date.toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(date);
+  });
 };
 
 const formatDate = (value) => {
@@ -79,24 +81,61 @@ const formatDate = (value) => {
   }).format(date);
 };
 
-const normalizeBookingData = (route) => {
-  const bookingDetails =
-    route?.params?.bookingDetails ||
-    route?.params?.bookingData ||
-    null;
-
-  if (!bookingDetails || typeof bookingDetails !== "object") {
+const normalizeBookingData = (data) => {
+  if (!data || typeof data !== "object") {
     return null;
   }
 
+  const firstPax = Array.isArray(data.passengers) && data.passengers.length > 0
+    ? data.passengers[0]
+    : (data.passenger || {});
+
+  const paxName = firstPax.name || `${firstPax.title || ""} ${firstPax.firstName || ""} ${firstPax.lastName || ""}`.trim() || "Guest User";
+  const paxAge = firstPax.age || (firstPax.dob ? "Adult" : "--");
+  const paxGender = firstPax.gender || "Male";
+  const paxMobile = firstPax.mobileNumber || firstPax.mobile || data.contact?.mobile || "--";
+
+  const rawFlight = data.flightDetails || data.rawBooking || data;
+  const busOrAirlineName = data.agencyName || data.airline || rawFlight.airlineName || rawFlight.busName || "Airline Flight";
+  const fromCity = data.from || data.fromCity || rawFlight.fromCity || rawFlight.from || "Origin";
+  const toCity = data.to || data.toCity || rawFlight.toCity || rawFlight.to || "Destination";
+  const travelDateVal = data.date || data.departureDate || rawFlight.departureDate || data.journey?.travelDate || "--";
+  const departTimeVal = data.departTime || data.departureTime || rawFlight.departureTime || "--";
+  const arriveTimeVal = data.arriveTime || data.arrivalTime || rawFlight.arrivalTime || "--";
+
+  const seatLabels = Array.isArray(data.seats?.selectedSeatNumbers) && data.seats.selectedSeatNumbers.length > 0
+    ? data.seats.selectedSeatNumbers
+    : (typeof data.seats === "string" && data.seats.trim() ? [data.seats] : (data.seatsBooked ? [`${data.seatsBooked} Seat(s)`] : ["Seat Auto-assigned"]));
+
+  const amountPaidVal = data.totalAmount || data.payment?.totalAmountPaid || data.amountPaid || data.payableAmount || data.totalPrice || 0;
+
   return {
-    bookingId: bookingDetails.bookingId || bookingDetails.pnrNumber || "--",
-    bookingDateTime:
-      bookingDetails.bookingDateTime || bookingDetails.createdAt || "--",
-    passenger: bookingDetails.passenger || {},
-    journey: bookingDetails.journey || {},
-    seats: bookingDetails.seats || {},
-    payment: bookingDetails.payment || {},
+    bookingId: data.bookingId || data.pnrNumber || data.pnr || data.bookingReference || "--",
+    bookingDateTime: data.bookingDateTime || data.createdAt || data.bookingDate || "--",
+    passenger: {
+      name: paxName,
+      age: paxAge,
+      gender: paxGender,
+      mobileNumber: paxMobile,
+    },
+    journey: {
+      busName: busOrAirlineName,
+      from: fromCity,
+      to: toCity,
+      travelDate: travelDateVal,
+      departureTime: departTimeVal,
+      arrivalTime: arriveTimeVal,
+    },
+    seats: {
+      selectedSeatNumbers: seatLabels,
+      totalSeats: seatLabels.length,
+    },
+    payment: {
+      ticketFare: amountPaidVal,
+      taxes: 0,
+      totalAmountPaid: amountPaidVal,
+      paymentStatus: data.status || data.ticketStatus || "Success",
+    },
   };
 };
 
@@ -118,8 +157,37 @@ const Row = ({ label, value }) => (
 );
 
 const BookingDetailsScreen = ({ route, navigation }) => {
-  // Only render booking content when valid booking data exists.
-  const booking = useMemo(() => normalizeBookingData(route), [route]);
+  const [liveBooking, setLiveBooking] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const routeDetails =
+    route?.params?.bookingDetails ||
+    route?.params?.bookingData ||
+    null;
+
+  const targetBookingId = route?.params?.bookingId || routeDetails?.bookingId || routeDetails?.pnr;
+
+  useEffect(() => {
+    if (!routeDetails && targetBookingId) {
+      let isMounted = true;
+      setLoading(true);
+      getFlightBookingDetails(targetBookingId)
+        .then((data) => {
+          if (isMounted && data) {
+            setLiveBooking(data);
+          }
+        })
+        .finally(() => {
+          if (isMounted) setLoading(false);
+        });
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [routeDetails, targetBookingId]);
+
+  const bookingDataObj = routeDetails || liveBooking;
+  const booking = useMemo(() => normalizeBookingData(bookingDataObj), [bookingDataObj]);
 
   const passenger = booking?.passenger || {};
   const journey = booking?.journey || {};
@@ -129,6 +197,14 @@ const BookingDetailsScreen = ({ route, navigation }) => {
     ? seats.selectedSeatNumbers
     : [];
   const hasValidBooking = Boolean(booking && booking.bookingId !== "--");
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#DC2626" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>

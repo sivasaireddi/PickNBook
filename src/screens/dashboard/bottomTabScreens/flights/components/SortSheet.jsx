@@ -11,6 +11,7 @@ const SORT_OPTIONS = [
   { id: "fastest", label: "Fastest", sub: "Shortest duration first" },
   { id: "earliest", label: "Earliest departure", sub: "Flights departing morning first" },
   { id: "latest", label: "Latest departure", sub: "Flights departing evening first" },
+  { id: "earliestarrival", label: "Earliest arrival", sub: "Flights arriving morning first" },
 ];
 
 export default function SortSheet({ visible, onClose, activeSort, onSelectSort }) {

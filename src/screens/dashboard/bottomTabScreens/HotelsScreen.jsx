@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -12,7 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
-import { searchHotelOffers, resolveCityId } from "../../../services/hotelService";
+import { searchHotelOffers, resolveCityId, searchCities } from "../../../services/hotelService";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
 import AppHeader from "../../../components/AppHeader";
 
@@ -41,7 +41,46 @@ const HotelsScreen = () => {
   const navigation = useNavigation();
   const { setSearchSession } = useHotelBooking();
 
-  const [destinationInput, setDestinationInput] = useState("New Delhi (725862)");
+  const [destinationInput, setDestinationInput] = useState("New Delhi");
+  const [selectedCityId, setSelectedCityId] = useState("725862");
+  
+  const [citySuggestions, setCitySuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  
+  const suggestionTimer = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (suggestionTimer.current) clearTimeout(suggestionTimer.current);
+    };
+  }, []);
+
+  const handleCityInput = (text) => {
+    setDestinationInput(text);
+    if (text.trim().length < 2) {
+      setCitySuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    
+    setShowSuggestions(true);
+    setLoadingSuggestions(true);
+    
+    if (suggestionTimer.current) clearTimeout(suggestionTimer.current);
+    
+    suggestionTimer.current = setTimeout(async () => {
+      try {
+        const results = await searchCities(text.trim());
+        setCitySuggestions(results || []);
+      } catch (e) {
+        setCitySuggestions([]);
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    }, 400);
+  };
+
   const [checkInDate, setCheckInDate] = useState(
     new Date(Date.now() + 24 * 60 * 60 * 1000)
   );
@@ -59,7 +98,7 @@ const HotelsScreen = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const resolvedCityId = useMemo(() => resolveCityId(destinationInput), [destinationInput]);
+  const resolvedCityId = selectedCityId;
 
   const handleAddRoom = () => {
     if (roomGuests.length >= 4) return;
@@ -187,23 +226,68 @@ const HotelsScreen = () => {
 
         <View style={styles.card}>
           <Text style={styles.label}>DESTINATION CITY / CITY ID</Text>
-          <View style={styles.inputContainer}>
+          <View style={[styles.inputContainer, showSuggestions && styles.inputContainerActive]}>
             <Ionicons name="business-outline" size={20} color="#E53935" />
             <TextInput
-              placeholder="Search City or ID (e.g. Delhi, 725862)"
+              placeholder="Search City (e.g. Delhi)"
               placeholderTextColor="#7A869A"
               value={destinationInput}
-              onChangeText={setDestinationInput}
+              onChangeText={handleCityInput}
               style={styles.input}
+              onFocus={() => {
+                 if (destinationInput.trim().length >= 2) setShowSuggestions(true);
+              }}
             />
+            {destinationInput.length > 0 && (
+              <Pressable onPress={() => { setDestinationInput(""); setCitySuggestions([]); setShowSuggestions(false); }}>
+                <Ionicons name="close-circle" size={18} color="#94A3B8" />
+              </Pressable>
+            )}
           </View>
+          
+          {showSuggestions && (
+            <View style={styles.dropdown}>
+              {loadingSuggestions ? (
+                <View style={styles.dropdownStatus}>
+                  <ActivityIndicator size="small" color="#E53935" />
+                  <Text style={styles.dropdownStatusText}>Searching cities...</Text>
+                </View>
+              ) : citySuggestions.length === 0 ? (
+                <View style={styles.dropdownStatus}>
+                  <Text style={styles.dropdownStatusText}>No cities found</Text>
+                </View>
+              ) : (
+                citySuggestions.map((item, index) => (
+                  <Pressable
+                    key={index}
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setDestinationInput(item.cityName);
+                      setSelectedCityId(item.cityId);
+                      setShowSuggestions(false);
+                    }}
+                  >
+                    <Ionicons name="location-outline" size={18} color="#E53935" />
+                    <View style={styles.dropdownItemTextContainer}>
+                      <Text style={styles.dropdownText}>{item.cityName}</Text>
+                      {item.countryName ? <Text style={styles.dropdownSubtext}>{item.countryName}</Text> : null}
+                    </View>
+                  </Pressable>
+                ))
+              )}
+            </View>
+          )}
 
           <View style={styles.hintsRow}>
             {CITY_HINTS.map((hint) => (
               <Pressable
                 key={hint.value}
                 style={styles.hintChip}
-                onPress={() => setDestinationInput(`${hint.label} (${hint.value})`)}
+                onPress={() => {
+                  setDestinationInput(hint.label);
+                  setSelectedCityId(hint.value);
+                  setShowSuggestions(false);
+                }}
               >
                 <Text style={styles.hintChipText}>{hint.label}</Text>
               </Pressable>
@@ -445,6 +529,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#0F172A",
     fontWeight: "700",
+  },
+  inputContainerActive: {
+    borderColor: "#E53935",
+  },
+  dropdown: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    marginTop: 4,
+    marginBottom: 8,
+    maxHeight: 200,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+    zIndex: 10,
+  },
+  dropdownStatus: {
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  dropdownStatusText: {
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "600",
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+    gap: 12,
+  },
+  dropdownItemTextContainer: {
+    flex: 1,
+  },
+  dropdownText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  dropdownSubtext: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
   },
   hintsRow: {
     flexDirection: "row",

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "../constants/colors";
 import { RADIUS, SPACING } from "../constants/spacing";
+import { searchAirports } from "../services/FlightService";
 
 const POPULAR_AIRPORTS = [
   { cityName: "Delhi", airportCode: "DEL", airportName: "Indira Gandhi International Airport", airportId: "DEL", country: "India" },
@@ -37,16 +38,73 @@ export function AirportSearchModal({
   onSelectAirport,
 }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [apiResults, setApiResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  const debounceTimer = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, []);
+
+  const handleSearchChange = (text) => {
+    setSearchQuery(text);
+    
+    if (text.trim().length < 2) {
+      setApiResults([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    
+    debounceTimer.current = setTimeout(async () => {
+      try {
+        const results = await searchAirports(text.trim(), "all");
+        // API returns objects with { cityName, airportCode, airportName, ... }
+        setApiResults(results || []);
+      } catch (e) {
+        setApiResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 400);
+  };
 
   const filteredAirports = useMemo(() => {
     if (!searchQuery.trim()) return POPULAR_AIRPORTS;
-    const query = searchQuery.trim().toLowerCase();
-    return POPULAR_AIRPORTS.filter(
-      (item) =>
-        item.cityName.toLowerCase().includes(query) ||
-        item.airportCode.toLowerCase().includes(query) ||
-        item.airportName.toLowerCase().includes(query)
-    );
+    
+    // If we have API results, use them
+    let results = apiResults.length > 0 ? [...apiResults] : [];
+    
+    // Fallback to local filter if API returned nothing but we are still searching
+    if (results.length === 0) {
+      const query = searchQuery.trim().toLowerCase();
+      results = POPULAR_AIRPORTS.filter(
+        (item) =>
+          item.cityName.toLowerCase().includes(query) ||
+          item.airportCode.toLowerCase().includes(query) ||
+          item.airportName.toLowerCase().includes(query)
+      );
+    }
+
+    
+    // Add custom manual entry at the top
+    const customCode = query.substring(0, 3).toUpperCase();
+    results.unshift({
+      cityName: searchQuery.trim(),
+      airportCode: customCode,
+      airportName: `Use custom entry: ${searchQuery.trim()}`,
+      airportId: customCode,
+      country: "",
+      isCustom: true,
+      id: "custom-entry"
+    });
+
+    return results;
   }, [searchQuery]);
 
   if (!visible) return null;
@@ -72,24 +130,41 @@ export function AirportSearchModal({
           <Ionicons name="search" size={20} color={COLORS.placeholder} style={styles.searchIcon} />
           <TextInput
             value={searchQuery}
-            onChangeText={setSearchQuery}
+            onChangeText={handleSearchChange}
             placeholder="Search city, airport name or IATA code..."
             placeholderTextColor={COLORS.placeholder}
             style={styles.searchInput}
             autoFocus
             clearButtonMode="while-editing"
+            onSubmitEditing={() => {
+              if (searchQuery.trim().length > 0) {
+                 const customCode = searchQuery.trim().substring(0, 3).toUpperCase();
+                 onSelectAirport({
+                    cityName: searchQuery.trim(),
+                    airportCode: customCode,
+                    airportName: `Custom: ${searchQuery.trim()}`,
+                    airportId: customCode,
+                    country: ""
+                 });
+                 onClose();
+              }
+            }}
           />
           {searchQuery.length > 0 && Platform.OS === "android" && (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <TouchableOpacity onPress={() => handleSearchChange("")}>
               <Ionicons name="close-circle" size={18} color={COLORS.placeholder} />
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Popular Cities list */}
-        <FlatList
+        {loading ? (
+          <View style={{ padding: SPACING.lg, alignItems: "center" }}>
+             <Text style={{ color: COLORS.textSecondary }}>Searching...</Text>
+          </View>
+        ) : (
+          <FlatList
           data={filteredAirports}
-          keyExtractor={(item) => item.airportCode}
+          keyExtractor={(item) => item.id || item.airportCode}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
@@ -99,14 +174,14 @@ export function AirportSearchModal({
                 onSelectAirport(item);
                 onClose();
               }}
-              style={styles.airportItem}
+              style={[styles.airportItem, item.isCustom && { backgroundColor: COLORS.surfaceMuted, borderBottomWidth: 2, borderBottomColor: COLORS.primary }]}
             >
-              <View style={styles.planeIconCircle}>
-                <Ionicons name="airplane-outline" size={20} color={COLORS.primary} />
+              <View style={[styles.planeIconCircle, item.isCustom && { backgroundColor: COLORS.primary + "20" }]}>
+                <Ionicons name={item.isCustom ? "create-outline" : "airplane-outline"} size={20} color={COLORS.primary} />
               </View>
 
               <View style={styles.itemInfo}>
-                <Text style={styles.itemCity}>{item.cityName}</Text>
+                <Text style={[styles.itemCity, item.isCustom && { color: COLORS.primary }]}>{item.cityName}</Text>
                 <Text style={styles.itemName} numberOfLines={1}>
                   {item.airportName}
                 </Text>
@@ -118,6 +193,7 @@ export function AirportSearchModal({
             </TouchableOpacity>
           )}
         />
+        )}
       </SafeAreaView>
     </Modal>
   );

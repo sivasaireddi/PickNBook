@@ -10,7 +10,8 @@ const BottomSummary = memo(function BottomSummary({
   total,
   onContinue,
   disabled,
-  remainingCount
+  remainingCount,
+  buttonTitle,
 }) {
   return (
     <View style={styles.container}>
@@ -51,7 +52,7 @@ const BottomSummary = memo(function BottomSummary({
           ]}
         >
           <Text style={styles.buttonText}>
-            {remainingCount > 0 ? `Select ${remainingCount} Seat${remainingCount > 1 ? "s" : ""}` : "Continue"}
+            {buttonTitle || (remainingCount > 0 ? `Select ${remainingCount} Seat${remainingCount > 1 ? "s" : ""}` : "Continue")}
           </Text>
         </Pressable>
       </View>

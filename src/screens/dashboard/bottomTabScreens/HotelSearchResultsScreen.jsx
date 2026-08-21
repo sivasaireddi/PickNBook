@@ -6,6 +6,18 @@ import MapView, { Marker, Callout } from "react-native-maps";
 import BottomSheet, { BottomSheetFlatList, useBottomSheetSpringConfigs } from "@gorhom/bottom-sheet";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
 import HotelFilterModal, { createDefaultHotelFilters } from "./HotelFilterModal";
+import {
+  getHotelPrice,
+  getHotelPropertyType,
+  getHotelMealPlans,
+  getHotelRoomCategories,
+  getHotelLocation,
+  normalizePropertyType,
+  normalizeMealPlan,
+  normalizeRoomCategory,
+  filterHotels,
+  sortHotels,
+} from "../../../utils/hotelFilters";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -198,7 +210,7 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   const priceBounds = useMemo(() => {
     if (!rawHotels.length) return { min: 0, max: 100000 };
     const prices = rawHotels
-      .map((h) => Number(h?.price?.offeredPrice ?? h?.offeredFare ?? 0))
+      .map((h) => getHotelPrice(h))
       .filter((p) => Number.isFinite(p) && p > 0);
     if (!prices.length) return { min: 0, max: 100000 };
     return {
@@ -210,7 +222,8 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   const availableCategories = useMemo(() => {
     const set = new Set();
     rawHotels.forEach((h) => {
-      if (h?.hotelCategory) set.add(String(h.hotelCategory).toUpperCase());
+      const type = getHotelPropertyType(h);
+      if (type) set.add(normalizePropertyType(type));
     });
     return Array.from(set);
   }, [rawHotels]);
@@ -218,11 +231,24 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   const availableFacilities = useMemo(() => {
     const set = new Set();
     rawHotels.forEach((h) => {
-      (h?.facilities || []).forEach((f) => {
-        (f?.facilitiesNames || []).forEach((name) => {
-          if (name) set.add(name);
-        });
-      });
+      getHotelMealPlans(h).forEach(f => set.add(normalizeMealPlan(f)));
+    });
+    return Array.from(set);
+  }, [rawHotels]);
+
+  const availableRoomTypes = useMemo(() => {
+    const set = new Set();
+    rawHotels.forEach((h) => {
+      getHotelRoomCategories(h).forEach(r => set.add(normalizeRoomCategory(r)));
+    });
+    return Array.from(set);
+  }, [rawHotels]);
+
+  const availableLocations = useMemo(() => {
+    const set = new Set();
+    rawHotels.forEach((h) => {
+      const loc = getHotelLocation(h);
+      if (loc) set.add(loc);
     });
     return Array.from(set);
   }, [rawHotels]);
@@ -239,69 +265,8 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
 
   // Filtered & Sorted Hotels
   const filteredHotels = useMemo(() => {
-    let result = rawHotels.filter((hotel) => {
-      const price = Number(hotel?.price?.offeredPrice ?? hotel?.offeredFare ?? 0);
-      const rating = Number(hotel?.starRating ?? hotel?.rating) || 4.0;
-      const category = String(hotel?.hotelCategory || "").toUpperCase();
-      const hotelName = String(hotel?.hotelName || hotel?.name || "").toLowerCase();
-      const address = String(hotel?.hotelAddress || hotel?.address || "").toLowerCase();
-
-      // Search Query
-      if (filters.searchQuery) {
-        const q = filters.searchQuery.toLowerCase().trim();
-        if (!hotelName.includes(q) && !address.includes(q)) {
-          return false;
-        }
-      }
-
-      // Price Range
-      if (price < filters.priceMin || price > filters.priceMax) {
-        return false;
-      }
-
-      // Star Ratings
-      if (filters.starRatings.length > 0) {
-        const roundedStar = Math.floor(rating);
-        if (!filters.starRatings.includes(roundedStar) && !filters.starRatings.includes(Math.round(rating))) {
-          return false;
-        }
-      }
-
-      // Categories
-      if (filters.categories.length > 0) {
-        if (!filters.categories.some((c) => c.toUpperCase() === category)) {
-          return false;
-        }
-      }
-
-      // Facilities / Inclusions
-      if (filters.facilities.length > 0) {
-        const hotelFacs = (hotel?.facilities || []).flatMap((f) => f?.facilitiesNames || []);
-        const hasFac = filters.facilities.some((f) =>
-          hotelFacs.some((hf) => String(hf).toLowerCase().includes(String(f).toLowerCase()))
-        );
-        if (!hasFac) return false;
-      }
-
-      return true;
-    });
-
-    // Apply Sorting
-    if (sortBy === "PRICE_LOW") {
-      result = [...result].sort(
-        (a, b) => (a?.price?.offeredPrice ?? a?.offeredFare ?? 0) - (b?.price?.offeredPrice ?? b?.offeredFare ?? 0)
-      );
-    } else if (sortBy === "PRICE_HIGH") {
-      result = [...result].sort(
-        (a, b) => (b?.price?.offeredPrice ?? b?.offeredFare ?? 0) - (a?.price?.offeredPrice ?? a?.offeredFare ?? 0)
-      );
-    } else if (sortBy === "RATING_HIGH") {
-      result = [...result].sort(
-        (a, b) => (Number(b?.starRating ?? b?.rating) || 0) - (Number(a?.starRating ?? a?.rating) || 0)
-      );
-    }
-
-    return result;
+    let result = filterHotels(rawHotels, filters);
+    return sortHotels(result, sortBy);
   }, [rawHotels, filters, sortBy]);
 
   // Active filter count calculation
@@ -309,9 +274,11 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
     let count = 0;
     if (filters.searchQuery) count++;
     if (filters.priceMin > priceBounds.min || filters.priceMax < priceBounds.max) count++;
-    count += filters.starRatings.length;
-    count += filters.categories.length;
-    count += filters.facilities.length;
+    count += (filters.starRatings || []).length;
+    count += (filters.categories || []).length;
+    count += (filters.facilities || []).length;
+    count += (filters.roomTypes || []).length;
+    count += (filters.locations || []).length;
     return count;
   }, [filters, priceBounds]);
 
@@ -511,6 +478,73 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
           </Text>
         </View>
       </View>
+
+      {/* Active Filter Chips */}
+      {activeFilterCount > 0 && (
+        <View style={styles.activeFiltersContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeFiltersScroll}>
+            {/* Price Filter */}
+            {(filters.priceMin > priceBounds.min || filters.priceMax < priceBounds.max) && (
+              <View style={styles.activeChip}>
+                <Text style={styles.activeChipText}>₹{filters.priceMin.toLocaleString()} - ₹{filters.priceMax.toLocaleString()}</Text>
+                <Pressable onPress={() => setFilters(f => ({ ...f, priceMin: priceBounds.min, priceMax: priceBounds.max }))}>
+                  <Ionicons name="close" size={14} color="#0F172A" />
+                </Pressable>
+              </View>
+            )}
+            
+            {/* Star Ratings */}
+            {(filters.starRatings || []).map(star => (
+              <View key={`active-star-${star}`} style={styles.activeChip}>
+                <Text style={styles.activeChipText}>{star} Star</Text>
+                <Pressable onPress={() => toggleQuickStar(star)}>
+                  <Ionicons name="close" size={14} color="#0F172A" />
+                </Pressable>
+              </View>
+            ))}
+            
+            {/* Categories */}
+            {(filters.categories || []).map(cat => (
+              <View key={`active-cat-${cat}`} style={styles.activeChip}>
+                <Text style={styles.activeChipText}>{cat}</Text>
+                <Pressable onPress={() => setFilters(f => ({ ...f, categories: f.categories.filter(c => c !== cat) }))}>
+                  <Ionicons name="close" size={14} color="#0F172A" />
+                </Pressable>
+              </View>
+            ))}
+            
+            {/* Facilities */}
+            {(filters.facilities || []).map(fac => (
+              <View key={`active-fac-${fac}`} style={styles.activeChip}>
+                <Text style={styles.activeChipText}>{fac}</Text>
+                <Pressable onPress={() => toggleQuickFacility(fac)}>
+                  <Ionicons name="close" size={14} color="#0F172A" />
+                </Pressable>
+              </View>
+            ))}
+            
+            {/* Room Types */}
+            {(filters.roomTypes || []).map(room => (
+              <View key={`active-room-${room}`} style={styles.activeChip}>
+                <Text style={styles.activeChipText}>{room}</Text>
+                <Pressable onPress={() => setFilters(f => ({ ...f, roomTypes: f.roomTypes.filter(r => r !== room) }))}>
+                  <Ionicons name="close" size={14} color="#0F172A" />
+                </Pressable>
+              </View>
+            ))}
+
+            {/* Locations */}
+            {(filters.locations || []).map(loc => (
+              <View key={`active-loc-${loc}`} style={styles.activeChip}>
+                <Text style={styles.activeChipText}>{loc}</Text>
+                <Pressable onPress={() => setFilters(f => ({ ...f, locations: f.locations.filter(l => l !== loc) }))}>
+                  <Ionicons name="close" size={14} color="#0F172A" />
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <View style={styles.mapWrap}>
         <MapView ref={mapRef} style={styles.map} initialRegion={region}>
@@ -718,6 +752,8 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
         priceBounds={priceBounds}
         availableCategories={availableCategories}
         availableFacilities={availableFacilities}
+        availableRoomTypes={availableRoomTypes}
+        availableLocations={availableLocations}
         filteredCount={filteredHotels.length}
         onReset={() => {
           setFilters(createDefaultHotelFilters(priceBounds));
@@ -773,6 +809,34 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748B",
     fontWeight: "500",
+  },
+  activeFiltersContainer: {
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderColor: "#E2E8F0",
+    paddingVertical: 8,
+    zIndex: 2,
+  },
+  activeFiltersScroll: {
+    paddingHorizontal: 14,
+    gap: 8,
+    alignItems: "center",
+  },
+  activeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+  },
+  activeChipText: {
+    fontSize: 12,
+    color: "#0F172A",
+    fontWeight: "600",
   },
   mapWrap: {
     flex: 1,

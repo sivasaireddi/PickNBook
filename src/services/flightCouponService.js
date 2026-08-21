@@ -121,19 +121,41 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
     };
   }
 
-  // 2. Try server-side validation if endpoint is available
-  try {
-    const response = await axios.post(
-      `${FLIGHT_API_BASE_URL}/api/coupons/validate`,
-      { code: cleanCode, cartTotal, userId, routeId },
-      { headers: { "ngrok-skip-browser-warning": "true" }, timeout: 6000 }
-    );
-    if (response?.data && response.data.valid !== undefined) {
-      return response.data;
+  // 2. Try server-side validation if endpoint is available (supporting /api/flight/coupons, /api/coupons, and /api/coupons/validate)
+  const candidateEndpoints = [
+    `${FLIGHT_API_BASE_URL}/api/flight/coupons`,
+    `${FLIGHT_API_BASE_URL}/api/coupons`,
+    `${FLIGHT_API_BASE_URL}/api/coupons/validate`,
+  ];
+
+  for (const ep of candidateEndpoints) {
+    try {
+      const payload = { code: cleanCode, cartTotal, userId, routeId };
+      console.log(`\n==================================================`);
+      console.log(`🚀 [COUPON API REQUEST] POST ${ep}`);
+      console.log("📦 Request Payload:", JSON.stringify(payload, null, 2));
+      console.log(`==================================================\n`);
+
+      const response = await axios.post(
+        ep,
+        payload,
+        { headers: { "ngrok-skip-browser-warning": "true" }, timeout: 6000 }
+      );
+
+      console.log(`\n==================================================`);
+      console.log(`✅ [COUPON API RESPONSE] POST ${ep} (Status: ${response.status})`);
+      console.log("📥 Response Data:", JSON.stringify(response.data, null, 2));
+      console.log(`==================================================\n`);
+
+      if (response?.data && response.data.valid !== undefined) {
+        return response.data;
+      }
+    } catch (err) {
+      console.log(`[flightCouponService] Coupon endpoint ${ep} returned error (${err?.message}), checking fallbacks...`);
     }
-  } catch (err) {
-    console.log("[flightCouponService] Server coupon validation fallback to local rules:", err?.message);
   }
+
+
 
   // 3. Local fallback validation matching backend available offer catalog
   const offer = DEFAULT_OFFERS.find((o) => (o.code || o.title || "").toUpperCase() === cleanCode);

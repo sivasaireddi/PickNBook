@@ -20,6 +20,7 @@ import FlightPassengerDetailsScreen from "../screens/dashboard/bottomTabScreens/
 import FlightSeatSelectionScreen from "../screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen";
 import FlightPaymentScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPaymentScreen";
 import FlightConfirmationScreen from "../screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen";
+import FlightDetailsScreen from "../screens/dashboard/bottomTabScreens/flights/FlightDetailsScreen";
 import BottomTabNavigation from "./BottomTabNavigation";
 import SideBarNavigation from "./SideBarNavigation";
 import SplashScreen from "../screens/auth/SplashScreen";    
@@ -89,6 +90,7 @@ const StackNavigation = () => {
       <Stack.Screen name="FlightSeatSelectionScreen" component={FlightSeatSelectionScreen} />
       <Stack.Screen name="FlightPaymentScreen" component={FlightPaymentScreen} />
       <Stack.Screen name="FlightConfirmationScreen" component={FlightConfirmationScreen} />
+      <Stack.Screen name="FlightDetailsScreen" component={FlightDetailsScreen} />
       <Stack.Screen name="Seater" component={Seater} />
       <Stack.Screen name="Sleeper" component={Sleeper} />
 

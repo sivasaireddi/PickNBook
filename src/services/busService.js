@@ -27,16 +27,16 @@ let lastSearchResults = {
 };
 
 /**
- * Search cities for autocomplete via GET /api/busbookings/search-cities?query={cityName}
+ * Search cities for autocomplete via GET /api/Places?query={cityName}&tripType=bus
  */
 export async function searchCities(query = "") {
   try {
     const trimmed = String(query || "").trim();
     if (!trimmed) return [];
 
-    console.log(`[BusService] searchCities Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/busbookings/search-cities?query=${encodeURIComponent(trimmed)}`);
-    const response = await client.get("/api/busbookings/search-cities", {
-      params: { query: trimmed },
+    console.log(`[BusService] searchCities Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/Places?query=${encodeURIComponent(trimmed)}&tripType=bus`);
+    const response = await client.get("/api/Places", {
+      params: { query: trimmed, tripType: "bus" },
     });
 
     return response.data || [];

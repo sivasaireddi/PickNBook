@@ -18,5 +18,16 @@ export const heightPercentageToDP = (heightPercent) => {
   return PixelRatio.roundToNearestPixel((screenHeight * elemHeight) / 100);
 };
 
+// Baseline width for standard sizing (e.g., iPhone X / 375 width)
+const BASE_WIDTH = 375;
+
+export const scale = (size) => {
+  const newSize = (screenWidth / BASE_WIDTH) * size;
+  // Clamp the scale to not blow up on tablets and not shrink too small
+  const clampedSize = Math.max(size * 0.8, Math.min(newSize, size * 1.3));
+  return PixelRatio.roundToNearestPixel(clampedSize);
+};
+
 export const wp = widthPercentageToDP;
 export const hp = heightPercentageToDP;
+

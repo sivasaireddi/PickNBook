@@ -31,6 +31,7 @@ import {
 } from "../../../services/busService";
 import { AUTH_API_BASE_URL } from "../../../services/authService";
 import { useNavigation } from "@react-navigation/native";
+import { readConfirmedFlightBookingsLocally } from "./flights/services/flightBookingFlowStore";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -185,30 +186,6 @@ const DEFAULT_HOTEL_BOOKINGS = {
   Cancelled: [],
 };
 
-const DEFAULT_FLIGHT_BOOKINGS = {
-  Upcoming: [
-    {
-      id: "demo-flight-1",
-      pnr: "FLT770901",
-      from: "Delhi (DEL)",
-      to: "Mumbai (BOM)",
-      agencyName: "IndiGo Airlines • 6E-402",
-      date: "05 Sep 2025",
-      departTime: "06:15 AM",
-      arriveTime: "08:30 AM",
-      duration: "2h 15m",
-      seats: "Seat 12A",
-      totalAmount: "₹3,400",
-      busType: "Economy",
-      status: "Upcoming",
-      canCancel: true,
-      isFlight: true,
-    },
-  ],
-  Past: [],
-  Cancelled: [],
-};
-
 export default function BookingsScreen() {
   const navigation = useNavigation();
   const [category, setCategory] = useState("bus");
@@ -216,7 +193,7 @@ export default function BookingsScreen() {
 
   const [busBookings, setBusBookings] = useState(DEFAULT_BUS_BOOKINGS);
   const [hotelBookings, setHotelBookings] = useState(DEFAULT_HOTEL_BOOKINGS);
-  const [flightBookings, setFlightBookings] = useState(DEFAULT_FLIGHT_BOOKINGS);
+  const [flightBookings, setFlightBookings] = useState(createEmptyBookings());
 
   const [loading, setLoading] = useState(false);
   const [favorites, setFavorites] = useState({});
@@ -257,14 +234,23 @@ export default function BookingsScreen() {
         const data = await getMyHotelBookings();
         if (Array.isArray(data)) setHotelBookings(groupHotelBookingsByStatus(data));
       } else {
-        const response = await fetch(`${AUTH_API_BASE_URL}/api/FlightBookings/bookings`, {
-          method: "GET",
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (Array.isArray(data)) setFlightBookings(groupFlightBookingsByStatus(data));
+        const localList = await readConfirmedFlightBookingsLocally();
+        let apiList = [];
+        try {
+          const response = await fetch(`${AUTH_API_BASE_URL}/api/FlightBookings/bookings`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (Array.isArray(data)) apiList = data;
+          }
+        } catch (netErr) {
+          console.log("[BookingsScreen] Flight API notice:", netErr?.message);
         }
+
+        const combined = [...localList, ...apiList];
+        setFlightBookings(groupFlightBookingsByStatus(combined));
       }
     } catch (error) {
       console.log("[BookingsScreen] Fetch notice:", error.message);
@@ -342,23 +328,34 @@ export default function BookingsScreen() {
   const groupFlightBookingsByStatus = (data) => {
     const grouped = createEmptyBookings();
     (Array.isArray(data) ? data : []).forEach((item, index) => {
-      const isCancelled = String(item.status || "").toLowerCase() === "cancelled";
+      const isCancelled = String(item.status || item.ticketStatus || "").toLowerCase() === "cancelled";
+      const fromVal = item.from || item.fromCity || item.origin || "";
+      const toVal = item.to || item.toCity || item.destination || "";
+      const pnrVal = item.pnr || item.bookingReference || item.bookingId || "";
+      const airlineVal = item.agencyName || (item.airline ? `${item.airline}${item.flightNumber ? ` • ${item.flightNumber}` : ""}` : "");
+      const dateVal = item.date || item.departureDate || "";
+      const departVal = item.departTime || item.departureTime || "";
+      const arriveVal = item.arriveTime || item.arrivalTime || "";
+      const seatsVal = item.seats || (item.seatNumber ? `Seat ${item.seatNumber}` : "Seat Auto-assigned");
+      const amountVal = item.totalAmount || (item.totalPrice ? `₹${item.totalPrice.toLocaleString("en-IN")}` : (item.payableAmount ? `₹${Number(item.payableAmount).toLocaleString("en-IN")}` : ""));
+
       const formatted = {
-        id: String(item.bookingId || item.id || index),
-        pnr: item.bookingReference || `FLT${770000 + index}`,
-        from: item.fromCity || "Hyderabad (HYD)",
-        to: item.toCity || "Mumbai (BOM)",
-        agencyName: `${item.airline || "IndiGo Airlines"} • ${item.flightNumber || "6E-402"}`,
-        date: item.departureDate || "05 Sep 2025",
-        departTime: item.departureTime || "06:15 AM",
-        arriveTime: item.arrivalTime || "08:30 AM",
-        duration: "2h 15m",
-        seats: item.seatNumber ? `Seat ${item.seatNumber}` : "Seat 12A",
-        totalAmount: item.totalPrice ? `₹${item.totalPrice}` : "₹3,400",
-        busType: item.travelClass || "Economy",
+        id: String(item.id || item.bookingId || item.pnr || index),
+        pnr: pnrVal,
+        from: fromVal,
+        to: toVal,
+        agencyName: airlineVal,
+        date: dateVal,
+        departTime: departVal,
+        arriveTime: arriveVal,
+        duration: item.duration || "",
+        seats: seatsVal,
+        totalAmount: amountVal,
+        busType: item.travelClass || item.busType || "Economy",
         status: isCancelled ? "Cancelled" : "Upcoming",
         canCancel: !isCancelled,
         isFlight: true,
+        rawBooking: item,
       };
 
       let statusTab = isCancelled ? "Cancelled" : "Upcoming";

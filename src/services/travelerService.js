@@ -18,6 +18,43 @@ const client = axios.create({
   },
 });
 
+// Interceptors for rich console logging
+client.interceptors.request.use(
+  (config) => {
+    const fullUrl = `${config.baseURL || ""}${config.url || ""}`;
+    console.log(`\n==================================================`);
+    console.log(`🚀 [TRAVELER API REQUEST] ${config.method?.toUpperCase()} ${fullUrl}`);
+    if (config.params) console.log("📌 Request Params:", JSON.stringify(config.params, null, 2));
+    if (config.data) console.log("📦 Request Payload:", typeof config.data === "string" ? config.data : JSON.stringify(config.data, null, 2));
+    console.log(`==================================================\n`);
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+client.interceptors.response.use(
+  (response) => {
+    const fullUrl = `${response.config?.baseURL || ""}${response.config?.url || ""}`;
+    console.log(`\n==================================================`);
+    console.log(`✅ [TRAVELER API RESPONSE] ${response.config?.method?.toUpperCase()} ${fullUrl} (Status: ${response.status})`);
+    console.log("📥 Response Data:", JSON.stringify(response.data, null, 2));
+    console.log(`==================================================\n`);
+    return response;
+  },
+  (error) => {
+    const fullUrl = `${error.config?.baseURL || ""}${error.config?.url || ""}`;
+    console.error(`\n==================================================`);
+    console.error(`❌ [TRAVELER API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
+    console.error("⚠️ Error Message:", error.message);
+    if (error.response?.data) {
+      console.error("📄 Error Response Data:", JSON.stringify(error.response.data, null, 2));
+    }
+    console.error(`==================================================\n`);
+    return Promise.reject(error);
+  }
+);
+
+
 /**
  * Normalizes raw API traveler item into clean UI traveler object
  */
@@ -73,60 +110,68 @@ function calculateAgeFromDob(dobString) {
 }
 
 /**
- * Fetches saved travelers from GET /api/Travelers
+ * Fetches saved travelers from GET /api/travelers (with /api/Travelers & /api/user/travelers fallbacks)
  */
 export async function getTravelers(customToken) {
-  try {
-    const token = customToken || (await getStoredAuthToken());
-    const headers = {};
+  const token = customToken || (await getStoredAuthToken());
+  const headers = {};
 
-    if (token) {
-      headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
-    }
-
-    console.log("[TravelerService] GET /api/Travelers with headers:", headers);
-
-    const response = await client.get("/api/Travelers", { headers });
-    console.log("[TravelerService] GET /api/Travelers status:", response.status);
-    console.log("[TravelerService] GET /api/Travelers data:", JSON.stringify(response.data, null, 2));
-
-    const rawList = Array.isArray(response.data)
-      ? response.data
-      : Array.isArray(response.data?.travelers)
-      ? response.data.travelers
-      : Array.isArray(response.data?.data)
-      ? response.data.data
-      : Array.isArray(response.data?.items)
-      ? response.data.items
-      : [];
-
-    return rawList.map(normalizeTraveler).filter(Boolean);
-  } catch (error) {
-    console.warn("[TravelerService] getTravelers Error:", error?.message, error?.response?.data);
-    throw error;
+  if (token) {
+    headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
   }
+
+  const endpoints = ["/api/travelers", "/api/Travelers", "/api/user/travelers"];
+
+  for (const ep of endpoints) {
+    try {
+      console.log(`[TravelerService] Trying GET ${ep} with headers:`, headers);
+      const response = await client.get(ep, { headers });
+      console.log(`[TravelerService] GET ${ep} status:`, response.status);
+
+      const rawList = Array.isArray(response.data)
+        ? response.data
+        : Array.isArray(response.data?.travelers)
+        ? response.data.travelers
+        : Array.isArray(response.data?.data)
+        ? response.data.data
+        : Array.isArray(response.data?.items)
+        ? response.data.items
+        : [];
+
+      return rawList.map(normalizeTraveler).filter(Boolean);
+    } catch (error) {
+      console.warn(`[TravelerService] GET ${ep} failed (${error?.message}), checking fallbacks...`);
+    }
+  }
+
+  return [];
 }
 
 /**
- * Creates a new traveler via POST /api/Travelers
+ * Creates a new traveler via POST /api/travelers (with /api/Travelers & /api/user/travelers fallbacks)
  */
 export async function createTraveler(travelerPayload, customToken) {
-  try {
-    const token = customToken || (await getStoredAuthToken());
-    const headers = {};
+  const token = customToken || (await getStoredAuthToken());
+  const headers = {};
 
-    if (token) {
-      headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
-    }
-
-    console.log("[TravelerService] POST /api/Travelers payload:", travelerPayload);
-
-    const response = await client.post("/api/Travelers", travelerPayload, { headers });
-    console.log("[TravelerService] POST /api/Travelers response:", response.data);
-
-    return normalizeTraveler(response.data?.data || response.data || travelerPayload);
-  } catch (error) {
-    console.warn("[TravelerService] createTraveler Error:", error?.message, error?.response?.data);
-    throw error;
+  if (token) {
+    headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
   }
+
+  const endpoints = ["/api/travelers", "/api/Travelers", "/api/user/travelers"];
+
+  for (const ep of endpoints) {
+    try {
+      console.log(`[TravelerService] Trying POST ${ep} payload:`, travelerPayload);
+      const response = await client.post(ep, travelerPayload, { headers });
+      console.log(`[TravelerService] POST ${ep} response:`, response.data);
+
+      return normalizeTraveler(response.data?.data || response.data || travelerPayload);
+    } catch (error) {
+      console.warn(`[TravelerService] POST ${ep} failed (${error?.message}), checking fallbacks...`);
+    }
+  }
+
+  return normalizeTraveler(travelerPayload);
 }
+

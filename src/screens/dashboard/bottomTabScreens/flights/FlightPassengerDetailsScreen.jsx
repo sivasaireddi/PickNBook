@@ -84,7 +84,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       firstName: "",
       lastName: "",
       gender: "Male",
-      dob: "1995-05-15",
+      dob: "",
       nationality: "Indian",
       passportNo: "",
       passportExpiry: "2030-12-31",
@@ -140,14 +140,18 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
   }, [fareRuleData, flowState, routeParams]);
 
   const fareRulesList = useMemo(() => {
-    const resObj = fareRuleData?.Response || fareRuleData?.Results || fareRuleData;
-    let list = resObj?.FareRules || resObj?.FareRule || resObj?.Results || fareRuleData?.Results || fareRuleData?.FareRules || [];
+    if (fareRuleData?.code === "FARE_RULE_UNAVAILABLE" || (fareRuleData?.success === false && (!fareRuleData?.data || fareRuleData?.data?.length === 0))) {
+      return [];
+    }
+    const rawData = fareRuleData?.data || fareRuleData?.Response || fareRuleData?.Results || fareRuleData;
+    let list = rawData?.FareRules || rawData?.FareRule || rawData?.Results || rawData || [];
     if (!Array.isArray(list)) list = [list].filter(Boolean);
-    if (fareRuleData?.SpecialRule && !list.some((r) => r.SpecialRule)) {
-      list.unshift({ SpecialRule: fareRuleData.SpecialRule });
+    if (rawData?.SpecialRule && !list.some((r) => r.SpecialRule)) {
+      list.unshift({ SpecialRule: rawData.SpecialRule });
     }
     return list;
   }, [fareRuleData]);
+
 
   // Saved travelers state
   const [savedTravelers, setSavedTravelers] = useState([]);
@@ -253,9 +257,50 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
         nextErrors[`p-${idx}-lastName`] = "Last name is required";
         isValid = false;
       }
-      if (!p.dob.trim()) {
-        nextErrors[`p-${idx}-dob`] = "Date of Birth (YYYY-MM-DD) is required";
-        isValid = false;
+      
+      if (isInternational) {
+        if (!p.dob || !p.dob.trim()) {
+          nextErrors[`p-${idx}-dob`] = "DOB required for intl flights";
+          isValid = false;
+        }
+        if (!p.passportNo || !p.passportNo.trim()) {
+          nextErrors[`p-${idx}-passportNo`] = "Passport number required";
+          isValid = false;
+        }
+        if (!p.passportExpiry || !p.passportExpiry.trim()) {
+          nextErrors[`p-${idx}-passportExpiry`] = "Passport expiry required";
+          isValid = false;
+        }
+        if (!p.passportIssueDate || !p.passportIssueDate.trim()) {
+          nextErrors[`p-${idx}-passportIssueDate`] = "Issue date required";
+          isValid = false;
+        }
+        if (!p.passportIssueCountryCode || !p.passportIssueCountryCode.trim()) {
+          nextErrors[`p-${idx}-passportIssueCountryCode`] = "Issue country required";
+          isValid = false;
+        }
+        if (!p.nationality || !p.nationality.trim()) {
+          // nationality validation
+          isValid = false;
+        }
+      } else if (p.passportNo && p.passportNo.trim().length > 0) {
+        // If they voluntarily entered a passport, require the rest
+        if (!p.dob || !p.dob.trim()) {
+          nextErrors[`p-${idx}-dob`] = "DOB required with passport";
+          isValid = false;
+        }
+        if (!p.passportExpiry || !p.passportExpiry.trim()) {
+          nextErrors[`p-${idx}-passportExpiry`] = "Expiry required";
+          isValid = false;
+        }
+        if (!p.passportIssueDate || !p.passportIssueDate.trim()) {
+          nextErrors[`p-${idx}-passportIssueDate`] = "Issue date required";
+          isValid = false;
+        }
+        if (!p.passportIssueCountryCode || !p.passportIssueCountryCode.trim()) {
+          nextErrors[`p-${idx}-passportIssueCountryCode`] = "Country required";
+          isValid = false;
+        }
       }
     });
 
@@ -272,7 +317,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
 
     setErrors(nextErrors);
     return isValid;
-  }, [passengers, contact]);
+  }, [passengers, contact, isInternational]);
 
   // Handle Continue to Seat Selection
   const handleContinue = useCallback(async () => {
@@ -292,8 +337,16 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     const activeSrdvType = flowState.srdvType || flowState.flight?.srdvType || routeParams.srdvType || routeParams.flight?.srdvType || "MixAPI";
     const activeSrdvIndex = flowState.srdvIndex || flowState.flight?.srdvIndex || routeParams.srdvIndex || routeParams.flight?.srdvIndex || "2";
 
+    console.log("================================================================================");
+    console.log("✈️ [MULTI-CITY PASSENGER DETAILS TELEMETRY]");
     console.log(`🆔 Trace ID: ${activeTraceId} | Result Index: ${activeResultIndex}`);
     console.log(`👥 Passengers Count: ${passengers.length} | Contact Email: ${contact.email} | Mobile: ${contact.mobile}`);
+    if (flowState.isMultiCity || flowState.journeyType === 3) {
+      console.log("🌍 Multi-City Route Summary:");
+      (flowState.multiCityFlights || []).forEach((leg, i) => {
+        console.log(`  Leg ${i + 1}: ${leg.airlineName || leg.airlineCode || "Flight"} (${leg.fromCity || leg.origin} ➔ ${leg.toCity || leg.destination})`);
+      });
+    }
     console.log("[FlightPassengerDetailsScreen] Passengers Payload:", JSON.stringify(passengers, null, 2));
     console.log("================================================================================");
 
@@ -305,9 +358,10 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       srdvIndex: activeSrdvIndex,
       passengers,
       contact,
-      selectedSeats: passengers.map((_, index) => ({ label: `${12 + index}A` })),
+      selectedSeats: [],
+      selectedSeatLabels: [],
       fareSummary: flowState.fareSummary || {
-        baseFare: Number(flowState.flight?.selectedTravelClassPriceInr || flowState.flight?.fare || 5208),
+        baseFare: Number(flowState.flight?.selectedTravelClassPriceInr || flowState.flight?.fare || 0),
       },
     };
 

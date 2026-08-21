@@ -6,7 +6,7 @@ export const HOTEL_API_BASE_URL =
   process.env.EXPO_PUBLIC_HOTEL_API_BASE_URL ||
   "https://paycheck-baton-overfull.ngrok-free.dev";
 
-const DEFAULT_CLIENT_ID = process.env.EXPO_PUBLIC_HOTEL_CLIENT_ID || "180170";
+const DEFAULT_CLIENT_ID = process.env.EXPO_PUBLIC_HOTEL_CLIENT_ID || "180232";
 const DEFAULT_USERNAME = process.env.EXPO_PUBLIC_HOTEL_USERNAME || "PickNBk6";
 const DEFAULT_PASSWORD = process.env.EXPO_PUBLIC_HOTEL_PASSWORD || "PickNB@486";
 const DEFAULT_END_USER_IP = process.env.EXPO_PUBLIC_HOTEL_END_USER_IP || "192.168.1.1";
@@ -74,6 +74,27 @@ function getDefaultDateString(offsetDays = 0) {
   const timezoneOffset = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 10);
 }
+
+/**
+ * Search cities for autocomplete via GET /api/Places?query={cityName}&tripType=hotel
+ */
+export async function searchCities(query = "") {
+  try {
+    const trimmed = String(query || "").trim();
+    if (!trimmed) return [];
+
+    console.log(`[hotelService] searchCities Request URL: ${toHotelUrl("/api/Places")}?query=${encodeURIComponent(trimmed)}&tripType=hotel`);
+    const response = await axios.get(toHotelUrl("/api/Places"), {
+      params: { query: trimmed, tripType: "hotel" },
+    });
+
+    return response.data || [];
+  } catch (error) {
+    console.error("[hotelService] searchCities error:", error?.message, error?.response?.data);
+    return [];
+  }
+}
+
 
 /**
  * Step 1: Search Hotels — POST /api/Hotels/SearchHotels

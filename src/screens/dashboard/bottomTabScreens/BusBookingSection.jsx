@@ -148,7 +148,12 @@ const SuggestionsDropdown = ({ visible, items, loading, onSelect, query = "" }) 
           <Text style={styles.dropdownStatusText}>No cities found</Text>
         </View>
       ) : (
-        <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView 
+          nestedScrollEnabled={true} 
+          keyboardShouldPersistTaps="handled" 
+          showsVerticalScrollIndicator={true}
+          style={{ maxHeight: 188 }}
+        >
           {items.map((item, index) => {
             const cityName = item && typeof item === "object" ? item.cityName : String(item);
             const stateName = item && typeof item === "object" ? item.stateName : "";
@@ -165,7 +170,7 @@ const SuggestionsDropdown = ({ visible, items, loading, onSelect, query = "" }) 
               >
                 <Ionicons name="location-outline" size={18} color={COLORS.primary} />
                 <View style={styles.dropdownItemTextContainer}>
-                  <Text style={styles.dropdownText}>{cityName}</Text>
+                  <Text style={styles.dropdownText}>{item?.label || cityName}</Text>
                   {stateName ? <Text style={styles.dropdownSubtext}>{stateName}</Text> : null}
                 </View>
               </Pressable>
@@ -178,8 +183,8 @@ const SuggestionsDropdown = ({ visible, items, loading, onSelect, query = "" }) 
 };
 
 export default function BusBookingSection({ navigation }) {
-  const [source, setSource] = useState({ cityId: "", cityName: "", stateName: "" });
-  const [destination, setDestination] = useState({ cityId: "", cityName: "", stateName: "" });
+  const [source, setSource] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
+  const [destination, setDestination] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
   const [date, setDate] = useState(new Date());
   const [passengersCount, setPassengersCount] = useState(1);
   const [showPicker, setShowPicker] = useState(false);
@@ -244,12 +249,25 @@ export default function BusBookingSection({ navigation }) {
       const data = await searchCities(trimmedQuery);
       if (requestIds.current[field] !== requestId) return;
 
+      const extractCity = (description) => {
+        if (!description) return '';
+        const parts = description.split(',').map(part => part.trim()).filter(Boolean);
+        return parts.length >= 2 ? parts[1] : parts[0];
+      };
+
       const suggestions = Array.isArray(data)
-        ? data.map((item) => ({
-            cityId: String(item?.cityId || item?.code || "").trim(),
-            cityName: String(item?.cityName || item?.name || "").trim(),
-            stateName: String(item?.stateName || item?.state || "").trim(),
-          })).filter((item) => item.cityName && item.cityId)
+        ? data.map((item) => {
+            const description = item?.label || item?.description || "";
+            const derivedCityName = String(item?.city || (description ? extractCity(description) : (item?.cityName || item?.name || ""))).trim();
+            const derivedLabel = description || String(item?.cityName || item?.name || "").trim();
+            
+            return {
+              cityId: String(item?.cityCode || item?.cityId || item?.code || item?.place_id || "").trim(),
+              cityName: derivedCityName,
+              label: derivedLabel,
+              stateName: String(item?.stateName || item?.state || "").trim(),
+            };
+          }).filter((item) => item.cityName)
         : [];
 
       const seen = new Set();
@@ -384,6 +402,7 @@ export default function BusBookingSection({ navigation }) {
   return (
     <View style={styles.container}>
       <ScrollView
+        nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.contentContainer}
@@ -468,17 +487,18 @@ export default function BusBookingSection({ navigation }) {
             },
           ]}
         >
-          <View style={styles.swapSection}>
-            <Animated.View style={[styles.animatedField, { opacity: fieldFade, transform: [{ translateY: fromTranslateY }], zIndex: 4 }]}>
+          <View style={[styles.swapSection, { zIndex: 40, elevation: 40 }]}>
+            <Animated.View style={[styles.animatedField, { opacity: fieldFade, transform: [{ translateY: fromTranslateY }], zIndex: 40, elevation: 40 }]}>
               <TravelField
                 label="FROM"
                 icon="location-outline"
-                value={source.cityName}
+                value={source.label || source.cityName}
                 placeholder="Enter source"
                 onChangeText={(text) => {
                   setSource({
                     cityId: "",
                     cityName: text,
+                    label: text,
                     stateName: "",
                   });
                   setShowFromSuggestions(true);
@@ -500,16 +520,17 @@ export default function BusBookingSection({ navigation }) {
               />
             </Animated.View>
 
-            <Animated.View style={[styles.animatedField, { opacity: fieldFade, transform: [{ translateY: toTranslateY }], zIndex: 3 }]}>
+            <Animated.View style={[styles.animatedField, { opacity: fieldFade, transform: [{ translateY: toTranslateY }], zIndex: 30, elevation: 30 }]}>
               <TravelField
                 label="TO"
                 icon="location-outline"
-                value={destination.cityName}
+                value={destination.label || destination.cityName}
                 placeholder="Enter destination"
                 onChangeText={(text) => {
                   setDestination({
                     cityId: "",
                     cityName: text,
+                    label: text,
                     stateName: "",
                   });
                   setShowToSuggestions(true);
@@ -727,6 +748,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderRadius: RADII.card,
     padding: SPACING.card,
+    zIndex: 20,
+    elevation: 20,
     ...SHADOWS.card,
   },
   swapSection: { position: "relative", gap: 0 },
@@ -792,13 +815,13 @@ const styles = StyleSheet.create({
     top: 68,
     left: 0,
     right: 0,
-    maxHeight: 188,
     backgroundColor: COLORS.surface,
     borderRadius: RADII.dropdown,
     borderWidth: 1,
     borderColor: COLORS.border,
     paddingVertical: 8,
-    zIndex: 12,
+    zIndex: 999,
+    elevation: 12,
     ...SHADOWS.soft,
   },
   dropdownItem: {

@@ -1,20 +1,31 @@
 import { SEAT_STATUS, SEAT_TYPES } from "../constants/seatMapConstants";
 
-function extractAllSeatObjects(obj, depth = 0) {
+function extractAllSeatObjects(obj, depth = 0, parentContext = {}) {
   if (!obj || depth > 8) return [];
   let seats = [];
 
+  let currentContext = { ...parentContext };
+  if (typeof obj === "object" && !Array.isArray(obj)) {
+    if (obj.AirlineCode) currentContext.AirlineCode = obj.AirlineCode;
+    if (obj.FlightNumber || obj.AirlineNumber) currentContext.FlightNumber = obj.FlightNumber || obj.AirlineNumber;
+    if (obj.Origin || obj.FromAirportCode) currentContext.Origin = obj.Origin || obj.FromAirportCode;
+    if (obj.Destination || obj.ToAirportCode) currentContext.Destination = obj.Destination || obj.ToAirportCode;
+  }
+
   if (Array.isArray(obj)) {
     for (const item of obj) {
-      seats.push(...extractAllSeatObjects(item, depth + 1));
+      seats.push(...extractAllSeatObjects(item, depth + 1, currentContext));
     }
   } else if (typeof obj === "object") {
     if (obj.Code || obj.SeatNo || obj.SeatNumber || obj.Number || (obj.RowNo && obj.Column)) {
-      seats.push(obj);
+      seats.push({
+        ...currentContext,
+        ...obj
+      });
     } else {
       for (const key of Object.keys(obj)) {
         if (obj[key] && typeof obj[key] === "object") {
-          seats.push(...extractAllSeatObjects(obj[key], depth + 1));
+          seats.push(...extractAllSeatObjects(obj[key], depth + 1, currentContext));
         }
       }
     }

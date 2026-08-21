@@ -16,6 +16,9 @@ import {
   sendCancelRequest as baseSendCancelRequest,
   getCancelStatus as baseGetCancelStatus,
   getCalendarFare as baseGetCalendarFare,
+  saveFlightBooking as baseSaveFlightBooking,
+  getUserFlightBookings as baseGetUserFlightBookings,
+  getFlightBookingDetails as baseGetFlightBookingDetails,
 } from "../../../../../services/FlightService";
 
 export async function searchFlights(params) {
@@ -85,3 +88,16 @@ export async function getCancelStatus(params) {
 export async function getCalendarFare(params) {
   return await baseGetCalendarFare(params);
 }
+
+export async function saveFlightBooking(payload) {
+  return await baseSaveFlightBooking(payload);
+}
+
+export async function getUserFlightBookings() {
+  return await baseGetUserFlightBookings();
+}
+
+export async function getFlightBookingDetails(bookingId) {
+  return await baseGetFlightBookingDetails(bookingId);
+}
+

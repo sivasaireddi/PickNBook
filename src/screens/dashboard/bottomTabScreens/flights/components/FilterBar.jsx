@@ -1,10 +1,8 @@
 import React from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
 const PRIMARY_RED = "#E11D2E";
-const PRIMARY_RED_DARK = "#B3121F";
 const TEXT_DARK = "#1F2937";
 const BORDER_COLOR = "#E5E7EB";
 
@@ -19,19 +17,14 @@ export default function FilterBar({
 }) {
   const getSortLabel = () => {
     switch (activeSort) {
-      case "fastest":
-        return "Sort: Fastest";
-      case "earliest":
-        return "Sort: Earliest";
-      case "latest":
-        return "Sort: Latest";
+      case "fastest": return "Sort: Fastest";
+      case "earliest": return "Sort: Earliest";
+      case "latest": return "Sort: Latest";
+      case "earliestarrival": return "Sort: Arrival";
       case "cheapest":
-      default:
-        return "Sort by";
+      default: return "Sort by";
     }
   };
-
-  const isCheapestActive = activeSort === "cheapest";
 
   return (
     <View style={styles.container}>
@@ -54,7 +47,25 @@ export default function FilterBar({
           </Text>
         </TouchableOpacity>
 
-        {/* 2. Sort by Chip */}
+        {/* 2. Stops */}
+        <TouchableOpacity activeOpacity={0.8} onPress={onOpenFilterSheet} style={styles.chip}>
+          <Text style={styles.chipText}>Stops</Text>
+          <Ionicons name="chevron-down" size={14} color={TEXT_DARK} />
+        </TouchableOpacity>
+
+        {/* 3. Departure */}
+        <TouchableOpacity activeOpacity={0.8} onPress={onOpenFilterSheet} style={styles.chip}>
+          <Text style={styles.chipText}>Departure</Text>
+          <Ionicons name="chevron-down" size={14} color={TEXT_DARK} />
+        </TouchableOpacity>
+
+        {/* 4. Airlines */}
+        <TouchableOpacity activeOpacity={0.8} onPress={onOpenFilterSheet} style={styles.chip}>
+          <Text style={styles.chipText}>Airlines</Text>
+          <Ionicons name="chevron-down" size={14} color={TEXT_DARK} />
+        </TouchableOpacity>
+
+        {/* 5. Sort by Chip */}
         <TouchableOpacity
           activeOpacity={0.8}
           onPress={onOpenSortSheet}
@@ -66,54 +77,6 @@ export default function FilterBar({
             {getSortLabel()}
           </Text>
           <Ionicons name="chevron-down" size={14} color={activeSort !== "cheapest" ? PRIMARY_RED : TEXT_DARK} />
-        </TouchableOpacity>
-
-        {/* 3. Cheapest Chip */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => onSelectSort("cheapest")}
-          accessibilityRole="button"
-          accessibilityState={{ selected: isCheapestActive }}
-          accessibilityLabel="Sort by cheapest flights"
-        >
-          {isCheapestActive ? (
-            <LinearGradient
-              colors={[PRIMARY_RED, PRIMARY_RED_DARK]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.gradientChip}
-            >
-              <Text style={styles.gradientChipText}>Cheapest</Text>
-            </LinearGradient>
-          ) : (
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>Cheapest</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {/* 4. With deals Chip */}
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={onToggleDeals}
-          accessibilityRole="button"
-          accessibilityState={{ selected: dealsOnly }}
-          accessibilityLabel="Filter flights with deals"
-        >
-          {dealsOnly ? (
-            <LinearGradient
-              colors={[PRIMARY_RED, PRIMARY_RED_DARK]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.gradientChip}
-            >
-              <Text style={styles.gradientChipText}>With deals</Text>
-            </LinearGradient>
-          ) : (
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>With deals</Text>
-            </View>
-          )}
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -155,17 +118,5 @@ const styles = StyleSheet.create({
   chipActiveText: {
     color: PRIMARY_RED,
     fontWeight: "700",
-  },
-  gradientChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 18,
-    paddingVertical: 9,
-    borderRadius: 20,
-  },
-  gradientChipText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#FFFFFF",
   },
 });

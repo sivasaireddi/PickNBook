@@ -17,34 +17,32 @@ const DEFAULT_DESTINATION = {
 
 const DEFAULT_MULTICITY_SEGMENTS = [
   {
+    id: 1,
     origin: DEFAULT_ORIGIN,
+    from: DEFAULT_ORIGIN,
     destination: DEFAULT_DESTINATION,
+    to: DEFAULT_DESTINATION,
     date: new Date(),
+    departureDate: new Date(),
   },
   {
+    id: 2,
     origin: DEFAULT_DESTINATION,
+    from: DEFAULT_DESTINATION,
     destination: {
+      cityName: "Bengaluru",
+      airportCode: "BLR",
+      airportName: "Kempegowda International Airport",
+      airportId: "BLR",
+    },
+    to: {
       cityName: "Bengaluru",
       airportCode: "BLR",
       airportName: "Kempegowda International Airport",
       airportId: "BLR",
     },
     date: new Date(Date.now() + 86400000 * 2),
-  },
-  {
-    origin: {
-      cityName: "Bengaluru",
-      airportCode: "BLR",
-      airportName: "Kempegowda International Airport",
-      airportId: "BLR",
-    },
-    destination: {
-      cityName: "Chennai",
-      airportCode: "MAA",
-      airportName: "Chennai International Airport",
-      airportId: "MAA",
-    },
-    date: new Date(Date.now() + 86400000 * 4),
+    departureDate: new Date(Date.now() + 86400000 * 2),
   },
 ];
 
@@ -92,32 +90,93 @@ export function useFlightSearch() {
 
   const addMultiCitySegment = useCallback(() => {
     setMultiCitySegments((prev) => {
-      if (prev.length >= 5) return prev;
+      if (prev.length >= 6) return prev;
       const lastSeg = prev[prev.length - 1];
-      const nextDate = new Date(lastSeg?.date || Date.now());
+      const lastDest = lastSeg?.destination || lastSeg?.to || DEFAULT_DESTINATION;
+
+      const prevDate = new Date(lastSeg?.date || lastSeg?.departureDate || Date.now());
+      const nextDate = new Date(prevDate);
       nextDate.setDate(nextDate.getDate() + 2);
-      return [
-        ...prev,
-        {
-          origin: lastSeg?.destination || DEFAULT_DESTINATION,
-          destination: { cityName: "Chennai", airportCode: "MAA", airportName: "Chennai Airport", airportId: "MAA" },
-          date: nextDate,
-        },
-      ];
+
+      const newId = Date.now() + Math.random();
+      const newLeg = {
+        id: newId,
+        origin: lastDest,
+        from: lastDest,
+        destination: null,
+        to: null,
+        date: nextDate,
+        departureDate: nextDate,
+      };
+
+      return [...prev, newLeg];
     });
   }, []);
 
   const removeMultiCitySegment = useCallback((index) => {
     setMultiCitySegments((prev) => {
       if (prev.length <= 2) return prev;
-      return prev.filter((_, i) => i !== index);
+      const next = prev.filter((_, i) => i !== index);
+
+      // Re-chain FROM/origin if middle segment was deleted
+      for (let i = 1; i < next.length; i++) {
+        const prevDest = next[i - 1].destination || next[i - 1].to;
+        if (prevDest) {
+          next[i] = {
+            ...next[i],
+            origin: prevDest,
+            from: prevDest,
+          };
+        }
+      }
+
+      return next;
     });
   }, []);
 
   const updateMultiCitySegment = useCallback((index, field, value) => {
-    setMultiCitySegments((prev) =>
-      prev.map((seg, i) => (i === index ? { ...seg, [field]: value } : seg))
-    );
+    setMultiCitySegments((prev) => {
+      const next = [...prev];
+      const target = { ...next[index] };
+
+      if (field === "origin" || field === "from") {
+        target.origin = value;
+        target.from = value;
+      } else if (field === "destination" || field === "to") {
+        target.destination = value;
+        target.to = value;
+      } else if (field === "date" || field === "departureDate") {
+        target.date = value;
+        target.departureDate = value;
+      }
+
+      next[index] = target;
+
+      // AUTOMATIC FROM UPDATE: If TO/destination changed, update next leg's FROM/origin
+      if ((field === "destination" || field === "to") && index + 1 < next.length) {
+        next[index + 1] = {
+          ...next[index + 1],
+          origin: value,
+          from: value,
+        };
+      }
+
+      // AUTOMATIC DATE RE-CHAINING: Ensure flight[k].date >= flight[k-1].date
+      for (let k = 1; k < next.length; k++) {
+        const pDate = new Date(next[k - 1].date || next[k - 1].departureDate || Date.now());
+        const cDate = new Date(next[k].date || next[k].departureDate || Date.now());
+        if (cDate < pDate) {
+          const adjDate = new Date(pDate);
+          next[k] = {
+            ...next[k],
+            date: adjDate,
+            departureDate: adjDate,
+          };
+        }
+      }
+
+      return next;
+    });
   }, []);
 
   const validate = useCallback(() => {

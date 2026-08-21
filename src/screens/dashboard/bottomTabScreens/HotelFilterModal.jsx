@@ -139,6 +139,8 @@ export const createDefaultHotelFilters = (priceBounds = { min: 0, max: 100000 })
   starRatings: [],
   categories: [],
   facilities: [],
+  roomTypes: [],
+  locations: [],
 });
 
 export default function HotelFilterModal({
@@ -149,6 +151,8 @@ export default function HotelFilterModal({
   priceBounds = { min: 0, max: 100000 },
   availableCategories = [],
   availableFacilities = [],
+  availableRoomTypes = [],
+  availableLocations = [],
   filteredCount = 0,
   onReset,
 }) {
@@ -192,17 +196,21 @@ export default function HotelFilterModal({
 
   const starOptions = [5, 4, 3, 2, 1];
 
-  const defaultCategories = ["HOTEL", "RESORT", "APARTMENT", "VILLA", "BED & BREAKFAST"];
   const categoriesList = useMemo(() => {
-    const combined = Array.from(new Set([...defaultCategories, ...availableCategories]));
-    return combined.filter(Boolean);
+    return Array.from(new Set(availableCategories)).filter(Boolean).sort();
   }, [availableCategories]);
 
-  const defaultFacilities = ["Breakfast", "Room Only", "Dinner", "Half Board"];
   const facilitiesList = useMemo(() => {
-    const combined = Array.from(new Set([...defaultFacilities, ...availableFacilities]));
-    return combined.filter(Boolean);
+    return Array.from(new Set(availableFacilities)).filter(Boolean).sort();
   }, [availableFacilities]);
+
+  const roomTypesList = useMemo(() => {
+    return Array.from(new Set(availableRoomTypes)).filter(Boolean).sort();
+  }, [availableRoomTypes]);
+
+  const locationsList = useMemo(() => {
+    return Array.from(new Set(availableLocations)).filter(Boolean).sort();
+  }, [availableLocations]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -337,6 +345,57 @@ export default function HotelFilterModal({
                 })}
               </View>
             </FilterCard>
+
+            {/* Room Type */}
+            {roomTypesList.length > 0 && (
+              <FilterCard title="Room Type">
+                <View style={styles.chipRow}>
+                  {roomTypesList.map((room) => {
+                    const selected = (filters?.roomTypes || []).includes(room);
+                    return (
+                      <TouchableOpacity
+                        key={room}
+                        style={[styles.chip, selected && styles.chipActive]}
+                        onPress={() => toggleArrayItem("roomTypes", room)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                          {room}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </FilterCard>
+            )}
+
+            {/* Location */}
+            {locationsList.length > 0 && (
+              <FilterCard title="Location">
+                <View style={styles.chipRow}>
+                  {locationsList.map((loc) => {
+                    const selected = (filters?.locations || []).includes(loc);
+                    return (
+                      <TouchableOpacity
+                        key={loc}
+                        style={[styles.chip, selected && styles.chipActive]}
+                        onPress={() => toggleArrayItem("locations", loc)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name="location-outline"
+                          size={14}
+                          color={selected ? "#EF4444" : "#64748B"}
+                        />
+                        <Text style={[styles.chipText, selected && styles.chipTextActive]}>
+                          {loc}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </FilterCard>
+            )}
           </ScrollView>
 
           {/* Footer */}

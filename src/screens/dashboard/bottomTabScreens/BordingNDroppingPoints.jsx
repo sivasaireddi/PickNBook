@@ -219,7 +219,7 @@ const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint }) => {
             <View style={styles.stopDotOutline}>
               <View style={styles.stopDotInner} />
             </View>
-            <Text style={styles.stopNameText}>{originLabel}</Text>
+            <Text style={styles.stopNameText} numberOfLines={2}>{originLabel}</Text>
           </View>
 
           {/* Active / Selected Stop (Middle) */}
@@ -235,7 +235,7 @@ const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint }) => {
             </View>
 
             {/* Selected Stop Title & Time */}
-            <Text style={styles.selectedStopTitle} numberOfLines={1}>
+            <Text style={styles.selectedStopTitle} numberOfLines={2}>
               {selectedName}
             </Text>
             <Text style={styles.selectedStopTimeText}>{selectedTime}</Text>
@@ -246,7 +246,7 @@ const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint }) => {
             <View style={styles.stopDotOutline}>
               <View style={styles.stopDotInner} />
             </View>
-            <Text style={styles.stopNameText}>{destLabel}</Text>
+            <Text style={styles.stopNameText} numberOfLines={2}>{destLabel}</Text>
           </View>
         </View>
       </View>
@@ -811,6 +811,7 @@ const styles = StyleSheet.create({
   },
   stopMarker: {
     alignItems: 'center',
+    flex: 1,
   },
   stopMarkerLeft: {
     alignItems: 'flex-start',
@@ -840,11 +841,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   stopNameText: {
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '700',
     color: '#FFFFFF',
     marginTop: 4,
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
   busBadge: {
     width: 24,
@@ -870,11 +872,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   selectedStopTitle: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
     color: '#FFFFFF',
     marginTop: 2,
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
   selectedStopTimeText: {
     fontSize: 18,

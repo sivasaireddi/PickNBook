@@ -82,7 +82,7 @@ export const PassengerCard = React.memo(({
       {/* DOB & Nationality Row */}
       <View style={styles.row}>
         <InputField
-          label="DATE OF BIRTH"
+          label={isInternational ? "DATE OF BIRTH" : "DATE OF BIRTH (OPTIONAL)"}
           value={passenger.dob}
           onChangeText={(val) => onUpdatePassenger(index, "dob", val)}
           placeholder="YYYY-MM-DD"
@@ -114,6 +114,7 @@ export const PassengerCard = React.memo(({
               placeholder="e.g. Z1234567"
               iconName="card-outline"
               autoCapitalize="characters"
+              error={errors[`p-${index}-passportNo`]}
               containerStyle={styles.flex1}
             />
 
@@ -124,6 +125,31 @@ export const PassengerCard = React.memo(({
               placeholder="YYYY-MM-DD"
               iconName="calendar-outline"
               keyboardType="numeric"
+              error={errors[`p-${index}-passportExpiry`]}
+              containerStyle={styles.flex1}
+            />
+          </View>
+          
+          <View style={styles.row}>
+            <InputField
+              label="ISSUE DATE"
+              value={passenger.passportIssueDate}
+              onChangeText={(val) => onUpdatePassenger(index, "passportIssueDate", val)}
+              placeholder="YYYY-MM-DD"
+              iconName="calendar-outline"
+              keyboardType="numeric"
+              error={errors[`p-${index}-passportIssueDate`]}
+              containerStyle={styles.flex1}
+            />
+
+            <InputField
+              label="ISSUE COUNTRY"
+              value={passenger.passportIssueCountryCode}
+              onChangeText={(val) => onUpdatePassenger(index, "passportIssueCountryCode", val)}
+              placeholder="Code e.g. IN"
+              iconName="globe-outline"
+              autoCapitalize="characters"
+              error={errors[`p-${index}-passportIssueCountryCode`]}
               containerStyle={styles.flex1}
             />
           </View>

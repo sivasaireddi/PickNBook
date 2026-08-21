@@ -15,6 +15,19 @@ const STOPS_OPTIONS = [
   { id: "2plus", label: "2+ Stops" },
 ];
 
+const TIME_OPTIONS = [
+  { id: "early_morning", label: "Early", icon: "partly-sunny-outline" },
+  { id: "morning", label: "Morning", icon: "sunny-outline" },
+  { id: "afternoon", label: "Afternoon", icon: "cloudy-outline" },
+  { id: "evening", label: "Evening", icon: "moon-outline" },
+];
+
+const BAGGAGE_OPTIONS = [
+  { id: "checkin", label: "Check-in baggage" },
+  { id: "15kg", label: "15 KG or more" },
+  { id: "20kg", label: "20 KG or more" },
+];
+
 export default function FilterSheet({
   visible,
   onClose,
@@ -23,32 +36,37 @@ export default function FilterSheet({
   onResetFilters,
   minPrice = 0,
   maxPrice = 50000,
+  minDuration = 0,
+  maxDuration = 1440,
   availableAirlines = [],
+  availableCabinClasses = [],
 }) {
-  const [selectedStops, setSelectedStops] = useState(filters.stops || []);
-  const [selectedAirlines, setSelectedAirlines] = useState(filters.airlines || []);
-  const [selectedMaxPrice, setSelectedMaxPrice] = useState(
-    Array.isArray(filters.priceRange) && filters.priceRange[1] ? filters.priceRange[1] : maxPrice
-  );
+  const [selectedStops, setSelectedStops] = useState([]);
+  const [selectedAirlines, setSelectedAirlines] = useState([]);
+  const [selectedMaxPrice, setSelectedMaxPrice] = useState(maxPrice);
+  const [selectedDepTime, setSelectedDepTime] = useState([]);
+  const [selectedArrTime, setSelectedArrTime] = useState([]);
+  const [isRefundable, setIsRefundable] = useState(false);
+  const [selectedMaxDuration, setSelectedMaxDuration] = useState(maxDuration);
+  const [selectedBaggage, setSelectedBaggage] = useState([]);
+  const [selectedCabinClasses, setSelectedCabinClasses] = useState([]);
 
   useEffect(() => {
-    setSelectedStops(filters.stops || []);
-    setSelectedAirlines(filters.airlines || []);
-    setSelectedMaxPrice(
-      Array.isArray(filters.priceRange) && filters.priceRange[1] ? filters.priceRange[1] : maxPrice
-    );
-  }, [filters, maxPrice, visible]);
+    if (visible) {
+      setSelectedStops(filters.stops || []);
+      setSelectedAirlines(filters.airlines || []);
+      setSelectedMaxPrice(filters.priceRange?.[1] ?? maxPrice);
+      setSelectedDepTime(filters.departureTime || []);
+      setSelectedArrTime(filters.arrivalTime || []);
+      setIsRefundable(filters.isRefundable || false);
+      setSelectedMaxDuration(filters.durationMax ?? maxDuration);
+      setSelectedBaggage(filters.baggage || []);
+      setSelectedCabinClasses(filters.cabinClass || []);
+    }
+  }, [filters, maxPrice, maxDuration, visible]);
 
-  const toggleStop = (id) => {
-    setSelectedStops((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
-  const toggleAirline = (code) => {
-    setSelectedAirlines((prev) =>
-      prev.includes(code) ? prev.filter((item) => item !== code) : [...prev, code]
-    );
+  const toggleArrayItem = (setter, id) => {
+    setter((prev) => prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]);
   };
 
   const handleApply = () => {
@@ -56,6 +74,12 @@ export default function FilterSheet({
       stops: selectedStops,
       airlines: selectedAirlines,
       priceRange: [minPrice, selectedMaxPrice],
+      departureTime: selectedDepTime,
+      arrivalTime: selectedArrTime,
+      isRefundable,
+      durationMax: selectedMaxDuration,
+      baggage: selectedBaggage,
+      cabinClass: selectedCabinClasses,
     });
     onClose();
   };
@@ -64,55 +88,90 @@ export default function FilterSheet({
     setSelectedStops([]);
     setSelectedAirlines([]);
     setSelectedMaxPrice(maxPrice);
+    setSelectedDepTime([]);
+    setSelectedArrTime([]);
+    setIsRefundable(false);
+    setSelectedMaxDuration(maxDuration);
+    setSelectedBaggage([]);
+    setSelectedCabinClasses([]);
     onResetFilters();
     onClose();
   };
+
+  const adjustPrice = (amount) => {
+    setSelectedMaxPrice(prev => Math.min(Math.max(prev + amount, minPrice), maxPrice));
+  };
+  
+  const adjustDuration = (amount) => {
+    setSelectedMaxDuration(prev => Math.min(Math.max(prev + amount, minDuration), maxDuration));
+  };
+
+  const formatDur = (mins) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
+  };
+
+  const renderChip = (opt, isSelected, onPress) => (
+    <TouchableOpacity
+      key={opt.id}
+      activeOpacity={0.8}
+      onPress={onPress}
+      style={[styles.checkboxChip, isSelected && styles.checkboxChipSelected]}
+    >
+      {opt.icon && <Ionicons name={opt.icon} size={14} color={isSelected ? PRIMARY_RED : TEXT_MUTED} />}
+      <Text style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}>{opt.label}</Text>
+    </TouchableOpacity>
+  );
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable style={styles.sheetContainer} onPress={(e) => e.stopPropagation()}>
-          {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Filter Flights</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Close filter sheet">
+            <Text style={styles.title}>Filters</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Ionicons name="close" size={20} color={TEXT_DARK} />
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-            {/* Stops Filter Section */}
+            {/* Stops */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Stops</Text>
               <View style={styles.chipRow}>
-                {STOPS_OPTIONS.map((opt) => {
-                  const isSelected = selectedStops.includes(opt.id);
-                  return (
-                    <TouchableOpacity
-                      key={opt.id}
-                      activeOpacity={0.8}
-                      onPress={() => toggleStop(opt.id)}
-                      style={[styles.checkboxChip, isSelected && styles.checkboxChipSelected]}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: isSelected }}
-                      accessibilityLabel={`Filter by ${opt.label}`}
-                    >
-                      <Ionicons
-                        name={isSelected ? "checkbox" : "square-outline"}
-                        size={18}
-                        color={isSelected ? PRIMARY_RED : TEXT_MUTED}
-                      />
-                      <Text style={[styles.chipLabel, isSelected && styles.chipLabelSelected]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {STOPS_OPTIONS.map((opt) => renderChip(opt, selectedStops.includes(opt.id), () => toggleArrayItem(setSelectedStops, opt.id)))}
               </View>
             </View>
 
-            {/* Airlines Multi-Select Section */}
-            {availableAirlines && availableAirlines.length > 0 && (
+            {/* Price */}
+            <View style={styles.section}>
+               <Text style={styles.sectionTitle}>Max Price Cap</Text>
+               <View style={styles.adjustRow}>
+                  <TouchableOpacity onPress={() => adjustPrice(-1000)} style={styles.adjustBtn}><Ionicons name="remove" size={20} /></TouchableOpacity>
+                  <Text style={styles.priceValText}>{formatCurrency(selectedMaxPrice)}</Text>
+                  <TouchableOpacity onPress={() => adjustPrice(1000)} style={styles.adjustBtn}><Ionicons name="add" size={20} /></TouchableOpacity>
+               </View>
+            </View>
+
+            {/* Departure */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Departure</Text>
+              <View style={styles.chipRow}>
+                {TIME_OPTIONS.map((opt) => renderChip(opt, selectedDepTime.includes(opt.id), () => toggleArrayItem(setSelectedDepTime, opt.id)))}
+              </View>
+            </View>
+
+            {/* Arrival */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Arrival</Text>
+              <View style={styles.chipRow}>
+                {TIME_OPTIONS.map((opt) => renderChip(opt, selectedArrTime.includes(opt.id), () => toggleArrayItem(setSelectedArrTime, opt.id)))}
+              </View>
+            </View>
+
+            {/* Airlines */}
+            {availableAirlines.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Airlines</Text>
                 <View style={styles.airlineList}>
@@ -122,17 +181,10 @@ export default function FilterSheet({
                       <TouchableOpacity
                         key={airline.code}
                         activeOpacity={0.8}
-                        onPress={() => toggleAirline(airline.code)}
+                        onPress={() => toggleArrayItem(setSelectedAirlines, airline.code)}
                         style={[styles.airlineRow, isSelected && styles.airlineRowSelected]}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: isSelected }}
-                        accessibilityLabel={`Filter by ${airline.name}`}
                       >
-                        <Ionicons
-                          name={isSelected ? "checkbox" : "square-outline"}
-                          size={18}
-                          color={isSelected ? PRIMARY_RED : TEXT_MUTED}
-                        />
+                        <Ionicons name={isSelected ? "checkbox" : "square-outline"} size={18} color={isSelected ? PRIMARY_RED : TEXT_MUTED} />
                         <Text style={[styles.airlineText, isSelected && styles.airlineTextSelected]}>
                           {airline.name} ({airline.code})
                         </Text>
@@ -143,31 +195,56 @@ export default function FilterSheet({
               </View>
             )}
 
-            {/* Price Cap Section */}
+            {/* Refundability */}
             <View style={styles.section}>
-              <View style={styles.priceHeader}>
-                <Text style={styles.sectionTitle}>Max Price Cap</Text>
-                <Text style={styles.priceValText}>{formatCurrency(selectedMaxPrice)}</Text>
-              </View>
-              <Text style={styles.priceSubText}>
-                Showing flights up to {formatCurrency(selectedMaxPrice)}
-              </Text>
+              <Text style={styles.sectionTitle}>Refundability</Text>
+              <TouchableOpacity
+                 activeOpacity={0.8}
+                 onPress={() => setIsRefundable(p => !p)}
+                 style={[styles.airlineRow, isRefundable && styles.airlineRowSelected]}
+              >
+                <Ionicons name={isRefundable ? "checkbox" : "square-outline"} size={18} color={isRefundable ? PRIMARY_RED : TEXT_MUTED} />
+                <Text style={[styles.airlineText, isRefundable && styles.airlineTextSelected]}>Refundable</Text>
+              </TouchableOpacity>
             </View>
+
+            {/* Duration */}
+            <View style={styles.section}>
+               <Text style={styles.sectionTitle}>Max Duration</Text>
+               <View style={styles.adjustRow}>
+                  <TouchableOpacity onPress={() => adjustDuration(-30)} style={styles.adjustBtn}><Ionicons name="remove" size={20} /></TouchableOpacity>
+                  <Text style={styles.durationValText}>{formatDur(selectedMaxDuration)}</Text>
+                  <TouchableOpacity onPress={() => adjustDuration(30)} style={styles.adjustBtn}><Ionicons name="add" size={20} /></TouchableOpacity>
+               </View>
+            </View>
+
+            {/* Baggage */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Baggage</Text>
+              <View style={styles.chipRow}>
+                {BAGGAGE_OPTIONS.map((opt) => renderChip(opt, selectedBaggage.includes(opt.id), () => toggleArrayItem(setSelectedBaggage, opt.id)))}
+              </View>
+            </View>
+            
+            {/* Cabin Class */}
+            {availableCabinClasses.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Cabin Class</Text>
+                <View style={styles.chipRow}>
+                  {availableCabinClasses.map((cc) => renderChip({id: cc, label: cc}, selectedCabinClasses.includes(cc), () => toggleArrayItem(setSelectedCabinClasses, cc)))}
+                </View>
+              </View>
+            )}
+
           </ScrollView>
 
-          {/* Footer CTAs */}
           <View style={styles.footerRow}>
             <TouchableOpacity onPress={handleReset} style={styles.resetBtn}>
-              <Text style={styles.resetBtnText}>Reset All</Text>
+              <Text style={styles.resetBtnText}>Clear All</Text>
             </TouchableOpacity>
 
             <TouchableOpacity activeOpacity={0.85} onPress={handleApply} style={{ flex: 1 }}>
-              <LinearGradient
-                colors={[PRIMARY_RED, PRIMARY_RED_DARK]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.applyBtn}
-              >
+              <LinearGradient colors={[PRIMARY_RED, PRIMARY_RED_DARK]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.applyBtn}>
                 <Text style={styles.applyBtnText}>Apply Filters</Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -191,7 +268,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 28,
-    maxHeight: "80%",
+    maxHeight: "85%",
   },
   header: {
     flexDirection: "row",
@@ -282,20 +359,35 @@ const styles = StyleSheet.create({
     color: PRIMARY_RED,
     fontWeight: "700",
   },
-  priceHeader: {
+  adjustRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    padding: 8,
+  },
+  adjustBtn: {
+    width: 40,
+    height: 40,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   priceValText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "900",
     color: PRIMARY_RED,
   },
-  priceSubText: {
-    fontSize: 12,
-    color: TEXT_MUTED,
-    marginTop: 2,
+  durationValText: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: TEXT_DARK,
   },
   footerRow: {
     flexDirection: "row",

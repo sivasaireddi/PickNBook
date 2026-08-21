@@ -88,7 +88,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     try {
       const blockRoomPayload = {
         EndUserIp: "192.168.1.1",
-        ClientId: "180170",
+        ClientId: "180232",
         UserName: "PickNBk6",
         Password: "PickNB@486",
         TraceId: targetTraceId,
@@ -499,7 +499,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
       const bookPayload = {
         EndUserIp: "192.168.1.1",
-        ClientId: "180170",
+        ClientId: "180232",
         UserName: "PickNBk6",
         Password: "PickNB@486",
         TraceId: targetTraceId,

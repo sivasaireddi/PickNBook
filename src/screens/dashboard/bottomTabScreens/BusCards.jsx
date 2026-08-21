@@ -123,7 +123,7 @@ const getOperatorInitials = (name) => {
 const getCityKey = (val) => {
   if (!val) return "";
   if (typeof val === "object") {
-    return (val.cityName || val.name || val.cityId || val.code || "").trim();
+    return (val.cityName || val.city || val.name || val.cityId || val.code || "").trim();
   }
   return String(val).trim();
 };

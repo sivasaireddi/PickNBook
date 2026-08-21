@@ -11,23 +11,24 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 
-import { COLORS, GRADIENT_RED } from "../constants/colors";
-import { SPACING, RADIUS } from "../constants/spacing";
-import { wp } from "../utils/responsive";
 import { useFlightSearch } from "../hooks/useFlightSearch";
 import { searchFlights } from "./dashboard/bottomTabScreens/flights/services/flightBookingService";
+import { clearFlightBookingFlowState } from "./dashboard/bottomTabScreens/flights/services/flightBookingFlowStore";
 
-import TripTypeToggle from "../components/TripTypeToggle";
-import AirportCard from "../components/AirportCard";
-import TravellerCard from "../components/TravellerCard";
-import CabinClassCard from "../components/CabinClassCard";
-import GradientButton from "../components/GradientButton";
+import Header from "../components/redesign/Header";
+import SegmentedControl from "../components/redesign/SegmentedControl";
+import TicketCard from "../components/redesign/TicketCard";
+import OptionRow from "../components/redesign/OptionRow";
+import PrimaryButton from "../components/redesign/PrimaryButton";
+
+import MultiCityCard from "../components/MultiCityCard";
 import TravellerBottomSheet from "../bottomSheets/TravellerBottomSheet";
 import CabinBottomSheet from "../bottomSheets/CabinBottomSheet";
 import AirportSearchModal from "../components/AirportSearchModal";
+
+import { theme } from "../theme/tokens";
+import { scale } from "../utils/responsive";
 
 export default function FlightSearchScreen({ navigation }) {
   const {
@@ -74,11 +75,6 @@ export default function FlightSearchScreen({ navigation }) {
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
-    console.log("================================================================================");
-    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 1: FLIGHT SEARCH SCREEN MOUNTED]");
-    console.log(`📅 Timestamp: ${new Date().toISOString()}`);
-    console.log("================================================================================");
-
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -112,19 +108,15 @@ export default function FlightSearchScreen({ navigation }) {
     if (selectedDate) {
       if (datePickerMode === "multicity") {
         updateMultiCitySegment(datePickerSegIndex, "date", selectedDate);
-        console.log(`[FlightSearchScreen] Multi-city segment ${datePickerSegIndex} date updated:`, selectedDate);
       } else if (datePickerMode === "departure") {
         setDepartureDate(selectedDate);
-        console.log("[FlightSearchScreen] Departure date updated:", selectedDate.toISOString().slice(0, 10));
         if (returnDate && selectedDate > returnDate) {
           const nextDay = new Date(selectedDate);
           nextDay.setDate(nextDay.getDate() + 1);
           setReturnDate(nextDay);
-          console.log("[FlightSearchScreen] Return date adjusted to:", nextDay.toISOString().slice(0, 10));
         }
       } else {
         setReturnDate(selectedDate);
-        console.log("[FlightSearchScreen] Return date updated:", selectedDate.toISOString().slice(0, 10));
       }
     }
   };
@@ -137,7 +129,6 @@ export default function FlightSearchScreen({ navigation }) {
   const handleOpenReturnDate = useCallback(() => {
     if (tripType === "oneway") {
       setTripType("roundtrip");
-      console.log("[FlightSearchScreen] Trip type automatically switched to roundtrip");
     }
     setDatePickerMode("return");
     setShowDatePicker(true);
@@ -152,12 +143,7 @@ export default function FlightSearchScreen({ navigation }) {
   // Search Submission
   const handleSearchFlights = async () => {
     const { isValid, message } = validate();
-    console.log("================================================================================");
-    console.log("✈️ [FLIGHT BOOKING FLOW - STEP 1: VALIDATING SEARCH PARAMETERS]");
-    console.log(`[FlightSearchScreen] Validation Result: ${isValid ? "VALID ✅" : "INVALID ❌"}`);
     if (!isValid) {
-      console.warn(`[FlightSearchScreen] Validation Error: ${message}`);
-      console.log("================================================================================");
       showToast(message || "Please check your search parameters.");
       return;
     }
@@ -192,6 +178,8 @@ export default function FlightSearchScreen({ navigation }) {
         returnDate: retDateString,
         tripType,
         journeyType: isMultiCity ? 3 : (tripType === "roundtrip" ? 2 : 1),
+        multiCitySegments: isMultiCity ? multiCitySegments : [],
+        formattedSegments: isMultiCity ? formattedSegments : [],
         adults: travellers.adults,
         children: travellers.children,
         infants: travellers.infants,
@@ -201,47 +189,56 @@ export default function FlightSearchScreen({ navigation }) {
         ...(isMultiCity ? { segments: formattedSegments } : {}),
       };
 
-      console.log("--------------------------------------------------------------------------------");
-      console.log("✈️ [FLIGHT BOOKING FLOW - STEP 1: SUBMITTING SEARCH]");
-      console.log("[FlightSearchScreen] Search Parameters:", JSON.stringify(searchParams, null, 2));
-      console.log("--------------------------------------------------------------------------------");
-
-      let fetchedFlights = [];
-      try {
-        console.log("[FlightSearchScreen] Requesting /api/flight/srdv/Search API...");
-        fetchedFlights = await searchFlights(searchParams);
-        console.log(`[FlightSearchScreen] Search API Success! Returned ${fetchedFlights?.length || 0} flight results.`);
-      } catch (apiErr) {
-        console.warn("[FlightSearchScreen] Search API call warning:", apiErr?.message);
-      }
+      await clearFlightBookingFlowState();
+      
+      const fetchedFlights = await searchFlights(searchParams);
 
       const searchTraceId = fetchedFlights?.[0]?.traceId || fetchedFlights?.[0]?.TraceId || fetchedFlights?.traceId;
-      const navPayload = {
-        searchParams: {
-          ...searchParams,
-          traceId: searchTraceId,
-        },
-        flights: fetchedFlights,
-        traceId: searchTraceId,
+      
+      const serializableParams = {
         ...searchParams,
+        date: depDateString,
+        departureDate: depDateString,
+        returnDate: retDateString,
+        traceId: searchTraceId,
+        multiCitySegments: isMultiCity ? multiCitySegments.map((s) => ({
+          ...s,
+          date: s.date instanceof Date ? s.date.toISOString().slice(0, 10) : String(s.date || depDateString),
+          departureDate: s.date instanceof Date ? s.date.toISOString().slice(0, 10) : String(s.date || depDateString),
+        })) : [],
       };
 
-      console.log(`[FlightSearchScreen] Trace ID assigned: ${searchTraceId || "N/A"}`);
-      console.log("[FlightSearchScreen] Navigating to FlightListingScreen with search results...");
-      console.log("================================================================================");
+      const navPayload = {
+        searchParams: serializableParams,
+        flights: fetchedFlights,
+        traceId: searchTraceId,
+        ...serializableParams,
+      };
 
       if (navigation && typeof navigation.navigate === "function") {
         navigation.navigate("FlightListingScreen", navPayload);
-      } else {
-        console.log("[FlightSearchScreen] Navigation object unavailable. Payload:", navPayload);
       }
     } catch (err) {
-      console.error("[FlightSearchScreen] Search submission failed:", err?.message);
-      showToast(err?.message || "Failed to process search.");
+      let friendlyMessage = "Failed to process search.";
+      if (err?.status === 503 || String(err?.message || "").includes("ERR_NGROK_3004")) {
+         friendlyMessage = "Flight service is temporarily unavailable. Please try again.";
+      } else if (err?.status === 404 || String(err?.message || "").includes("ERR_NGROK_3200")) {
+         friendlyMessage = "Flight service backend is offline. Please try again later.";
+      } else if (err?.message) {
+         friendlyMessage = err.message;
+      }
+      
+      if (Platform.OS === "android") {
+        ToastAndroid.show(friendlyMessage, ToastAndroid.LONG);
+      } else {
+        Alert.alert("Search Failed", friendlyMessage);
+      }
     } finally {
       setSearching(false);
     }
   };
+
+  const totalTravellers = travellers.adults + travellers.children + travellers.infants;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -259,75 +256,93 @@ export default function FlightSearchScreen({ navigation }) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Custom Header (Single Header) */}
-          <View style={styles.headerContainer}>
-            <View style={styles.brandRow}>
-              <LinearGradient
-                colors={GRADIENT_RED}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.logoSquare}
-              >
-                <Ionicons name="airplane" size={22} color="#FFFFFF" />
-              </LinearGradient>
-              <View style={styles.brandTextCol}>
-                <Text style={styles.brandName}>PickNBook</Text>
-                <Text style={styles.tagline}>Your smart travel companion</Text>
-              </View>
-            </View>
-
-            {/* Headline */}
-            <View style={styles.headlineWrapper}>
-              <Text style={styles.headlineText}>
-                Chase the <Text style={styles.highlightText}>horizon.</Text>
-              </Text>
-              <Text style={styles.headlineText}>Book the way there.</Text>
-            </View>
-          </View>
+          {/* Custom Header */}
+          <Header />
 
           {/* Trip Type Toggle */}
-          <TripTypeToggle
-            tripType={tripType}
-            onChangeTripType={setTripType}
+          <SegmentedControl
+            selected={tripType}
+            onChange={setTripType}
           />
 
-          {/* Route Boarding Pass Card */}
-          <AirportCard
-            origin={origin}
-            destination={destination}
-            departureDate={departureDate}
-            returnDate={returnDate}
-            tripType={tripType}
-            onPressOrigin={() => setShowOriginModal(true)}
-            onPressDestination={() => setShowDestinationModal(true)}
-            onSwap={swapAirports}
-            onPressDeparture={handleOpenDepartureDate}
-            onPressReturn={handleOpenReturnDate}
-          />
+          {tripType === "multicity" ? (
+            <MultiCityCard
+              segments={multiCitySegments}
+              onPressSegmentOrigin={(idx) => {
+                setActiveSegmentIndex(idx);
+                setActiveSegmentTarget("origin");
+                setShowOriginModal(true);
+              }}
+              onPressSegmentDestination={(idx) => {
+                setActiveSegmentIndex(idx);
+                setActiveSegmentTarget("destination");
+                setShowDestinationModal(true);
+              }}
+              onPressSegmentDate={(idx) => {
+                handleOpenMultiCityDate(idx);
+              }}
+              onAddSegment={addMultiCitySegment}
+              onRemoveSegment={(idx) => removeMultiCitySegment(idx)}
+              travellers={travellers}
+              cabinClass={cabinClass}
+              onPressTravellers={() => setShowTravellerSheet(true)}
+              onPressCabin={() => setShowCabinSheet(true)}
+              onSearch={handleSearchFlights}
+              searching={searching}
+            />
+          ) : (
+            <>
+              {/* Route Boarding Pass Card */}
+              <TicketCard
+                origin={origin}
+                destination={destination}
+                departureDate={departureDate}
+                returnDate={returnDate}
+                tripType={tripType}
+                onPressOrigin={() => {
+                  setActiveSegmentIndex(null);
+                  setShowOriginModal(true);
+                }}
+                onPressDestination={() => {
+                  setActiveSegmentIndex(null);
+                  setShowDestinationModal(true);
+                }}
+                onSwap={swapAirports}
+                onPressDeparture={handleOpenDepartureDate}
+                onPressReturn={handleOpenReturnDate}
+              />
 
-          {/* Travellers Card */}
-          <TravellerCard
-            travellers={travellers}
-            onPress={() => setShowTravellerSheet(true)}
-          />
+              {/* Travellers Row */}
+              <OptionRow
+                icon="person-outline"
+                eyebrow="TRAVELLERS"
+                value={`${totalTravellers} ${totalTravellers > 1 ? "Travellers" : "Adult"}`}
+                onPress={() => setShowTravellerSheet(true)}
+                accessibilityLabel="Select travellers"
+              />
 
-          {/* Cabin Class Card */}
-          <CabinClassCard
-            cabinClass={cabinClass}
-            onPress={() => setShowCabinSheet(true)}
-          />
+              {/* Cabin Class Row */}
+              <OptionRow
+                icon="briefcase-outline"
+                eyebrow="CABIN"
+                value={cabinClass}
+                onPress={() => setShowCabinSheet(true)}
+                accessibilityLabel="Select cabin class"
+              />
 
-          {/* Search Button */}
-          <GradientButton
-            title="Search flights"
-            loading={searching}
-            onPress={handleSearchFlights}
-            style={styles.searchCta}
-          />
+              {/* Search Button */}
+              <PrimaryButton
+                title="Search flights"
+                loading={searching}
+                onPress={handleSearchFlights}
+                style={styles.searchCta}
+              />
+            </>
+          )}
 
           {/* Fare trust line */}
           <Text style={styles.trustCaption}>
-            Fares update in real time · no hidden fees
+            Fares update in real time · No hidden fees
           </Text>
         </ScrollView>
       </Animated.View>
@@ -336,19 +351,23 @@ export default function FlightSearchScreen({ navigation }) {
       {showDatePicker && (
         <DateTimePicker
           value={
-            datePickerMode === "departure"
+            datePickerMode === "multicity"
+              ? multiCitySegments[datePickerSegIndex]?.date || new Date()
+              : datePickerMode === "departure"
               ? departureDate || new Date()
               : returnDate || new Date()
           }
           mode="date"
           display={Platform.OS === "ios" ? "spinner" : "default"}
           minimumDate={
-            datePickerMode === "departure"
+            datePickerMode === "multicity" && datePickerSegIndex > 0
+              ? multiCitySegments[datePickerSegIndex - 1]?.date || new Date()
+              : datePickerMode === "departure"
               ? new Date()
               : departureDate || new Date()
           }
           onChange={handleDateChange}
-          accentColor="#E53935"
+          accentColor={theme.colors.redDeep}
         />
       )}
 
@@ -357,7 +376,13 @@ export default function FlightSearchScreen({ navigation }) {
         visible={showOriginModal}
         title="Select Departure City"
         onClose={() => setShowOriginModal(false)}
-        onSelectAirport={(selected) => setOrigin(selected)}
+        onSelectAirport={(selected) => {
+          if (activeSegmentIndex !== null) {
+            updateMultiCitySegment(activeSegmentIndex, activeSegmentTarget, selected);
+          } else {
+            setOrigin(selected);
+          }
+        }}
       />
 
       {/* Destination Airport Modal */}
@@ -365,7 +390,13 @@ export default function FlightSearchScreen({ navigation }) {
         visible={showDestinationModal}
         title="Select Arrival City"
         onClose={() => setShowDestinationModal(false)}
-        onSelectAirport={(selected) => setDestination(selected)}
+        onSelectAirport={(selected) => {
+          if (activeSegmentIndex !== null) {
+            updateMultiCitySegment(activeSegmentIndex, activeSegmentTarget, selected);
+          } else {
+            setDestination(selected);
+          }
+        }}
       />
 
       {/* Travellers Bottom Sheet */}
@@ -390,75 +421,26 @@ export default function FlightSearchScreen({ navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: theme.colors.cloud,
   },
   container: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: wp(5),
-    paddingTop: SPACING.md,
-    paddingBottom: SPACING.xxxl,
-  },
-  headerContainer: {
-    marginBottom: SPACING.md,
-  },
-  brandRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: SPACING.md,
-  },
-  logoSquare: {
-    width: 44,
-    height: 44,
-    borderRadius: RADIUS.md,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: SPACING.md,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  brandTextCol: {
-    justifyContent: "center",
-  },
-  brandName: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: COLORS.textPrimary,
-    letterSpacing: -0.3,
-  },
-  tagline: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginTop: 1,
-  },
-  headlineWrapper: {
-    marginTop: SPACING.xs,
-    marginBottom: SPACING.xs,
-  },
-  headlineText: {
-    fontSize: wp(7.2),
-    fontWeight: "800",
-    color: COLORS.textPrimary,
-    lineHeight: wp(9.5),
-    letterSpacing: -0.5,
-  },
-  highlightText: {
-    color: COLORS.primary,
+    paddingHorizontal: theme.spacing.xl,
+    paddingTop: theme.spacing.xl,
+    paddingBottom: theme.spacing.xxl,
   },
   searchCta: {
-    marginTop: SPACING.lg,
-    marginBottom: SPACING.sm,
+    marginTop: theme.spacing.xl,
+    marginBottom: theme.spacing.sm,
   },
   trustCaption: {
-    fontSize: 12,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    color: COLORS.textSecondary,
+    fontFamily: theme.typography.fontFamily.body.medium,
+    fontSize: scale(11),
+    color: theme.colors.slateSoft,
     textAlign: "center",
-    marginTop: SPACING.xs,
+    marginTop: theme.spacing.sm,
     letterSpacing: 0.2,
   },
 });
