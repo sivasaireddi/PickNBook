@@ -1,11 +1,15 @@
-import React, { memo, useRef } from "react";
+import React, { memo, useEffect } from "react";
 import {
   StyleSheet,
   Text,
   View,
   Pressable,
-  Animated,
 } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+} from "react-native-reanimated";
 import { BUS_SEAT_COLORS, BUS_SEAT_SHADOWS } from "../../theme/busSeatTheme";
 import { moderateScale } from "react-native-size-matters";
 
@@ -27,8 +31,15 @@ const SeatItem = ({
   left,
   top,
   isSleeper,
+  staggerIndex = 0,
 }) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const pressScale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: pressScale.value },
+    ],
+  }));
 
   const isBooked = Boolean(seat?.isBooked);
   const gender = String(
@@ -120,28 +131,30 @@ const SeatItem = ({
 
   const handlePressIn = () => {
     if (isBooked) return;
-    Animated.timing(scaleAnim, {
-      toValue: 0.95,
-      duration: 150,
-      useNativeDriver: true,
-    }).start();
+    pressScale.value = withTiming(0.95, { duration: 150 });
   };
 
   const handlePressOut = () => {
     if (isBooked) return;
-    Animated.timing(scaleAnim, {
-      toValue: 1,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
+    pressScale.value = withTiming(1, { duration: 180 });
   };
+
+  const seatLabelFontSize =
+    height < 45 ? 10 :
+    height < 60 ? 11 :
+    12;
+
+  const seatPriceFontSize =
+    height < 45 ? 8 :
+    height < 60 ? 9 :
+    10;
 
   return (
     <Animated.View
       style={[
         styles.absoluteContainer,
         { left, top, width, height },
-        { transform: [{ scale: scaleAnim }] },
+        animatedStyle,
       ]}
     >
       <Pressable
@@ -176,7 +189,7 @@ const SeatItem = ({
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.75}
-            style={[styles.seatName, { color: theme.textColor }]}
+            style={[styles.seatName, { color: theme.textColor, fontSize: seatLabelFontSize }]}
           >
             {seat.seatName || seat.seatCode}
           </Text>
@@ -186,7 +199,7 @@ const SeatItem = ({
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
-              style={[styles.priceText, { color: theme.priceColor }]}
+              style={[styles.priceText, { color: theme.priceColor, fontSize: seatPriceFontSize }]}
             >
               {formattedPrice}
             </Text>
@@ -232,12 +245,10 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   seatName: {
-    fontSize: moderateScale(10.5),
     fontWeight: "600",
     textAlign: "center",
   },
   priceText: {
-    fontSize: moderateScale(9),
     fontWeight: "600",
     textAlign: "center",
     marginTop: 0.5,

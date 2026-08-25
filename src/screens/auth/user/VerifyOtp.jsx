@@ -1,223 +1,129 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  View,
+  ActivityIndicator,
+  ImageBackground,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  ImageBackground,
-  ActivityIndicator,
-  StyleSheet,
-  ScrollView,
+  View,
 } from "react-native";
-import { FontAwesome5 } from "@expo/vector-icons";
-import {
-  useNavigation,
-  useRoute,
-} from "@react-navigation/native";
-
-import {
-  readApiMessage,
-  requestAuth,
-} from "../../../services/authService";
-import {
-  validateLowercaseEmail,
-  validateStrongPassword,
-} from "./AuthValidation";
+import { Ionicons, Feather } from "@expo/vector-icons";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import { requestAuth } from "../../../services/authService";
+import { validateStrongPassword } from "./AuthValidation";
 
 const flightCarImage = require("../../../../assets/loginimage.png");
 
-const VerifyOtp = () => {
+export default function VerifyOtp() {
   const navigation = useNavigation();
   const route = useRoute();
 
-  const [showPassword, setShowPassword] =
-    useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] =
-    useState(false);
-  const [form, setForm] = useState({
-    otp: "",
-    password: "",
-    confirmPassword: "",
-  });
-  const [errors, setErrors] = useState({});
+  const resetEmail = String(route.params?.email || "").trim();
+  const channel = route.params?.channel || "Email";
+
+  const [step, setStep] = useState(1); // 1 = Enter OTP, 2 = Set Password
+  const [otp, setOtp] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [loading, setLoading] = useState(false);
-  const [apiMessage, setApiMessage] = useState("");
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [timeLeft, setTimeLeft] = useState(297); // 04:57
 
-  const resetEmail = String(
-    route.params?.email || ""
-  ).trim();
+  useEffect(() => {
+    if (step !== 1) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [step]);
 
-  const normalizeOtp = (value) =>
-    String(value || "")
-      .replace(/\D/g, "")
-      .slice(0, 6);
-
-  const resetEmailError = resetEmail
-    ? validateLowercaseEmail(resetEmail)
-    : "";
-
-  const handleChange = (name, value) => {
-    const nextValue =
-      name === "otp" ? normalizeOtp(value) : value;
-
-    setForm((prev) => ({
-      ...prev,
-      [name]: nextValue,
-    }));
-
-    setErrors((prev) => ({
-      ...prev,
-      [name]:
-        name === "otp" &&
-        nextValue &&
-        nextValue.length !== 6
-          ? "OTP must be 6 numbers"
-          : name === "password" && nextValue
-          ? validateStrongPassword(
-              nextValue,
-              "New password"
-            )
-          : name === "confirmPassword" &&
-            /\s/.test(value)
-          ? "Confirm password cannot contain spaces"
-          : "",
-    }));
-
-    setApiMessage("");
-    setIsSuccess(false);
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  const validate = () => {
-    const newErrors = {};
-    const otpValue = form.otp.trim();
-
-    if (!otpValue) {
-      newErrors.otp = "OTP is required.";
-    } else if (!/^\d{6}$/.test(otpValue)) {
-      newErrors.otp = "OTP must be 6 numbers";
-    }
-
-    const passwordError = validateStrongPassword(
-      form.password,
-      "New password"
-    );
-
-    if (passwordError) {
-      newErrors.password = passwordError;
-    }
-
-    if (!form.confirmPassword) {
-      newErrors.confirmPassword =
-        "Confirm Password is required.";
-    } else if (/\s/.test(form.confirmPassword)) {
-      newErrors.confirmPassword =
-        "Confirm password cannot contain spaces";
-    } else if (
-      form.password !== form.confirmPassword
-    ) {
-      newErrors.confirmPassword =
-        "Passwords do not match.";
-    }
-
-    setErrors(newErrors);
-
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleResendOtp = async () => {
-    if (!resetEmail) {
-      setIsSuccess(false);
-      setApiMessage(
-        "Please go back to Forgot Page and enter your email first."
-      );
-      return;
-    }
-
-    if (resetEmailError) {
-      setIsSuccess(false);
-      setApiMessage(resetEmailError);
+  const handleVerifyOtp = async () => {
+    setErrorMsg("");
+    if (!otp || otp.length < 6) {
+      setErrorMsg("Please enter a valid 6-digit OTP");
       return;
     }
 
     setLoading(true);
-    setApiMessage("");
-    setIsSuccess(false);
-
-    setErrors((prev) => ({
-      ...prev,
-      otp: "",
-    }));
 
     try {
-      const payload = await requestAuth(
-        "/api/Auth/forgot-password",
+      await requestAuth(
+        "/api/Auth/forgot-password/verify-otp",
         {
           method: "POST",
           body: JSON.stringify({
             email: resetEmail,
+            otp: otp,
           }),
         },
-        "Failed to resend OTP."
+        "OTP Verification failed. Please check the OTP.",
+        { timeoutMs: 45000 }
       );
 
-      setIsSuccess(true);
-      setApiMessage(
-        readApiMessage(
-          payload,
-          "OTP resent successfully."
-        )
-      );
+      setStep(2);
+      setErrorMsg("");
     } catch (error) {
-      setIsSuccess(false);
-      setApiMessage(
-        error?.message || "Failed to resend OTP."
-      );
+      setErrorMsg(error?.message || "Invalid OTP. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
-  const handleSubmit = async () => {
-    if (!validate()) return;
+  const handleResetPassword = async () => {
+    setErrorMsg("");
+    const passwordError = validateStrongPassword(password, "New password");
+    if (passwordError) {
+      setErrorMsg(passwordError);
+      return;
+    }
+    if (password !== confirmPassword) {
+      setErrorMsg("Passwords do not match.");
+      return;
+    }
 
     setLoading(true);
-    setApiMessage("");
-    setIsSuccess(false);
 
     try {
-      const payload = await requestAuth(
+      await requestAuth(
         "/api/Auth/reset-password",
         {
           method: "POST",
           body: JSON.stringify({
-            otp: form.otp,
-            newPassword: form.password,
+            email: resetEmail,
+            newPassword: password,
           }),
         },
-        "Reset failed. Please try again."
+        "Reset failed. Please try again.",
+        { timeoutMs: 45000 }
       );
 
-      setIsSuccess(true);
-      setApiMessage(
-        readApiMessage(
-          payload,
-          "Password reset successful."
-        )
-      );
-
-      setTimeout(() => {
-        navigation.replace("Login");
-      }, 900);
+      // On success, go back to login
+      navigation.navigate("Login");
     } catch (error) {
-      setIsSuccess(false);
-      setApiMessage(
-        error?.message ||
-          "Something went wrong. Please try again."
-      );
+      setErrorMsg(error?.message || "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -226,393 +132,443 @@ const VerifyOtp = () => {
       style={styles.container}
       resizeMode="cover"
     >
-      <ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.card}>
-          <View style={styles.brandSection}>
-            <Text style={styles.kicker}>
-              Welcome to
-            </Text>
+      <View style={styles.overlay}>
+        <KeyboardAvoidingView
+          style={styles.keyboardContainer}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => {
+                  if (step === 2) {
+                    setStep(1); // Go back to OTP if in step 2
+                  } else {
+                    navigation.goBack(); // Go back to Forgot Password
+                  }
+                }}
+              >
+                <Ionicons name="arrow-back" size={16} color="#C61136" />
+                <Text style={styles.backButtonText}>Back</Text>
+              </TouchableOpacity>
 
-            <View style={styles.logoContainer}>
-              <FontAwesome5
-                name="plane-departure"
-                size={28}
-                color="#fff"
+              <View style={styles.logoBox}>
+                <Text style={styles.logoText}>
+                  Pick<Text style={styles.logoHighlight}>N</Text>Book
+                </Text>
+              </View>
+            </View>
+
+            {/* Progress Dots */}
+            <View style={styles.progressRow}>
+              <View
+                style={[
+                  styles.dot,
+                  styles.dotActiveGreen,
+                ]}
               />
-              <FontAwesome5
-                name="bus"
-                size={28}
-                color="#fff"
-                style={{ marginLeft: 12 }}
+              <View
+                style={[
+                  styles.dot,
+                  step === 1 ? styles.dotActiveRed : styles.dotActiveGreen,
+                ]}
+              />
+              <View
+                style={[
+                  styles.dot,
+                  step === 2 && styles.dotActiveRed,
+                ]}
               />
             </View>
 
-            <Text style={styles.brandName}>
-              Travling
-            </Text>
+            {step === 1 ? (
+              <>
+                {/* Titles */}
+                <Text style={styles.title}>Enter OTP</Text>
+                <Text style={styles.subtitle}>
+                  Enter the OTP sent to your {channel.toLowerCase()}.
+                </Text>
 
-            <Text style={styles.brandCopy}>
-              Verify OTP and set a secure
-              password to access your account.
-            </Text>
+                {/* Banners */}
+                <View style={styles.successBanner}>
+                  <Text style={styles.successBannerText}>
+                    OTP sent successfully
+                  </Text>
+                </View>
 
-            <Text style={styles.brandMeta}>
-              Safe password reset
-            </Text>
-          </View>
+                <View style={styles.infoBanner}>
+                  <Ionicons name="shield-checkmark-outline" size={20} color="#1D4ED8" />
+                  <View style={styles.infoBannerTextContainer}>
+                    <Text style={styles.infoBannerTitle}>
+                      OTP sent to your {channel.toLowerCase()}
+                    </Text>
+                    <Text style={styles.infoBannerSubtitle}>{resetEmail}</Text>
+                  </View>
+                </View>
 
-          <View style={styles.formPanel}>
-            <Text style={styles.heading}>
-              Verify OTP
-            </Text>
+                {/* Error Message */}
+                {!!errorMsg && (
+                  <View style={styles.errorBanner}>
+                    <Ionicons name="alert-circle" size={16} color="#DC2626" />
+                    <Text style={styles.errorText}>{errorMsg}</Text>
+                  </View>
+                )}
 
-            <Text style={styles.subheading}>
-              Enter OTP and set your new
-              account password.
-            </Text>
+                {/* Input Field */}
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputLabel}>ENTER OTP</Text>
+                  <View style={styles.inputContainer}>
+                    <Ionicons
+                      name="shield-checkmark-outline"
+                      size={20}
+                      color="#64748B"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Enter 6-digit OTP"
+                      placeholderTextColor="#64748B"
+                      keyboardType="numeric"
+                      maxLength={6}
+                      value={otp}
+                      onChangeText={(v) => {
+                        setOtp(v.replace(/\D/g, ""));
+                        setErrorMsg("");
+                      }}
+                    />
+                  </View>
+                </View>
 
-            {!!apiMessage && (
-              <Text
-                style={[
-                  styles.statusMessage,
-                  isSuccess
-                    ? styles.success
-                    : styles.error,
-                ]}
-              >
-                {apiMessage}
-              </Text>
-            )}
+                {/* Timer */}
+                <Text style={styles.timerText}>
+                  Expires in <Text style={styles.timerRed}>{formatTime(timeLeft)}</Text>
+                </Text>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>OTP</Text>
-
-              <View style={styles.inputRow}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter OTP"
-                  keyboardType="numeric"
-                  maxLength={6}
-                  value={form.otp}
-                  onChangeText={(text) =>
-                    handleChange("otp", text)
-                  }
-                />
-
+                {/* Submit Button */}
                 <TouchableOpacity
-                  style={styles.inlineButton}
-                  onPress={handleResendOtp}
+                  style={styles.submitButton}
+                  onPress={handleVerifyOtp}
                   disabled={loading}
+                  activeOpacity={0.8}
                 >
                   {loading ? (
-                    <ActivityIndicator
-                      color="#fff"
-                      size="small"
-                    />
+                    <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.buttonText}>
-                      Resend OTP
-                    </Text>
+                    <Text style={styles.submitText}>Verify OTP</Text>
                   )}
                 </TouchableOpacity>
-              </View>
-
-              {!!errors.otp && (
-                <Text style={styles.errorText}>
-                  {errors.otp}
+              </>
+            ) : (
+              <>
+                {/* Titles */}
+                <Text style={styles.title}>Set new password</Text>
+                <Text style={styles.subtitle}>
+                  Create a new secure password for your account.
                 </Text>
-              )}
-            </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>
-                New Password
-              </Text>
+                {/* Banners */}
+                <View style={styles.successBanner}>
+                  <Text style={styles.successBannerText}>
+                    OTP verified. Set your new password below.
+                  </Text>
+                </View>
 
-              <View style={styles.passwordRow}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter new password"
-                  secureTextEntry={!showPassword}
-                  value={form.password}
-                  onChangeText={(text) =>
-                    handleChange("password", text)
-                  }
-                />
+                {/* Error Message */}
+                {!!errorMsg && (
+                  <View style={styles.errorBanner}>
+                    <Ionicons name="alert-circle" size={16} color="#DC2626" />
+                    <Text style={styles.errorText}>{errorMsg}</Text>
+                  </View>
+                )}
 
+                {/* New Password Input */}
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputLabel}>NEW PASSWORD</Text>
+                  <View style={styles.inputContainer}>
+                    <Feather
+                      name="lock"
+                      size={20}
+                      color="#64748B"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Min 6 characters"
+                      placeholderTextColor="#64748B"
+                      secureTextEntry={!showPassword}
+                      value={password}
+                      onChangeText={(v) => {
+                        setPassword(v);
+                        setErrorMsg("");
+                      }}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Feather
+                        name={showPassword ? "eye-off" : "eye"}
+                        size={20}
+                        color="#64748B"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Confirm Password Input */}
+                <View style={styles.inputWrapper}>
+                  <Text style={styles.inputLabel}>CONFIRM PASSWORD</Text>
+                  <View style={styles.inputContainer}>
+                    <Feather
+                      name="lock"
+                      size={20}
+                      color="#64748B"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Re-enter new password"
+                      placeholderTextColor="#64748B"
+                      secureTextEntry={!showConfirmPassword}
+                      value={confirmPassword}
+                      onChangeText={(v) => {
+                        setConfirmPassword(v);
+                        setErrorMsg("");
+                      }}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                      <Feather
+                        name={showConfirmPassword ? "eye-off" : "eye"}
+                        size={20}
+                        color="#64748B"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Submit Button */}
                 <TouchableOpacity
-                  onPress={() =>
-                    setShowPassword(!showPassword)
-                  }
+                  style={styles.submitButton}
+                  onPress={handleResetPassword}
+                  disabled={loading}
+                  activeOpacity={0.8}
                 >
-                  <FontAwesome5
-                    name={
-                      showPassword
-                        ? "eye-slash"
-                        : "eye"
-                    }
-                    size={20}
-                    color="#666"
-                  />
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.submitText}>Reset Password</Text>
+                  )}
                 </TouchableOpacity>
-              </View>
-
-              {!!errors.password && (
-                <Text style={styles.errorText}>
-                  {errors.password}
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>
-                Confirm Password
-              </Text>
-
-              <View style={styles.passwordRow}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Confirm new password"
-                  secureTextEntry={
-                    !showConfirmPassword
-                  }
-                  value={form.confirmPassword}
-                  onChangeText={(text) =>
-                    handleChange(
-                      "confirmPassword",
-                      text
-                    )
-                  }
-                />
-
-                <TouchableOpacity
-                  onPress={() =>
-                    setShowConfirmPassword(
-                      !showConfirmPassword
-                    )
-                  }
-                >
-                  <FontAwesome5
-                    name={
-                      showConfirmPassword
-                        ? "eye-slash"
-                        : "eye"
-                    }
-                    size={20}
-                    color="#666"
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {!!errors.confirmPassword && (
-                <Text style={styles.errorText}>
-                  {errors.confirmPassword}
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.linkContainer}>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate("ForgotPassword")
-                }
-              >
-                <Text style={styles.link}>
-                  Back to Forgot Page
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate("Login")
-                }
-              >
-                <Text style={styles.link}>
-                  Back to Login
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={handleSubmit}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator
-                  color="#fff"
-                />
-              ) : (
-                <Text style={styles.submitText}>
-                  Submit
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScrollView>
+              </>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
     </ImageBackground>
   );
-};
-
-export default VerifyOtp;
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.45)", // Light overlay for readability
+  },
+  keyboardContainer: {
+    flex: 1,
+  },
   scrollContainer: {
     flexGrow: 1,
-    justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
-
-  card: {
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 20,
-    overflow: "hidden",
-  },
-
-  brandSection: {
-    backgroundColor: "#0B5ED7",
-    padding: 25,
-    alignItems: "center",
-  },
-
-  kicker: {
-    color: "#fff",
-    fontSize: 18,
-    marginBottom: 10,
-  },
-
-  logoContainer: {
-    flexDirection: "row",
-    marginBottom: 15,
-  },
-
-  brandName: {
-    fontSize: 30,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-
-  brandCopy: {
-    color: "#fff",
-    textAlign: "center",
-    marginTop: 10,
-    lineHeight: 22,
-  },
-
-  brandMeta: {
-    color: "#fff",
-    marginTop: 10,
-    fontStyle: "italic",
-  },
-
-  formPanel: {
-    padding: 25,
-  },
-
-  heading: {
-    fontSize: 28,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-
-  subheading: {
-    color: "#666",
-    marginBottom: 20,
-  },
-
-  statusMessage: {
-    marginBottom: 15,
-    padding: 10,
-    borderRadius: 8,
-    textAlign: "center",
-  },
-
-  success: {
-    backgroundColor: "#D1E7DD",
-    color: "#0F5132",
-  },
-
-  error: {
-    backgroundColor: "#F8D7DA",
-    color: "#842029",
-  },
-
-  field: {
-    marginBottom: 16,
-  },
-
-  label: {
-    marginBottom: 8,
-    fontWeight: "600",
-  },
-
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  passwordRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-  },
-
-  input: {
-    flex: 1,
-    height: 50,
-  },
-
-  inlineButton: {
-    marginLeft: 10,
-    backgroundColor: "#0B5ED7",
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-
-  buttonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-
-  errorText: {
-    color: "red",
-    marginTop: 5,
-    fontSize: 12,
-  },
-
-  linkContainer: {
+  header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginVertical: 20,
+    alignItems: "center",
+    marginBottom: 40,
   },
-
-  link: {
-    color: "#0B5ED7",
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
+    borderWidth: 1,
+    borderColor: "rgba(198, 17, 54, 0.3)",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 4,
+  },
+  backButtonText: {
+    color: "#C61136",
+    fontSize: 14,
     fontWeight: "600",
   },
-
-  submitButton: {
-    backgroundColor: "#0B5ED7",
-    paddingVertical: 15,
-    borderRadius: 12,
-    alignItems: "center",
+  logoBox: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
-
+  logoText: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#7E1946",
+    letterSpacing: -0.5,
+  },
+  logoHighlight: {
+    color: "#F6C000",
+  },
+  progressRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 20,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+  },
+  dotActiveRed: {
+    backgroundColor: "#C61136",
+  },
+  dotActiveGreen: {
+    backgroundColor: "#16A34A",
+  },
+  title: {
+    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
+    fontSize: 32,
+    color: "#1E293B",
+    marginBottom: 10,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: "#334155",
+    lineHeight: 22,
+    marginBottom: 20,
+    fontWeight: "500",
+  },
+  successBanner: {
+    backgroundColor: "#E5F6EB",
+    borderWidth: 1,
+    borderColor: "#DCFCE7",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  successBannerText: {
+    color: "#15803D",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  infoBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+    gap: 12,
+  },
+  infoBannerTextContainer: {
+    flex: 1,
+  },
+  infoBannerTitle: {
+    color: "#1D4ED8",
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  infoBannerSubtitle: {
+    color: "#2563EB",
+    fontSize: 13,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    gap: 8,
+  },
+  errorText: {
+    color: "#DC2626",
+    fontSize: 13,
+    fontWeight: "500",
+    flex: 1,
+  },
+  inputWrapper: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#475569",
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.8)",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 56,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: "#1E293B",
+    fontWeight: "500",
+    height: "100%",
+  },
+  timerText: {
+    fontSize: 13,
+    color: "#475569",
+    fontWeight: "500",
+    marginBottom: 24,
+  },
+  timerRed: {
+    color: "#C61136",
+    fontWeight: "700",
+  },
+  submitButton: {
+    backgroundColor: "#C61136",
+    height: 56,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 24,
+    shadowColor: "#C61136",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
   submitText: {
-    color: "#fff",
-    fontWeight: "bold",
+    color: "#FFFFFF",
     fontSize: 16,
+    fontWeight: "700",
   },
 });

@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { blockHotelRoom, getHotelPricingPreview, bookHotelOffer } from "../services/hotelService";
+import { blockHotelRoom, getHotelPricingPreview, bookHotelOffer, fetchHotelCoupons, validateHotelCoupon } from "../services/hotelService";
 import { useHotelBooking } from "../context/HotelBookingContext";
 import GuestDetailsForm from "../components/GuestDetailsForm";
 import FareSummaryCard from "../components/FareSummaryCard";
@@ -71,6 +71,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const [pricingPreview, setPricingPreview] = useState(null);
   const [validatingCoupon, setValidatingCoupon] = useState(false);
   const [couponMessage, setCouponMessage] = useState("");
+  const [availableCoupons, setAvailableCoupons] = useState([]);
 
   // Passenger state per room & pax
   const [paxState, setPaxState] = useState({});
@@ -80,9 +81,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   // 1. Trigger Step 4: Block Room pre-checkout
   useEffect(() => {
     executeBlockRoom();
+    
+    // Fetch active coupons
+    fetchHotelCoupons().then(coupons => {
+      if (Array.isArray(coupons)) {
+        setAvailableCoupons(coupons);
+      }
+    });
   }, []);
 
-  const executeBlockRoom = async (couponCodeToApply = couponCodeInput) => {
+  const executeBlockRoom = async () => {
     setBlockingRooms(true);
     setBlockError("");
     try {
@@ -101,7 +109,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         NoOfRooms: selectedRoomSlots.length,
         ClientReferenceNo: Math.floor(Date.now() / 1000),
         IsVoucherBooking: false,
-        CouponCode: String(couponCodeToApply || "").trim(),
+        CouponCode: "",
         HotelRoomsDetails: selectedRoomSlots,
       };
 
@@ -114,22 +122,6 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
       // Extract new authoritative room details
       const authoritativeRooms = blockResObj.HotelRoomsDetails || blockResObj.hotelRoomsDetails || [];
-
-      // Check coupon discount from BlockRoom response
-      const firstRoomPrice = authoritativeRooms[0]?.Price || authoritativeRooms[0]?.price || {};
-      const couponDiscountVal = Number(
-        firstRoomPrice.CouponDiscount ?? firstRoomPrice.couponDiscount ?? 0
-      );
-
-      if (couponCodeToApply && couponCodeToApply.trim()) {
-        if (couponDiscountVal > 0) {
-          setCouponMessage(`Coupon ${couponCodeToApply.trim().toUpperCase()} applied! Saved ${formatCurrency(couponDiscountVal)}`);
-        } else {
-          setCouponMessage("Invalid or expired coupon code.");
-        }
-      } else {
-        setCouponMessage("");
-      }
 
       // Calculate total original vs total blocked price notice
       const originalTotal = selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0);
@@ -209,23 +201,52 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     }));
   };
 
-  const handleApplyCoupon = async () => {
-    if (!couponCodeInput.trim()) {
+  const handleApplyCoupon = async (codeOverride) => {
+    const code = typeof codeOverride === 'string' ? codeOverride : couponCodeInput;
+    if (!code || !code.trim()) {
       Alert.alert("Input Code", "Please enter a coupon code.");
       return;
     }
+    
+    // We need the current base total.
+    // Calculate it synchronously from authoritativeRoomList since fareBreakdown might not be ready in exact timing, 
+    // or we can just rely on the existing fareBreakdown.base since it's memoized.
+    const currentBaseTotal = fareBreakdown?.base || 0;
+    
     setValidatingCoupon(true);
+    setCouponMessage("");
+    
     try {
-      await executeBlockRoom(couponCodeInput.trim());
+      const result = await validateHotelCoupon({
+        couponCode: code.trim(),
+        totalAmount: currentBaseTotal,
+      });
+      
+      if (result?.isValid) {
+        setPricingPreview({
+          appliedCoupon: code.trim().toUpperCase(),
+          couponDiscount: result.discountAmount || 0,
+        });
+        setCouponMessage(result.message || `Coupon ${code.trim().toUpperCase()} applied successfully.`);
+        if (couponCodeInput !== code.trim().toUpperCase()) {
+           setCouponCodeInput(code.trim().toUpperCase());
+        }
+      } else {
+        setPricingPreview(null);
+        setCouponMessage(result?.message || "Invalid or expired coupon code.");
+      }
+    } catch (err) {
+      setPricingPreview(null);
+      setCouponMessage(err?.message || "Failed to validate coupon.");
     } finally {
       setValidatingCoupon(false);
     }
   };
 
-  const handleRemoveCoupon = async () => {
+  const handleRemoveCoupon = () => {
     setCouponCodeInput("");
     setCouponMessage("");
-    await executeBlockRoom("");
+    setPricingPreview(null);
   };
 
   const authoritativeRoomList = useMemo(() => {
@@ -360,11 +381,12 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
     const discount =
       Number(
+        pricingPreview?.couponDiscount ??
         priceObj.couponDiscount ??
-          priceObj.CouponDiscount ??
-          priceObj.discount ??
-          priceObj.Discount ??
-          0
+        priceObj.CouponDiscount ??
+        priceObj.discount ??
+        priceObj.Discount ??
+        0
       ) ||
       authoritativeRoomList.reduce(
         (sum, r) =>
@@ -387,7 +409,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         0
     );
 
-    const total =
+    const calculatedTotal =
       b2cTotal ||
       authoritativeRoomList.reduce(
         (sum, r) =>
@@ -416,8 +438,10 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         0
       );
 
+    const total = Math.max(0, calculatedTotal - (pricingPreview?.couponDiscount || 0));
+    
     return { base, gst, convenienceFee, discount, total };
-  }, [authoritativeRoomList, selectedRoomSlots]);
+  }, [authoritativeRoomList, selectedRoomSlots, pricingPreview]);
 
   const handleBookRoom = async () => {
     if (validationError) {
@@ -516,6 +540,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         GuestEmail: String(leadPax.email || "guest@example.com").trim(),
         GuestPhone: String(leadPax.phone || "9876543210").trim(),
         Price: grandTotalPrice,
+        CouponCode: pricingPreview?.appliedCoupon ? String(pricingPreview.appliedCoupon) : "",
         HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
 
@@ -682,6 +707,31 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
               {couponMessage}
             </Text>
           ) : null}
+
+          {availableCoupons.length > 0 && (
+            <View style={styles.dealsSection}>
+              <Text style={styles.dealsSectionTitle}>Available Coupons</Text>
+              {availableCoupons.map((coupon) => (
+                <View key={coupon.couponCode} style={styles.couponCard}>
+                  <View style={styles.couponCardLeft}>
+                    <Text style={styles.couponCardTitle}>{coupon.couponCode}</Text>
+                    {coupon.couponType && coupon.value ? (
+                      <Text style={styles.couponCardDesc}>
+                        Get {coupon.couponType === "Percentage" ? `${coupon.value}% OFF` : `₹${coupon.value} OFF`}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    style={styles.couponCardBtn}
+                    onPress={() => handleApplyCoupon(coupon.couponCode)}
+                    disabled={validatingCoupon}
+                  >
+                    <Text style={styles.couponCardBtnText}>APPLY</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Policy Agreement */}
@@ -915,6 +965,56 @@ const styles = StyleSheet.create({
   },
   errorMsg: {
     color: "#DC2626",
+  },
+  dealsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderColor: "#E2E8F0",
+    gap: 8,
+  },
+  dealsSectionTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#64748B",
+    marginBottom: 4,
+  },
+  couponCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
+  },
+  couponCardLeft: {
+    flex: 1,
+  },
+  couponCardTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0F172A",
+    textTransform: "uppercase",
+  },
+  couponCardDesc: {
+    fontSize: 11,
+    color: "#64748B",
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  couponCardBtn: {
+    backgroundColor: "#0F172A",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginLeft: 12,
+  },
+  couponCardBtnText: {
+    fontSize: 11,
+    color: "#FFFFFF",
+    fontWeight: "800",
   },
   termsRow: {
     flexDirection: "row",

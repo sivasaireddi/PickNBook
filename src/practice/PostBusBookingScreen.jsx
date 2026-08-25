@@ -21,7 +21,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
-import { blockSeats, bookSeats, getSeatLayout, getPricingPreview } from "../services/busService";
+import { blockSeats, bookSeats, getSeatLayout, getPricingPreview, getBusCoupons, getFeaturedOffers } from "../services/busService";
 import { getTravelers } from "../services/travelerService";
 import { Picker } from "@react-native-picker/picker";
 import { LinearGradient } from "expo-linear-gradient";
@@ -607,6 +607,12 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
   const [couponCode, setCouponCode] = useState("");
   const [couponInputText, setCouponInputText] = useState("");
+  const [selectedFeaturedOfferId, setSelectedFeaturedOfferId] = useState(normalizeIdValue(route?.params?.selectedFeaturedOfferId) || null);
+  
+  const [availableCoupons, setAvailableCoupons] = useState([]);
+  const [featuredOffers, setFeaturedOffers] = useState([]);
+  const [dealsLoading, setDealsLoading] = useState(false);
+  
   const [pricing, setPricing] = useState(null);
   const [selectedSeatDetails, setSelectedSeatDetails] = useState(routeSeatDetails);
 
@@ -674,6 +680,38 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       setTravelersLoading(false);
     }
   };
+
+  useEffect(() => {
+    const fetchDeals = async () => {
+      if (!authToken) return;
+      try {
+        setDealsLoading(true);
+        const [couponsRes, offersRes] = await Promise.all([
+          getBusCoupons(authToken).catch(() => []),
+          getFeaturedOffers().catch(() => ({ offers: [] }))
+        ]);
+        
+        if (Array.isArray(couponsRes)) {
+          setAvailableCoupons(couponsRes);
+        }
+        
+        if (offersRes && Array.isArray(offersRes.offers)) {
+          console.log("[PostBusBookingScreen] Raw Featured Offers:", JSON.stringify(offersRes.offers, null, 2));
+          
+          const busOffers = offersRes.offers.filter(offer => 
+            String(offer.bookingType || offer.type || offer.serviceType || "bus").toLowerCase().includes("bus")
+          );
+          setFeaturedOffers(busOffers);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch deals", err);
+      } finally {
+        setDealsLoading(false);
+      }
+    };
+    
+    fetchDeals();
+  }, [authToken]);
 
   const handleSelectTraveler = (traveler) => {
     if (!traveler) {
@@ -795,7 +833,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const requestPayload = {
         traceId,
         couponCode: couponCode || null,
-        selectedFeaturedOfferId: normalizeIdValue(route?.params?.selectedFeaturedOfferId) ?? null,
+        selectedFeaturedOfferId: selectedFeaturedOfferId || null,
         fromCity,
         toCity,
         departureTime,
@@ -818,12 +856,19 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       return pricingPayload;
     } catch (error) {
-      console.log("Pricing Preview Error Details:", error?.response?.data ? JSON.stringify(error.response.data, null, 2) : error.message);
-      console.log("Pricing Preview Error:", {
-        status: error?.response?.status,
-        data: error?.response?.data,
-        message: error?.message,
-      });
+      const errorData = error?.response?.data;
+      console.log("Pricing Preview Error Details:", errorData ? JSON.stringify(errorData, null, 2) : error.message);
+      
+      const errorMessage = errorData?.message || errorData?.Message || "";
+      if (
+        error?.response?.status === 400 && 
+        (errorMessage.toLowerCase().includes("invalid") || errorMessage.toLowerCase().includes("inactive") || errorMessage.toLowerCase().includes("coupon") || errorMessage.toLowerCase().includes("offer"))
+      ) {
+        Alert.alert("Offer Unavailable", errorMessage || "The selected offer is invalid or inactive.");
+        setCouponCode("");
+        setCouponInputText("");
+        setSelectedFeaturedOfferId(null);
+      }
 
       if (applyPricing) {
         setPricing(null);
@@ -1020,22 +1065,26 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   }, [pricing, seatBreakdown, couponCode]);
 
   const fareSummaryNote = fareSummary.isEstimated
-    ? couponCode
-      ? "Estimated from selected seat fares. Coupon, GST, and convenience fee will refresh when pricing preview becomes available."
+    ? (couponCode || selectedFeaturedOfferId)
+      ? "Estimated from selected seat fares. Deal, GST, and convenience fee will refresh when pricing preview becomes available."
       : "Estimated from selected seat fares. GST and convenience fee will refresh when pricing preview becomes available."
     : "Final payable amount including discounts, GST, and convenience fee.";
 
   const couponSummaryLabel = couponCode
     ? `Coupon (${couponCode})`
-    : fareSummary.couponDiscountLabel || "Coupon";
+    : selectedFeaturedOfferId
+      ? "Featured Offer"
+      : fareSummary.couponDiscountLabel || "Coupon";
 
-  const couponSummaryValue = !couponCode
-    ? "Not applied"
-    : fareSummary.couponAmount > 0
+  const couponSummaryValue = (couponCode || selectedFeaturedOfferId)
+    ? fareSummary.couponAmount > 0
       ? `-${formatCurrencyDetailed(fareSummary.couponAmount)}`
       : fareSummary.isEstimated
         ? "Applying..."
-        : "Not applicable";
+        : "Not applicable"
+    : fareSummary.couponAmount > 0
+      ? `-${formatCurrencyDetailed(fareSummary.couponAmount)}`
+      : "Not applied";
 
   const gstSummaryLabel =
     fareSummary.gstPercent !== null ? `GST (${fareSummary.gstPercent}%)` : "GST";
@@ -1087,7 +1136,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
     console.log("Fetching Pricing Preview...");
 
     fetchPricingPreview();
-  }, [authToken, couponCode, selectedSeats, sessionLoading]);
+  }, [authToken, couponCode, selectedFeaturedOfferId, selectedSeats, sessionLoading]);
 
   useEffect(() => {
     let isActive = true;
@@ -1217,7 +1266,15 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const traceId = bus.traceId;
       const resultIndex = bus.resultIndex !== undefined && bus.resultIndex !== null ? String(bus.resultIndex).trim() : "";
 
-      const baseDate = route?.params?.departDate ?? route?.params?.date ?? new Date().toISOString().split("T")[0];
+      let baseDate = new Date().toISOString().split("T")[0];
+      if (route?.params?.dateValue) {
+        baseDate = route.params.dateValue;
+      } else if (route?.params?.date || route?.params?.departDate) {
+        const d = new Date(route?.params?.date || route?.params?.departDate);
+        if (!Number.isNaN(d.getTime())) {
+          baseDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+      }
 
       const parseToDateTime = (timeStr, baseDateStr) => {
         if (!timeStr) return null;
@@ -1225,13 +1282,20 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         if (trimmed.includes("T") || /^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
           return trimmed;
         }
-        const datePart = baseDateStr ? String(baseDateStr).trim() : new Date().toISOString().split("T")[0];
+        const datePart = baseDateStr ? String(baseDateStr).trim() : baseDate;
         const timeMatch = trimmed.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
         if (timeMatch) {
           const [_, hh, mm, ss = "00"] = timeMatch;
           return `${datePart}T${hh}:${mm}:${ss}`;
         }
         return null;
+      };
+
+      const normalizeSeatType = (seatType) => {
+        const typeStr = String(seatType || "").toLowerCase();
+        if (typeStr.includes("sleeper")) return "Sleeper";
+        if (typeStr.includes("seater")) return "Seater";
+        return seatType || "Seater";
       };
 
       const getPointId = (val) => {
@@ -1242,8 +1306,8 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         return String(val);
       };
 
-      const boardingPoint = route?.params?.boardingPoint || {};
-      const droppingPoint = route?.params?.droppingPoint || {};
+      const boardingPoint = (typeof route?.params?.boardingPoint === 'object' ? route.params.boardingPoint : route?.params?.selectedBoardingPoint) || {};
+      const droppingPoint = (typeof route?.params?.droppingPoint === 'object' ? route.params.droppingPoint : route?.params?.selectedDroppingPoint) || {};
 
       const rawBoardingId = route?.params?.boardingPointId ?? boardingPoint?.Id ?? boardingPoint?.id ?? "";
       const rawDroppingId = route?.params?.droppingPointId ?? droppingPoint?.Id ?? droppingPoint?.id ?? "";
@@ -1252,9 +1316,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const droppingPointId = getPointId(rawDroppingId);
 
       const boardingPointName = boardingPoint?.Name ?? boardingPoint?.name ?? "";
-      const boardingPointTime = parseToDateTime(boardingPoint?.Time ?? boardingPoint?.time ?? "", baseDate);
       const droppingPointName = droppingPoint?.Name ?? droppingPoint?.name ?? "";
-      const droppingPointTime = parseToDateTime(droppingPoint?.Time ?? droppingPoint?.time ?? "", baseDate);
 
       // 1. Build Block payload matching API Integration Guide schema
       const blockPassengers = normalizedPassengers.map((p) => {
@@ -1285,8 +1347,18 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const routeId = String(busObj.routeId ?? busObj.RouteId ?? route?.params?.routeId ?? "");
       const fromCity = String(busObj.fromCity ?? busObj.from ?? route?.params?.from ?? route?.params?.sourceCity ?? "");
       const toCity = String(busObj.toCity ?? busObj.to ?? route?.params?.to ?? route?.params?.destinationCity ?? "");
-      const departureTime = String(busObj.departureTimeUtc ?? busObj.departureTime ?? busObj.DepartureTime ?? route?.params?.departureTime ?? route?.params?.dateValue ?? "");
-      const arrivalTime = String(busObj.arrivalTimeUtc ?? busObj.arrivalTime ?? busObj.ArrivalTime ?? route?.params?.arrivalTime ?? "");
+      const rawDepartureTime = String(busObj.departureDateTime ?? busObj.departureTimeUtc ?? busObj.DepartureTime ?? busObj.departureTime ?? route?.params?.departureTime ?? "");
+      const rawArrivalTime = String(busObj.arrivalDateTime ?? busObj.arrivalTimeUtc ?? busObj.ArrivalTime ?? busObj.arrivalTime ?? route?.params?.arrivalTime ?? "");
+      
+      const departureDatePart = (rawDepartureTime.includes("T") ? rawDepartureTime.split("T")[0] : null) || baseDate;
+      const arrivalDatePart = (rawArrivalTime.includes("T") ? rawArrivalTime.split("T")[0] : null) || departureDatePart;
+      
+      const departureTime = parseToDateTime(rawDepartureTime, departureDatePart) || rawDepartureTime;
+      const arrivalTime = parseToDateTime(rawArrivalTime, arrivalDatePart) || rawArrivalTime;
+      
+      const boardingPointTime = parseToDateTime(boardingPoint?.Time ?? boardingPoint?.time ?? "", departureDatePart);
+      const droppingPointTime = parseToDateTime(droppingPoint?.Time ?? droppingPoint?.time ?? "", arrivalDatePart);
+
       const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
       const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
       const totalFare = Number(fareSummary.grandTotal || busObj.priceInr || 0);
@@ -1369,7 +1441,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           seatNumber: String(p.seatNumber || p.seatName || ""),
           age: Number(p.age) || 25,
           baseFare: Number(p.baseFare || p.fare) || 0,
-          seatType: String(p.seatType || "Seater"),
+          seatType: normalizeSeatType(p.seatType),
           externalGst: Number(p.externalGst) || 0,
         };
 
@@ -1403,7 +1475,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         seats: selectedSeatCodes.length || 1,
         passengers: bookPassengers,
         promotionId: normalizeIdValue(pricing?.promotionId ?? pricing?.appliedPromotionId ?? route?.params?.promotionId) || null,
-        selectedFeaturedOfferId: normalizeIdValue(route?.params?.selectedFeaturedOfferId ?? pricing?.selectedFeaturedOfferId) || null,
+        selectedFeaturedOfferId: selectedFeaturedOfferId || null,
         paymentMethod: "Razorpay",
       };
 
@@ -1644,22 +1716,24 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                 subtitle={
                   couponCode
                     ? `Coupon ${couponCode} applied`
-                    : "Apply a coupon before payment"
+                    : selectedFeaturedOfferId
+                      ? `Featured Offer Applied`
+                      : "Apply a coupon before payment"
                 }
                 icon={<MaterialCommunityIcons name="ticket-percent-outline" size={18} color="#D11A2A" />}
               >
                 <View style={styles.couponSectionWrap}>
-                  {couponCode ? (
+                  {(couponCode || selectedFeaturedOfferId) ? (
                     <View style={styles.appliedCouponCard}>
                       <View style={styles.appliedCouponInfo}>
                         <View style={styles.appliedCouponBadge}>
                           <MaterialCommunityIcons name="ticket-percent" size={18} color="#D11A2A" />
-                          <Text style={styles.appliedCouponCodeText}>{couponCode}</Text>
+                          <Text style={styles.appliedCouponCodeText}>{couponCode || "Offer Applied"}</Text>
                         </View>
                         <Text style={styles.appliedCouponSubtext}>
                           {fareSummary.couponAmount > 0
                             ? `Saves ${formatCurrencyDetailed(fareSummary.couponAmount)} on this booking`
-                            : "Coupon applied"}
+                            : "Deal applied"}
                         </Text>
                       </View>
 
@@ -1668,6 +1742,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                         onPress={() => {
                           setCouponCode("");
                           setCouponInputText("");
+                          setSelectedFeaturedOfferId(null);
                         }}
                         activeOpacity={0.8}
                       >
@@ -1676,31 +1751,88 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                       </TouchableOpacity>
                     </View>
                   ) : (
-                    <View style={styles.couponInputRow}>
-                      <TextInput
-                        style={styles.couponTextInput}
-                        placeholder="Enter coupon code"
-                        placeholderTextColor="#94A3B8"
-                        value={couponInputText}
-                        onChangeText={setCouponInputText}
-                        autoCapitalize="characters"
-                      />
-                      <TouchableOpacity
-                        style={[
-                          styles.applyCouponBtn,
-                          !couponInputText.trim() && styles.applyCouponBtnDisabled,
-                        ]}
-                        onPress={() => {
-                          if (couponInputText.trim()) {
-                            setCouponCode(couponInputText.trim().toUpperCase());
-                          }
-                        }}
-                        disabled={!couponInputText.trim()}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={styles.applyCouponBtnText}>Apply</Text>
-                      </TouchableOpacity>
-                    </View>
+                    <>
+                      <View style={styles.couponInputRow}>
+                        <TextInput
+                          style={styles.couponTextInput}
+                          placeholder="Enter coupon code"
+                          placeholderTextColor="#94A3B8"
+                          value={couponInputText}
+                          onChangeText={setCouponInputText}
+                          autoCapitalize="characters"
+                        />
+                        <TouchableOpacity
+                          style={[
+                            styles.applyCouponBtn,
+                            !couponInputText.trim() && styles.applyCouponBtnDisabled,
+                          ]}
+                          onPress={() => {
+                            if (couponInputText.trim()) {
+                              setCouponCode(couponInputText.trim().toUpperCase());
+                              setSelectedFeaturedOfferId(null);
+                            }
+                          }}
+                          disabled={!couponInputText.trim()}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.applyCouponBtnText}>Apply</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {dealsLoading ? (
+                        <ActivityIndicator color="#D11A2A" style={{ marginTop: 20 }} />
+                      ) : (
+                        <View style={{ marginTop: 16 }}>
+                          {availableCoupons.length > 0 && (
+                            <>
+                              <Text style={styles.dealsSectionTitle}>Available Coupons</Text>
+                              {availableCoupons.map((coupon) => (
+                                <TouchableOpacity
+                                  key={coupon.id || coupon.couponCode}
+                                  style={styles.dealCard}
+                                  onPress={() => {
+                                    setCouponCode(coupon.couponCode);
+                                    setSelectedFeaturedOfferId(null);
+                                  }}
+                                >
+                                  <View style={styles.dealIconWrap}>
+                                    <MaterialCommunityIcons name="brightness-percent" size={20} color="#D11A2A" />
+                                  </View>
+                                  <View style={styles.dealContent}>
+                                    <Text style={styles.dealTitle}>{coupon.couponCode}</Text>
+                                    <Text style={styles.dealDescription}>{coupon.remark || `Save ${coupon.couponType === "Percentage" ? coupon.value + "%" : "\u20B9" + coupon.value}`}</Text>
+                                  </View>
+                                </TouchableOpacity>
+                              ))}
+                            </>
+                          )}
+
+                          {featuredOffers.length > 0 && (
+                            <>
+                              <Text style={[styles.dealsSectionTitle, { marginTop: availableCoupons.length > 0 ? 12 : 0 }]}>Featured Offers</Text>
+                              {featuredOffers.map((offer, index) => (
+                                <TouchableOpacity
+                                  key={offer.offerId || offer.id || index}
+                                  style={styles.dealCard}
+                                  onPress={() => {
+                                    setSelectedFeaturedOfferId(offer.offerId || offer.id);
+                                    setCouponCode("");
+                                  }}
+                                >
+                                  <View style={styles.dealIconWrap}>
+                                    <MaterialCommunityIcons name="star-circle-outline" size={20} color="#D11A2A" />
+                                  </View>
+                                  <View style={styles.dealContent}>
+                                    <Text style={styles.dealTitle}>{offer.title}</Text>
+                                    <Text style={styles.dealDescription}>{offer.subtitle || offer.description}</Text>
+                                  </View>
+                                </TouchableOpacity>
+                              ))}
+                            </>
+                          )}
+                        </View>
+                      )}
+                    </>
                   )}
                 </View>
               </SectionCard>
@@ -1891,7 +2023,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                         </View>
                       )}
 
-                      {(couponCode || fareSummary.couponAmount > 0) && (
+                      {(couponCode || selectedFeaturedOfferId || fareSummary.couponAmount > 0) && (
                         <View style={styles.summaryRow}>
                           <Text
                             style={[
@@ -2732,5 +2864,45 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: "#DC2626",
+  },
+  dealsSectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  dealCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  dealIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  dealContent: {
+    flex: 1,
+  },
+  dealTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  dealDescription: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
   },
 });

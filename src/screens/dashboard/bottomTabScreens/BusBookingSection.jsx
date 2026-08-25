@@ -134,53 +134,7 @@ const TravelField = ({
   );
 };
 
-const SuggestionsDropdown = ({ visible, items, loading, onSelect, query = "" }) => {
-  if (!visible || query.trim().length < 2) return null;
-  return (
-    <View style={styles.dropdown}>
-      {loading ? (
-        <View style={styles.dropdownStatus}>
-          <ActivityIndicator size="small" color={COLORS.primary} />
-          <Text style={styles.dropdownStatusText}>Searching cities...</Text>
-        </View>
-      ) : items.length === 0 ? (
-        <View style={styles.dropdownStatus}>
-          <Text style={styles.dropdownStatusText}>No cities found</Text>
-        </View>
-      ) : (
-        <ScrollView 
-          nestedScrollEnabled={true} 
-          keyboardShouldPersistTaps="handled" 
-          showsVerticalScrollIndicator={true}
-          style={{ maxHeight: 188 }}
-        >
-          {items.map((item, index) => {
-            const cityName = item && typeof item === "object" ? item.cityName : String(item);
-            const stateName = item && typeof item === "object" ? item.stateName : "";
-            const key = item && typeof item === "object" ? item.cityId : index;
-            return (
-              <Pressable
-                key={`${key}-${index}`}
-                onPress={() => onSelect(item)}
-                style={({ pressed }) => [
-                  styles.dropdownItem,
-                  index === items.length - 1 && styles.dropdownItemLast,
-                  pressed && styles.dropdownItemPressed,
-                ]}
-              >
-                <Ionicons name="location-outline" size={18} color={COLORS.primary} />
-                <View style={styles.dropdownItemTextContainer}>
-                  <Text style={styles.dropdownText}>{item?.label || cityName}</Text>
-                  {stateName ? <Text style={styles.dropdownSubtext}>{stateName}</Text> : null}
-                </View>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
-    </View>
-  );
-};
+
 
 export default function BusBookingSection({ navigation }) {
   const [source, setSource] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
@@ -188,16 +142,7 @@ export default function BusBookingSection({ navigation }) {
   const [date, setDate] = useState(new Date());
   const [passengersCount, setPassengersCount] = useState(1);
   const [showPicker, setShowPicker] = useState(false);
-  const [fromPlaces, setFromPlaces] = useState([]);
-  const [toPlaces, setToPlaces] = useState([]);
-  const [showFromSuggestions, setShowFromSuggestions] = useState(false);
-  const [showToSuggestions, setShowToSuggestions] = useState(false);
-  const [loadingFrom, setLoadingFrom] = useState(false);
-  const [loadingTo, setLoadingTo] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
-
-  const suggestionTimers = useRef({ from: null, to: null });
-  const requestIds = useRef({ from: 0, to: 0 });
   const swapMotion = useRef(new Animated.Value(0)).current;
   const swapRotation = useRef(new Animated.Value(0)).current;
   const swapScale = useRef(new Animated.Value(1)).current;
@@ -228,97 +173,9 @@ export default function BusBookingSection({ navigation }) {
         useNativeDriver: true,
       }),
     ]).start();
-
-    return () => {
-      if (suggestionTimers.current.from) clearTimeout(suggestionTimers.current.from);
-      if (suggestionTimers.current.to) clearTimeout(suggestionTimers.current.to);
-    };
   }, []);
 
-  const fetchPlaceSuggestions = async (query, field) => {
-    const trimmedQuery = query.trim();
-    if (!trimmedQuery) {
-      requestIds.current[field] += 1;
-      if (field === "from") setFromPlaces([]);
-      else setToPlaces([]);
-      return;
-    }
-    const requestId = requestIds.current[field] + 1;
-    requestIds.current[field] = requestId;
-    try {
-      const data = await searchCities(trimmedQuery);
-      if (requestIds.current[field] !== requestId) return;
 
-      const extractCity = (description) => {
-        if (!description) return '';
-        const parts = description.split(',').map(part => part.trim()).filter(Boolean);
-        return parts.length >= 2 ? parts[1] : parts[0];
-      };
-
-      const suggestions = Array.isArray(data)
-        ? data.map((item) => {
-            const description = item?.label || item?.description || "";
-            const derivedCityName = String(item?.city || (description ? extractCity(description) : (item?.cityName || item?.name || ""))).trim();
-            const derivedLabel = description || String(item?.cityName || item?.name || "").trim();
-            
-            return {
-              cityId: String(item?.cityCode || item?.cityId || item?.code || item?.place_id || "").trim(),
-              cityName: derivedCityName,
-              label: derivedLabel,
-              stateName: String(item?.stateName || item?.state || "").trim(),
-            };
-          }).filter((item) => item.cityName)
-        : [];
-
-      const seen = new Set();
-      const uniqueSuggestions = [];
-      suggestions.forEach((item) => {
-        const key = `${item.cityName}-${item.cityId}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          uniqueSuggestions.push(item);
-        }
-      });
-
-      if (field === "from") setFromPlaces(uniqueSuggestions);
-      else setToPlaces(uniqueSuggestions);
-    } catch {
-      if (requestIds.current[field] !== requestId) return;
-      if (field === "from") setFromPlaces([]);
-      else setToPlaces([]);
-    } finally {
-      if (requestIds.current[field] === requestId) {
-        if (field === "from") setLoadingFrom(false);
-        else setLoadingTo(false);
-      }
-    }
-  };
-
-  const schedulePlaceSuggestions = (query, field) => {
-    const timerRef = suggestionTimers.current[field];
-    if (timerRef) clearTimeout(timerRef);
-    const trimmedQuery = query.trim();
-    if (trimmedQuery.length < 2) {
-      if (field === "from") {
-        setFromPlaces([]);
-        setShowFromSuggestions(false);
-        setLoadingFrom(false);
-      } else {
-        setToPlaces([]);
-        setShowToSuggestions(false);
-        setLoadingTo(false);
-      }
-      return;
-    }
-
-    if (field === "from") setLoadingFrom(true);
-    else setLoadingTo(true);
-
-    suggestionTimers.current[field] = setTimeout(() => {
-      suggestionTimers.current[field] = null;
-      fetchPlaceSuggestions(trimmedQuery, field);
-    }, 400);
-  };
 
   const onChangeDate = (_, selectedDate) => {
     if (Platform.OS !== "ios") setShowPicker(false);
@@ -348,8 +205,8 @@ export default function BusBookingSection({ navigation }) {
     if (isSwapping || (!source.cityName && !destination.cityName)) return;
     const nextFrom = destination;
     const nextTo = source;
-    setShowFromSuggestions(false);
-    setShowToSuggestions(false);
+    setSource(nextFrom);
+    setDestination(nextTo);
     setIsSwapping(true);
     Animated.parallel([
       Animated.sequence([
@@ -388,8 +245,7 @@ export default function BusBookingSection({ navigation }) {
       return;
     }
 
-    setShowFromSuggestions(false);
-    setShowToSuggestions(false);
+
     navigation?.navigate?.("BusListScreen", {
       from: source,
       to: destination,
@@ -494,29 +350,14 @@ export default function BusBookingSection({ navigation }) {
                 icon="location-outline"
                 value={source.label || source.cityName}
                 placeholder="Enter source"
-                onChangeText={(text) => {
-                  setSource({
-                    cityId: "",
-                    cityName: text,
-                    label: text,
-                    stateName: "",
+                onPress={() => {
+                  navigation.navigate("BusLocationSearchScreen", {
+                    type: "from",
+                    currentValue: source.cityName,
+                    onSelect: (city) => setSource(city)
                   });
-                  setShowFromSuggestions(true);
-                  setShowToSuggestions(false);
-                  schedulePlaceSuggestions(text, "from");
                 }}
-                editable={!isSwapping}
                 showBorderBottom={true}
-              />
-              <SuggestionsDropdown
-                visible={showFromSuggestions}
-                items={fromPlaces}
-                loading={loadingFrom}
-                onSelect={(city) => {
-                  setSource(city);
-                  setShowFromSuggestions(false);
-                }}
-                query={source.cityName}
               />
             </Animated.View>
 
@@ -526,29 +367,14 @@ export default function BusBookingSection({ navigation }) {
                 icon="location-outline"
                 value={destination.label || destination.cityName}
                 placeholder="Enter destination"
-                onChangeText={(text) => {
-                  setDestination({
-                    cityId: "",
-                    cityName: text,
-                    label: text,
-                    stateName: "",
+                onPress={() => {
+                  navigation.navigate("BusLocationSearchScreen", {
+                    type: "to",
+                    currentValue: destination.cityName,
+                    onSelect: (city) => setDestination(city)
                   });
-                  setShowToSuggestions(true);
-                  setShowFromSuggestions(false);
-                  schedulePlaceSuggestions(text, "to");
                 }}
-                editable={!isSwapping}
                 showBorderBottom={true}
-              />
-              <SuggestionsDropdown
-                visible={showToSuggestions}
-                items={toPlaces}
-                loading={loadingTo}
-                onSelect={(city) => {
-                  setDestination(city);
-                  setShowToSuggestions(false);
-                }}
-                query={destination.cityName}
               />
             </Animated.View>
 
@@ -573,11 +399,7 @@ export default function BusBookingSection({ navigation }) {
             icon="calendar-outline"
             value={formatDate(date)}
             placeholder="Select date"
-            onPress={() => {
-              setShowFromSuggestions(false);
-              setShowToSuggestions(false);
-              setShowPicker(true);
-            }}
+            onPress={() => setShowPicker(true)}
             rightAdornment={
               <View style={styles.fieldRightBadge}>
                 <Ionicons name="calendar" size={18} color={COLORS.primary} />

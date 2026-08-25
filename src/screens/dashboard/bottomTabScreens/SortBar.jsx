@@ -124,6 +124,11 @@ export default function SortBar({
       >
         <View style={styles.innerContainer}>
           <View style={styles.sortSection}>
+            {resultCount !== null && (
+              <View style={styles.countBadge}>
+                <Text style={styles.countText}>{resultCount} Buses</Text>
+              </View>
+            )}
             <Text style={styles.sortByLabel}>SORT BY:</Text>
 
             <ScrollView
@@ -239,5 +244,17 @@ const styles = StyleSheet.create({
   },
   arrowDesc: {
     transform: [{ rotate: "180deg" }],
+  },
+  countBadge: {
+    backgroundColor: PRIMARY_RED,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 10,
+  },
+  countText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
   },
 });

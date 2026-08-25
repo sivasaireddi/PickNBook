@@ -763,6 +763,50 @@ export async function getMyHotelBookings() {
   }
 }
 
+export async function fetchHotelCoupons() {
+  try {
+    console.log(`[hotelService] calling GET ${toHotelUrl("/api/Hotels/coupons/active")}`);
+    const response = await axios.get(toHotelUrl("/api/Hotels/coupons/active"), {
+      headers: {
+        Accept: "application/json",
+        "ngrok-skip-browser-warning": "true",
+      }
+    });
+    console.log("[hotelService] active coupons response:", JSON.stringify(response?.data, null, 2));
+    return response.data || [];
+  } catch (err) {
+    console.log("[hotelService] fetchHotelCoupons error:", err?.message);
+    return [];
+  }
+}
+
+export async function validateHotelCoupon(payload = {}) {
+  const token = await getStoredToken();
+  const headers = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  try {
+    console.log(`[hotelService] calling POST ${toHotelUrl("/api/Hotels/coupons/validate")}`);
+    console.log("[hotelService] validate coupon payload:", JSON.stringify(payload, null, 2));
+    const response = await axios.post(toHotelUrl("/api/Hotels/coupons/validate"), payload, { headers });
+    console.log("[hotelService] validate coupon response:", JSON.stringify(response?.data, null, 2));
+    return response.data || {};
+  } catch (err) {
+    console.log("[hotelService] validateHotelCoupon error:", err?.message);
+    if (err.response?.data) {
+      const serverMsg = err.response.data?.message || err.response.data?.title || (typeof err.response.data === "string" ? err.response.data : null);
+      throw new Error(serverMsg || "Failed to validate coupon");
+    }
+    throw err;
+  }
+}
+
 export default {
   searchHotelOffers,
   searchHotels,
@@ -777,4 +821,6 @@ export default {
   getMyHotelBookings,
   resolveCityId,
   getLastTraceId,
+  fetchHotelCoupons,
+  validateHotelCoupon,
 };

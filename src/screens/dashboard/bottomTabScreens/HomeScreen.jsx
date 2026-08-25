@@ -114,22 +114,22 @@ export default function HomeScreen({ navigation }) {
     {
       name: "Goa",
       subtitle: "Beach Paradise",
-      image: require("../../../../assets/dest_goa.png"),
+      image: require("../../../../assets/dest_goa.jpg"),
     },
     {
       name: "Manali",
       subtitle: "Snow & Mountains",
-      image: require("../../../../assets/dest_manali.png"),
+      image: require("../../../../assets/dest_manali.jpg"),
     },
     {
       name: "Kerala",
       subtitle: "Backwaters",
-      image: require("../../../../assets/dest_kerala.png"),
+      image: require("../../../../assets/dest_kerala.jpg"),
     },
     {
       name: "Dubai",
       subtitle: "City of Dreams",
-      image: require("../../../../assets/dest_dubai.png"),
+      image: require("../../../../assets/dest_dubai.jpg"),
     },
   ];
 
@@ -170,7 +170,7 @@ export default function HomeScreen({ navigation }) {
           >
             {/* ═══ HERO SECTION WITH BACKGROUND ARTWORK ═══ */}
             <ImageBackground
-              source={require("../../../../assets/hero_bg.png")}
+              source={require("../../../../assets/hero_bg.jpg")}
               style={styles.heroBgContainer}
               imageStyle={styles.heroBgImage}
               resizeMode="cover"
@@ -285,7 +285,7 @@ export default function HomeScreen({ navigation }) {
 
                     <View style={styles.promoRight}>
                       <Image
-                        source={require("../../../../assets/hero_bg.png")}
+                        source={require("../../../../assets/hero_bg.jpg")}
                         style={styles.promoBusImg}
                         resizeMode="cover"
                       />

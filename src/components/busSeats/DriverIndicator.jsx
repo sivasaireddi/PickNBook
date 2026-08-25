@@ -9,7 +9,7 @@ const DriverIndicator = () => {
       <View style={[styles.circularBadge, BUS_SEAT_SHADOWS.card]}>
         <MaterialCommunityIcons
           name="steering"
-          size={18}
+          size={14}
           color={BUS_SEAT_COLORS.textSecondary}
         />
       </View>
@@ -22,14 +22,14 @@ export default memo(DriverIndicator);
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    right: 12,
-    top: 10,
+    right: 6,
+    top: 6,
     zIndex: 10,
   },
   circularBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: BUS_SEAT_COLORS.coachFloorBg,
     alignItems: "center",
     justifyContent: "center",

@@ -110,7 +110,8 @@ export default function CreateAccount() {
             channel: "email",
           }),
         },
-        "Failed to send OTP."
+        "Failed to send OTP.",
+        { timeoutMs: 45000 }
       );
       
       setShowOtpModal(true);
@@ -335,8 +336,7 @@ export default function CreateAccount() {
       {/* Verify Registration OTP Modal */}
       <VerifyRegistrationOtpModal
         visible={showOtpModal}
-        email={form.email.trim().toLowerCase() || "sainimmakayala252@gmail.com"}
-        phoneNumber={form.mobile.trim()}
+        formData={form}
         onClose={() => setShowOtpModal(false)}
         onBackToEdit={() => setShowOtpModal(false)}
         onSuccess={(msg) => {

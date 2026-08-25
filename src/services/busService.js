@@ -20,7 +20,22 @@ const client = axios.create({
   },
 });
 
-// Cache for search results to support lookup by busId
+const formatApiTime = (dateTime) => {
+  if (!dateTime) return "";
+  if (dateTime.includes("T")) {
+    return dateTime.split("T")[1].substring(0, 5);
+  }
+  return dateTime.substring(0, 5);
+};
+
+const formatDuration = (minutes) => {
+  if (!minutes && minutes !== 0) return "";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${mins}m`;
+};
+
+// Add interceptor to include auth token in all requests to support lookup by busId
 let lastSearchResults = {
   traceId: "",
   buses: [],
@@ -171,8 +186,14 @@ export async function searchBuses(params = {}, options = {}) {
               ? String(bus.ResultIndex).trim()
               : "");
 
-      const boardingPoints = bus.BoardingPoints ?? bus.boardingPoints ?? [];
-      const droppingPoints = bus.DroppingPoints ?? bus.droppingPoints ?? [];
+      const boardingPoints = (bus.BoardingPoints ?? bus.boardingPoints ?? []).map(point => ({
+        ...point,
+        time: formatApiTime(point.Time ?? point.time)
+      }));
+      const droppingPoints = (bus.DroppingPoints ?? bus.droppingPoints ?? []).map(point => ({
+        ...point,
+        time: formatApiTime(point.Time ?? point.time)
+      }));
       const firstBoarding = boardingPoints[0]?.Name ?? boardingPoints[0]?.name ?? "";
       const firstDropping = droppingPoints[0]?.Name ?? droppingPoints[0]?.name ?? "";
 
@@ -197,8 +218,11 @@ export async function searchBuses(params = {}, options = {}) {
           bus.travelName ??
           "Operator",
         busType: bus.BusType ?? bus.busType ?? bus.type ?? "Bus",
-        departureTimeUtc: bus.DepartureTime ?? bus.departureTimeUtc ?? bus.departureTime ?? bus.depTime ?? "",
-        arrivalTimeUtc: bus.ArrivalTime ?? bus.arrivalTimeUtc ?? bus.arrivalTime ?? bus.arrTime ?? "",
+        departureTime: formatApiTime(bus.DepartureTime ?? bus.departureTimeUtc ?? bus.departureTime ?? bus.depTime),
+        arrivalTime: formatApiTime(bus.ArrivalTime ?? bus.arrivalTimeUtc ?? bus.arrivalTime ?? bus.arrTime),
+        departureDateTime: bus.DepartureTime ?? bus.departureTimeUtc ?? bus.departureTime ?? bus.depTime ?? "",
+        arrivalDateTime: bus.ArrivalTime ?? bus.arrivalTimeUtc ?? bus.arrivalTime ?? bus.arrTime ?? "",
+        duration: formatDuration(bus.Duration ?? bus.duration),
         availableSeats: bus.AvailableSeats !== undefined ? Number(bus.AvailableSeats) : (bus.availableSeats ?? bus.seatsAvailable ?? 0),
         totalSeats: bus.TotalSeats !== undefined ? Number(bus.TotalSeats) : (bus.totalSeats ?? bus.totalSeat ?? 0),
         priceInr: Number.isNaN(priceInr) ? 0 : priceInr,
@@ -742,6 +766,37 @@ export async function getPricingPreview(arg1, arg2) {
   }
 }
 
+/**
+ * Fetch available bus coupons for the user
+ * GET /api/BusBookings/user/available
+ */
+export async function getBusCoupons(token) {
+  try {
+    const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+    console.log(`[BusService] Fetching Bus Coupons...`);
+    const response = await client.get("/api/BusBookings/user/available", config);
+    return response.data;
+  } catch (error) {
+    console.warn("[BusService] getBusCoupons error:", error?.message);
+    throw error;
+  }
+}
+
+/**
+ * Fetch featured offers
+ * GET /api/FeaturedOffers
+ */
+export async function getFeaturedOffers() {
+  try {
+    console.log(`[BusService] Fetching Featured Offers...`);
+    const response = await client.get("/api/FeaturedOffers");
+    return response.data;
+  } catch (error) {
+    console.warn("[BusService] getFeaturedOffers error:", error?.message);
+    throw error;
+  }
+}
+
 export default {
   searchCities,
   searchBuses,
@@ -754,6 +809,8 @@ export default {
   getMyBusBookings,
   cancelBusBooking,
   cancelBusPassengers,
+  getBusCoupons,
+  getFeaturedOffers,
 };
 
 

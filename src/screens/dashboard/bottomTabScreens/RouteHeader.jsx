@@ -81,64 +81,15 @@ const formatWeekdayLabel = (value) =>
 const formatDayNumber = (value) =>
   String(getNormalizedDate(value).getDate()).padStart(2, "0");
 
-const SuggestionsDropdown = ({ visible, items, loading, onSelect, query = "" }) => {
-  if (!visible || query.trim().length < 2) return null;
-  return (
-    <View style={styles.dropdown}>
-      {loading ? (
-        <View style={styles.dropdownStatus}>
-          <ActivityIndicator size="small" color="#eb5a51" />
-          <Text style={styles.dropdownStatusText}>Searching cities...</Text>
-        </View>
-      ) : items.length === 0 ? (
-        <View style={styles.dropdownStatus}>
-          <Text style={styles.dropdownStatusText}>No cities found</Text>
-        </View>
-      ) : (
-        <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          {items.map((item, index) => {
-            const cityName = item && typeof item === "object" ? item.cityName : String(item);
-            const stateName = item && typeof item === "object" ? item.stateName : "";
-            const key = item && typeof item === "object" ? item.cityId : index;
-            return (
-              <Pressable
-                key={`${key}-${index}`}
-                onPress={() => onSelect(item)}
-                style={({ pressed }) => [
-                  styles.dropdownItem,
-                  index === items.length - 1 && styles.dropdownItemLast,
-                  pressed && styles.dropdownItemPressed,
-                ]}
-              >
-                <Ionicons name="location-outline" size={18} color="#6b7280" />
-                <View style={styles.dropdownItemTextContainer}>
-                  <Text style={styles.dropdownText}>{cityName}</Text>
-                  {stateName ? <Text style={styles.dropdownSubtext}>{stateName}</Text> : null}
-                </View>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
-    </View>
-  );
-};
+
 
 const EditorModal = ({
   from,
   to,
   baseDate,
   selectedDate,
-  onChangeFromText,
-  onChangeToText,
-  onSelectFrom,
-  onSelectTo,
-  fromPlaces,
-  toPlaces,
-  showFromSuggestions,
-  showToSuggestions,
-  loadingFrom,
-  loadingTo,
+  onPressFrom,
+  onPressTo,
   onSelectDate,
   onSwap,
   onApply,
@@ -174,32 +125,21 @@ const EditorModal = ({
 
         <View style={styles.editorCard}>
           <View style={[styles.fieldWrapper, { zIndex: 20 }]}>
-            <View style={styles.inputRow}>
+            <Pressable style={styles.inputRow} onPress={onPressFrom}>
               <View style={styles.iconBubble}>
                 <Text style={styles.iconBubbleText}>A</Text>
               </View>
 
-              <TextInput
-                style={styles.locationInput}
-                placeholder="From city"
-                placeholderTextColor="#9ca3af"
-                value={from.cityName}
-                onChangeText={onChangeFromText}
-              />
-            </View>
-            <SuggestionsDropdown
-              visible={showFromSuggestions}
-              items={fromPlaces}
-              loading={loadingFrom}
-              onSelect={onSelectFrom}
-              query={from.cityName}
-            />
+              <Text style={[styles.locationInput, !from.cityName && { color: "#9ca3af" }]}>
+                {from.cityName || "From city"}
+              </Text>
+            </Pressable>
           </View>
 
           <View style={styles.divider} />
 
           <View style={[styles.fieldWrapper, { zIndex: 10 }]}>
-            <View style={styles.inputRow}>
+            <Pressable style={styles.inputRow} onPress={onPressTo}>
               <Ionicons
                 name="location"
                 size={22}
@@ -207,21 +147,10 @@ const EditorModal = ({
                 style={styles.locationPin}
               />
 
-              <TextInput
-                style={styles.locationInput}
-                placeholder="To city"
-                placeholderTextColor="#9ca3af"
-                value={to.cityName}
-                onChangeText={onChangeToText}
-              />
-            </View>
-            <SuggestionsDropdown
-              visible={showToSuggestions}
-              items={toPlaces}
-              loading={loadingTo}
-              onSelect={onSelectTo}
-              query={to.cityName}
-            />
+              <Text style={[styles.locationInput, !to.cityName && { color: "#9ca3af" }]}>
+                {to.cityName || "To city"}
+              </Text>
+            </Pressable>
           </View>
 
           <TouchableOpacity
@@ -331,16 +260,6 @@ export default function RouteHeader({
   const [draftTo, setDraftTo] = useState(() => normalizeCity(toProp ?? route?.params?.to));
   const [selectedDate, setSelectedDate] = useState(journeyDate);
 
-  const [fromPlaces, setFromPlaces] = useState([]);
-  const [toPlaces, setToPlaces] = useState([]);
-  const [showFromSuggestions, setShowFromSuggestions] = useState(false);
-  const [showToSuggestions, setShowToSuggestions] = useState(false);
-  const [loadingFrom, setLoadingFrom] = useState(false);
-  const [loadingTo, setLoadingTo] = useState(false);
-
-  const suggestionTimers = useRef({ from: null, to: null });
-  const requestIds = useRef({ from: 0, to: 0 });
-
   useEffect(() => {
     if (isExpanded) {
       return;
@@ -358,86 +277,13 @@ export default function RouteHeader({
     setIsExpanded(true);
   };
 
-  const fetchPlaceSuggestions = async (query, field) => {
-    const trimmedQuery = query.trim();
-    if (!trimmedQuery) {
-      requestIds.current[field] += 1;
-      if (field === "from") setFromPlaces([]);
-      else setToPlaces([]);
-      return;
-    }
-    const requestId = requestIds.current[field] + 1;
-    requestIds.current[field] = requestId;
-    try {
-      const data = await searchCities(trimmedQuery);
-      if (requestIds.current[field] !== requestId) return;
-      
-      const suggestions = Array.isArray(data)
-        ? data.map((item) => ({
-            cityId: String(item?.cityId || item?.code || "").trim(),
-            cityName: String(item?.cityName || item?.name || "").trim(),
-            stateName: String(item?.stateName || item?.state || "").trim(),
-          })).filter((item) => item.cityName && item.cityId)
-        : [];
 
-      // Ensure unique suggestions
-      const seen = new Set();
-      const uniqueSuggestions = [];
-      suggestions.forEach((item) => {
-        const key = `${item.cityName}-${item.cityId}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          uniqueSuggestions.push(item);
-        }
-      });
-
-      if (field === "from") setFromPlaces(uniqueSuggestions);
-      else setToPlaces(uniqueSuggestions);
-    } catch {
-      if (requestIds.current[field] !== requestId) return;
-      if (field === "from") setFromPlaces([]);
-      else setToPlaces([]);
-    } finally {
-      if (requestIds.current[field] === requestId) {
-        if (field === "from") setLoadingFrom(false);
-        else setLoadingTo(false);
-      }
-    }
-  };
-
-  const schedulePlaceSuggestions = (query, field) => {
-    const timerRef = suggestionTimers.current[field];
-    if (timerRef) clearTimeout(timerRef);
-    const trimmedQuery = query.trim();
-    if (trimmedQuery.length < 2) {
-      if (field === "from") {
-        setFromPlaces([]);
-        setShowFromSuggestions(false);
-        setLoadingFrom(false);
-      } else {
-        setToPlaces([]);
-        setShowToSuggestions(false);
-        setLoadingTo(false);
-      }
-      return;
-    }
-
-    if (field === "from") setLoadingFrom(true);
-    else setLoadingTo(true);
-
-    suggestionTimers.current[field] = setTimeout(() => {
-      suggestionTimers.current[field] = null;
-      fetchPlaceSuggestions(trimmedQuery, field);
-    }, 400);
-  };
 
   const handleSwap = () => {
     const nextFrom = draftTo;
     const nextTo = draftFrom;
     setDraftFrom(nextFrom);
     setDraftTo(nextTo);
-    setShowFromSuggestions(false);
-    setShowToSuggestions(false);
   };
 
   const handleApply = () => {
@@ -508,32 +354,20 @@ export default function RouteHeader({
           to={draftTo}
           baseDate={journeyDate}
           selectedDate={selectedDate}
-          onChangeFromText={(text) => {
-            setDraftFrom({ cityId: "", cityName: text, stateName: "" });
-            setShowFromSuggestions(true);
-            setShowToSuggestions(false);
-            schedulePlaceSuggestions(text, "from");
+          onPressFrom={() => {
+            navigation.navigate("BusLocationSearchScreen", {
+              type: "from",
+              currentValue: draftFrom.cityName,
+              onSelect: (city) => setDraftFrom(city)
+            });
           }}
-          onChangeToText={(text) => {
-            setDraftTo({ cityId: "", cityName: text, stateName: "" });
-            setShowToSuggestions(true);
-            setShowFromSuggestions(false);
-            schedulePlaceSuggestions(text, "to");
+          onPressTo={() => {
+            navigation.navigate("BusLocationSearchScreen", {
+              type: "to",
+              currentValue: draftTo.cityName,
+              onSelect: (city) => setDraftTo(city)
+            });
           }}
-          onSelectFrom={(city) => {
-            setDraftFrom(city);
-            setShowFromSuggestions(false);
-          }}
-          onSelectTo={(city) => {
-            setDraftTo(city);
-            setShowToSuggestions(false);
-          }}
-          fromPlaces={fromPlaces}
-          toPlaces={toPlaces}
-          showFromSuggestions={showFromSuggestions}
-          showToSuggestions={showToSuggestions}
-          loadingFrom={loadingFrom}
-          loadingTo={loadingTo}
           onSelectDate={setSelectedDate}
           onSwap={handleSwap}
           onApply={handleApply}
@@ -733,67 +567,5 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
   },
-  fieldWrapper: {
-    position: "relative",
-  },
-  dropdown: {
-    position: "absolute",
-    top: 56,
-    left: 0,
-    right: 0,
-    maxHeight: 180,
-    backgroundColor: "#ffffff",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    paddingVertical: 6,
-    zIndex: 99,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  dropdownStatus: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 12,
-    gap: 8,
-  },
-  dropdownStatusText: {
-    color: "#6b7280",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  dropdownItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f3f4f6",
-  },
-  dropdownItemLast: {
-    borderBottomWidth: 0,
-  },
-  dropdownItemPressed: {
-    backgroundColor: "#f9fafb",
-  },
-  dropdownItemTextContainer: {
-    flex: 1,
-    flexDirection: "column",
-  },
-  dropdownText: {
-    fontSize: 15,
-    color: "#111827",
-    fontWeight: "700",
-  },
-  dropdownSubtext: {
-    fontSize: 12,
-    color: "#6b7280",
-    marginTop: 2,
-    fontWeight: "400",
-  },
+
 });

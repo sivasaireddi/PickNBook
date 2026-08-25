@@ -35,6 +35,7 @@ import SeaterSleeper2Plus1Standard from "../practice/SeaterSleeper2Plus1Standard
 import PostBusBookingScreen from "../practice/PostBusBookingScreen";
 import BookingDetailsScreen from "../screens/booking/BookingDetailsScreen";
 import Seater from "../practice/Seater";
+import BusLocationSearchScreen from "../screens/dashboard/bottomTabScreens/BusLocationSearchScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -110,6 +111,11 @@ const StackNavigation = () => {
       <Stack.Screen
         name="BookingDetailsScreen"
         component={BookingDetailsScreen}
+      />
+      <Stack.Screen
+        name="BusLocationSearchScreen"
+        component={BusLocationSearchScreen}
+        options={{ animation: 'slide_from_bottom' }}
       />
     </Stack.Navigator>
   );

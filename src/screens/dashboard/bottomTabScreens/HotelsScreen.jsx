@@ -7,14 +7,33 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Rect, Circle } from "react-native-svg";
+import {
+  Building2,
+  CalendarDays,
+  Search,
+  ArrowRight,
+  Headphones,
+  Bell,
+  ShieldCheck,
+  Ticket,
+  Clock,
+  Plus,
+  X,
+  Minus,
+  MapPin,
+  Trash2,
+} from "lucide-react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
 import { searchHotelOffers, resolveCityId, searchCities } from "../../../services/hotelService";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
-import AppHeader from "../../../components/AppHeader";
+import { scale } from "../../../utils/responsive";
 
 const CITY_HINTS = [
   { label: "New Delhi", value: "725862" },
@@ -37,9 +56,26 @@ const formatApiDate = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const SkylineSVG = () => (
+  <Svg width="100%" height={scale(56)} viewBox="0 0 380 56" preserveAspectRatio="none">
+    <Circle cx="320" cy="16" r="8" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="20" y="26" width="16" height="30" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="40" y="16" width="22" height="40" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="66" y="32" width="14" height="24" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="120" y="20" width="20" height="36" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="145" y="12" width="16" height="44" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="165" y="28" width="18" height="28" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="220" y="24" width="22" height="32" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="246" y="14" width="18" height="42" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="268" y="30" width="16" height="26" fill="#FFFFFF" opacity="0.13" />
+    <Rect x="340" y="22" width="20" height="34" fill="#FFFFFF" opacity="0.13" />
+  </Svg>
+);
+
 const HotelsScreen = () => {
   const navigation = useNavigation();
   const { setSearchSession } = useHotelBooking();
+  const { width } = useWindowDimensions();
 
   const [destinationInput, setDestinationInput] = useState("New Delhi");
   const [selectedCityId, setSelectedCityId] = useState("725862");
@@ -212,215 +248,253 @@ const HotelsScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <AppHeader title="Hotels" />
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <View style={styles.heroBanner}>
-          <Text style={styles.title}>
-            Stay Beyond <Text style={styles.highlight}>The Ordinary</Text>
-          </Text>
-          <Text style={styles.subtitle}>
-            Find live rooms, real-time rates, and instant booking confirmation.
-          </Text>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" bounces={false}>
+        {/* Header Banner */}
+        <View style={styles.headerBannerContainer}>
+          <LinearGradient
+            colors={["#C42B31", "#B0242A"]}
+            style={styles.headerGradient}
+          >
+            <SafeAreaView edges={["top"]} style={styles.safeArea}>
+              <View style={styles.headerRow}>
+                <View style={styles.logoTitleGroup}>
+                  <View style={styles.logoBox}>
+                    <Building2 size={scale(20)} color="#C0272D" />
+                  </View>
+                  <View>
+                    <Text style={styles.appName}>PickNBook</Text>
+                    <Text style={styles.appSubtitle}>Smart travel. Easy booking.</Text>
+                  </View>
+                </View>
+                <View style={styles.headerActions}>
+                  <Pressable style={styles.helpButton}>
+                    <Headphones size={scale(14)} color="#FFFFFF" />
+                    <Text style={styles.helpText}>Help</Text>
+                  </Pressable>
+                  <Pressable style={styles.notificationButton}>
+                    <Bell size={scale(16)} color="#FFFFFF" />
+                    <View style={styles.notificationDot} />
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.skylineContainer}>
+                <SkylineSVG />
+              </View>
+            </SafeAreaView>
+          </LinearGradient>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.label}>DESTINATION CITY / CITY ID</Text>
-          <View style={[styles.inputContainer, showSuggestions && styles.inputContainerActive]}>
-            <Ionicons name="business-outline" size={20} color="#E53935" />
-            <TextInput
-              placeholder="Search City (e.g. Delhi)"
-              placeholderTextColor="#7A869A"
-              value={destinationInput}
-              onChangeText={handleCityInput}
-              style={styles.input}
-              onFocus={() => {
-                 if (destinationInput.trim().length >= 2) setShowSuggestions(true);
-              }}
-            />
-            {destinationInput.length > 0 && (
-              <Pressable onPress={() => { setDestinationInput(""); setCitySuggestions([]); setShowSuggestions(false); }}>
-                <Ionicons name="close-circle" size={18} color="#94A3B8" />
-              </Pressable>
-            )}
-          </View>
-          
-          {showSuggestions && (
-            <View style={styles.dropdown}>
-              {loadingSuggestions ? (
-                <View style={styles.dropdownStatus}>
-                  <ActivityIndicator size="small" color="#E53935" />
-                  <Text style={styles.dropdownStatusText}>Searching cities...</Text>
-                </View>
-              ) : citySuggestions.length === 0 ? (
-                <View style={styles.dropdownStatus}>
-                  <Text style={styles.dropdownStatusText}>No cities found</Text>
-                </View>
-              ) : (
-                citySuggestions.map((item, index) => (
-                  <Pressable
-                    key={index}
-                    style={styles.dropdownItem}
-                    onPress={() => {
-                      setDestinationInput(item.cityName);
-                      setSelectedCityId(item.cityId);
-                      setShowSuggestions(false);
-                    }}
-                  >
-                    <Ionicons name="location-outline" size={18} color="#E53935" />
-                    <View style={styles.dropdownItemTextContainer}>
-                      <Text style={styles.dropdownText}>{item.cityName}</Text>
-                      {item.countryName ? <Text style={styles.dropdownSubtext}>{item.countryName}</Text> : null}
-                    </View>
-                  </Pressable>
-                ))
+        {/* Search Card */}
+        <View style={styles.cardContainer}>
+          <View style={styles.card}>
+            <Text style={styles.label}>DESTINATION CITY</Text>
+            <View style={[styles.inputContainer, showSuggestions && styles.inputContainerActive]}>
+              <View style={styles.inputIconChip}>
+                <Building2 size={scale(14)} color="#C0272D" />
+              </View>
+              <TextInput
+                placeholder="Search City (e.g. Delhi)"
+                placeholderTextColor="#A5A29B"
+                value={destinationInput}
+                onChangeText={handleCityInput}
+                style={styles.input}
+                onFocus={() => {
+                   if (destinationInput.trim().length >= 2) setShowSuggestions(true);
+                }}
+              />
+              {destinationInput.length > 0 && (
+                <Pressable onPress={() => { setDestinationInput(""); setCitySuggestions([]); setShowSuggestions(false); }} style={styles.clearButton}>
+                  <X size={scale(16)} color="#A5A29B" />
+                </Pressable>
               )}
             </View>
-          )}
-
-          <View style={styles.hintsRow}>
-            {CITY_HINTS.map((hint) => (
-              <Pressable
-                key={hint.value}
-                style={styles.hintChip}
-                onPress={() => {
-                  setDestinationInput(hint.label);
-                  setSelectedCityId(hint.value);
-                  setShowSuggestions(false);
-                }}
-              >
-                <Text style={styles.hintChipText}>{hint.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.row}>
-            <View style={styles.dateBox}>
-              <Text style={styles.label}>CHECK-IN</Text>
-              <Pressable
-                style={styles.dateInput}
-                onPress={() => setShowCheckInPicker(true)}
-              >
-                <Ionicons name="calendar-outline" size={20} color="#E53935" />
-                <Text style={styles.dateText}>
-                  {formatDisplayDate(checkInDate)}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.dateBox}>
-              <Text style={styles.label}>CHECK-OUT</Text>
-              <Pressable
-                style={styles.dateInput}
-                onPress={() => setShowCheckOutPicker(true)}
-              >
-                <Ionicons name="calendar-outline" size={20} color="#E53935" />
-                <Text style={styles.dateText}>
-                  {formatDisplayDate(checkOutDate)}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Multi-Room Guest Configuration */}
-          <View style={styles.roomsHeader}>
-            <Text style={styles.sectionTitle}>ROOMS & GUESTS ({roomGuests.length})</Text>
-            {roomGuests.length < 4 && (
-              <Pressable style={styles.addRoomBtn} onPress={handleAddRoom}>
-                <Ionicons name="add-circle-outline" size={18} color="#E53935" />
-                <Text style={styles.addRoomText}>Add Room</Text>
-              </Pressable>
-            )}
-          </View>
-
-          {roomGuests.map((room, rIdx) => {
-            const childCount = Number(room.NoOfChild) || 0;
-            return (
-              <View key={`room-${rIdx}`} style={styles.roomCard}>
-                <View style={styles.roomTitleRow}>
-                  <Text style={styles.roomTitle}>Room {rIdx + 1}</Text>
-                  {roomGuests.length > 1 && (
-                    <Pressable onPress={() => handleRemoveRoom(rIdx)}>
-                      <Ionicons name="trash-outline" size={18} color="#D32F2F" />
+            
+            {showSuggestions && (
+              <View style={styles.dropdown}>
+                {loadingSuggestions ? (
+                  <View style={styles.dropdownStatus}>
+                    <ActivityIndicator size="small" color="#C0272D" />
+                    <Text style={styles.dropdownStatusText}>Searching cities...</Text>
+                  </View>
+                ) : citySuggestions.length === 0 ? (
+                  <View style={styles.dropdownStatus}>
+                    <Text style={styles.dropdownStatusText}>No cities found</Text>
+                  </View>
+                ) : (
+                  citySuggestions.map((item, index) => (
+                    <Pressable
+                      key={index}
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setDestinationInput(item.cityName);
+                        setSelectedCityId(item.cityId);
+                        setShowSuggestions(false);
+                      }}
+                    >
+                      <MapPin size={scale(16)} color="#C0272D" />
+                      <View style={styles.dropdownItemTextContainer}>
+                        <Text style={styles.dropdownText}>{item.cityName}</Text>
+                        {item.countryName ? <Text style={styles.dropdownSubtext}>{item.countryName}</Text> : null}
+                      </View>
                     </Pressable>
-                  )}
-                </View>
-
-                <View style={styles.row}>
-                  <View style={styles.dateBox}>
-                    <Text style={styles.subLabel}>Adults (12+ yrs)</Text>
-                    <View style={styles.stepper}>
-                      <Pressable
-                        style={styles.stepperBtn}
-                        onPress={() => handleUpdateAdults(rIdx, -1)}
-                      >
-                        <Ionicons name="remove" size={16} color="#E53935" />
-                      </Pressable>
-                      <Text style={styles.stepperValue}>{room.NoOfAdults}</Text>
-                      <Pressable
-                        style={styles.stepperBtn}
-                        onPress={() => handleUpdateAdults(rIdx, 1)}
-                      >
-                        <Ionicons name="add" size={16} color="#E53935" />
-                      </Pressable>
-                    </View>
-                  </View>
-
-                  <View style={styles.dateBox}>
-                    <Text style={styles.subLabel}>Children (0-11 yrs)</Text>
-                    <View style={styles.stepper}>
-                      <Pressable
-                        style={styles.stepperBtn}
-                        onPress={() => handleUpdateChildren(rIdx, -1)}
-                      >
-                        <Ionicons name="remove" size={16} color="#E53935" />
-                      </Pressable>
-                      <Text style={styles.stepperValue}>{room.NoOfChild}</Text>
-                      <Pressable
-                        style={styles.stepperBtn}
-                        onPress={() => handleUpdateChildren(rIdx, 1)}
-                      >
-                        <Ionicons name="add" size={16} color="#E53935" />
-                      </Pressable>
-                    </View>
-                  </View>
-                </View>
-
-                {childCount > 0 && (
-                  <View style={styles.childAgesContainer}>
-                    <Text style={styles.subLabel}>Child Ages (Years)</Text>
-                    <View style={styles.childAgesRow}>
-                      {(room.ChildAge || []).map((age, cIdx) => (
-                        <View key={`child-${rIdx}-${cIdx}`} style={styles.childAgeInputBox}>
-                          <Text style={styles.childAgeTag}>Child {cIdx + 1}</Text>
-                          <TextInput
-                            style={styles.childAgeInput}
-                            keyboardType="number-pad"
-                            maxLength={2}
-                            value={String(age)}
-                            onChangeText={(val) => handleUpdateChildAge(rIdx, cIdx, val)}
-                          />
-                        </View>
-                      ))}
-                    </View>
-                  </View>
+                  ))
                 )}
               </View>
-            );
-          })}
-
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-          <Pressable style={styles.searchButton} onPress={handleSearch} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="search-outline" size={20} color="#fff" />
-                <Text style={styles.searchText}>SEARCH HOTELS</Text>
-              </>
             )}
-          </Pressable>
+
+
+
+            <View style={[styles.dateRow, width < 340 && styles.dateRowStacked]}>
+              <View style={styles.dateBox}>
+                <Text style={styles.label}>CHECK-IN</Text>
+                <Pressable
+                  style={styles.dateInput}
+                  onPress={() => setShowCheckInPicker(true)}
+                >
+                  <CalendarDays size={scale(16)} color="#C0272D" />
+                  <Text style={styles.dateText}>
+                    {formatDisplayDate(checkInDate)}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.dateBox}>
+                <Text style={styles.label}>CHECK-OUT</Text>
+                <Pressable
+                  style={styles.dateInput}
+                  onPress={() => setShowCheckOutPicker(true)}
+                >
+                  <CalendarDays size={scale(16)} color="#C0272D" />
+                  <Text style={styles.dateText}>
+                    {formatDisplayDate(checkOutDate)}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Rooms and Guests Configuration */}
+            <View style={styles.roomsHeader}>
+              <Text style={styles.roomsTitle}>Rooms and guests <Text style={styles.roomsTitleCount}>({roomGuests.length})</Text></Text>
+              {roomGuests.length < 4 && (
+                <Pressable style={styles.addRoomBtn} onPress={handleAddRoom}>
+                  <Plus size={scale(12)} color="#C0272D" />
+                  <Text style={styles.addRoomText}>Add room</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {roomGuests.map((room, rIdx) => {
+              const childCount = Number(room.NoOfChild) || 0;
+              return (
+                <View key={`room-${rIdx}`} style={styles.roomCard}>
+                  <View style={styles.roomTitleRow}>
+                    <Text style={styles.roomTitle}>Room {rIdx + 1}</Text>
+                    {roomGuests.length > 1 && (
+                      <Pressable onPress={() => handleRemoveRoom(rIdx)} style={styles.removeRoomBtn}>
+                        <Trash2 size={scale(14)} color="#A5A29B" />
+                      </Pressable>
+                    )}
+                  </View>
+
+                  <View style={styles.guestRow}>
+                    <View style={styles.guestControlBox}>
+                      <Text style={styles.guestSubLabel}>Adults (12+)</Text>
+                      <View style={styles.stepper}>
+                        <Pressable
+                          style={styles.stepperBtn}
+                          onPress={() => handleUpdateAdults(rIdx, -1)}
+                        >
+                          <Minus size={scale(14)} color="#C0272D" />
+                        </Pressable>
+                        <Text style={styles.stepperValue}>{room.NoOfAdults}</Text>
+                        <Pressable
+                          style={styles.stepperBtn}
+                          onPress={() => handleUpdateAdults(rIdx, 1)}
+                        >
+                          <Plus size={scale(14)} color="#C0272D" />
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    <View style={styles.guestControlBox}>
+                      <Text style={styles.guestSubLabel}>Children (0-11)</Text>
+                      <View style={styles.stepper}>
+                        <Pressable
+                          style={styles.stepperBtn}
+                          onPress={() => handleUpdateChildren(rIdx, -1)}
+                        >
+                          <Minus size={scale(14)} color="#C0272D" />
+                        </Pressable>
+                        <Text style={styles.stepperValue}>{room.NoOfChild}</Text>
+                        <Pressable
+                          style={styles.stepperBtn}
+                          onPress={() => handleUpdateChildren(rIdx, 1)}
+                        >
+                          <Plus size={scale(14)} color="#C0272D" />
+                        </Pressable>
+                      </View>
+                    </View>
+                  </View>
+
+                  {childCount > 0 && (
+                    <View style={styles.childAgesContainer}>
+                      <Text style={styles.guestSubLabel}>Child Ages (Years)</Text>
+                      <View style={styles.childAgesRow}>
+                        {(room.ChildAge || []).map((age, cIdx) => (
+                          <View key={`child-${rIdx}-${cIdx}`} style={styles.childAgeInputBox}>
+                            <Text style={styles.childAgeTag}>Child {cIdx + 1}</Text>
+                            <TextInput
+                              style={styles.childAgeInput}
+                              keyboardType="number-pad"
+                              maxLength={2}
+                              value={String(age)}
+                              onChangeText={(val) => handleUpdateChildAge(rIdx, cIdx, val)}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+            <Pressable onPress={handleSearch} disabled={loading} style={({ pressed }) => [styles.searchButtonWrapper, pressed && { opacity: 0.9 }]}>
+              <LinearGradient
+                colors={["#CB2E33", "#B0242A"]}
+                style={styles.searchButtonGradient}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <View style={styles.searchButtonContent}>
+                    <Search size={scale(16)} color="#ffffff" />
+                    <Text style={styles.searchButtonText}>Search hotels</Text>
+                    <ArrowRight size={scale(16)} color="#ffffff" />
+                  </View>
+                )}
+              </LinearGradient>
+            </Pressable>
+          </View>
+
+          {/* Trust Badges */}
+          <View style={styles.trustBadgesRow}>
+            <View style={styles.trustBadge}>
+              <ShieldCheck size={scale(20)} color="#C0272D" />
+              <Text style={styles.trustBadgeText}>Safe and secure</Text>
+            </View>
+            <View style={styles.trustBadge}>
+              <Ticket size={scale(20)} color="#C0272D" />
+              <Text style={styles.trustBadgeText}>Easy cancellation</Text>
+            </View>
+            <View style={styles.trustBadge}>
+              <Clock size={scale(20)} color="#C0272D" />
+              <Text style={styles.trustBadgeText}>Real-time rates</Text>
+            </View>
+          </View>
         </View>
       </ScrollView>
 
@@ -452,7 +526,7 @@ const HotelsScreen = () => {
           }}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -461,292 +535,421 @@ export default HotelsScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F4F3F1",
   },
   scrollContent: {
-    paddingBottom: 32,
+    paddingBottom: scale(32),
   },
-  heroBanner: {
-    backgroundColor: "#1E293B",
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 36,
+  headerBannerContainer: {
+    overflow: "hidden",
+    borderBottomLeftRadius: scale(20),
+    borderBottomRightRadius: scale(20),
   },
-  title: {
-    fontSize: 28,
-    fontWeight: "900",
+  headerGradient: {
+    paddingHorizontal: scale(18),
+    paddingTop: scale(18),
+    paddingBottom: scale(22) + scale(58), // Accommodate the overlap margin
+  },
+  safeArea: {
+    paddingTop: Platform.OS === 'android' ? 24 : 0,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: scale(16),
+  },
+  logoTitleGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(10),
+  },
+  logoBox: {
+    width: scale(38),
+    height: scale(38),
+    backgroundColor: "#FFFFFF",
+    borderRadius: scale(11),
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  appName: {
     color: "#FFFFFF",
-    lineHeight: 34,
-  },
-  highlight: {
-    color: "#EF4444",
-  },
-  subtitle: {
-    color: "#94A3B8",
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 6,
+    fontSize: scale(17),
     fontWeight: "500",
+  },
+  appSubtitle: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: scale(11.5),
+    marginTop: scale(2),
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: scale(8),
+    alignItems: "center",
+  },
+  helpButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderRadius: scale(16),
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(6),
+    gap: scale(4),
+  },
+  helpText: {
+    color: "#FFFFFF",
+    fontSize: scale(12),
+    fontWeight: "500",
+  },
+  notificationButton: {
+    width: scale(32),
+    height: scale(32),
+    borderRadius: scale(16),
+    backgroundColor: "rgba(255,255,255,0.16)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  notificationDot: {
+    position: "absolute",
+    top: scale(6),
+    right: scale(6),
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
+    backgroundColor: "#FFC107",
+    borderWidth: 1,
+    borderColor: "#C42B31",
+  },
+  skylineContainer: {
+    marginTop: scale(4),
+  },
+  cardContainer: {
+    marginHorizontal: scale(16),
+    marginTop: -scale(58), // Floating overlap
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    marginHorizontal: 16,
-    marginTop: -20,
-    padding: 16,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    borderRadius: scale(20),
+    paddingTop: scale(22),
+    paddingHorizontal: scale(18),
+    paddingBottom: scale(20),
+    shadowColor: "rgba(30,20,20,0.10)",
+    shadowOffset: { width: 0, height: scale(12) },
+    shadowOpacity: 1,
+    shadowRadius: scale(28),
+    elevation: 8,
   },
   label: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#64748B",
-    marginBottom: 6,
-    letterSpacing: 0.5,
-  },
-  subLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#64748B",
-    marginBottom: 4,
+    fontSize: scale(12),
+    fontWeight: "600",
+    color: "#A5A29B",
+    letterSpacing: 0.6,
+    marginBottom: scale(6),
+    textTransform: "uppercase",
   },
   inputContainer: {
-    height: 48,
+    height: scale(48),
+    backgroundColor: "#FBF7F6",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
+    borderColor: "#F0E4E2",
+    borderRadius: scale(12),
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    backgroundColor: "#F8FAFC",
+    paddingHorizontal: scale(14),
+  },
+  inputContainerActive: {
+    borderColor: "#C0272D",
+  },
+  inputIconChip: {
+    width: scale(26),
+    height: scale(26),
+    backgroundColor: "#FAECE7",
+    borderRadius: scale(8),
+    justifyContent: "center",
+    alignItems: "center",
   },
   input: {
     flex: 1,
-    marginLeft: 8,
-    fontSize: 14,
-    color: "#0F172A",
-    fontWeight: "700",
+    marginLeft: scale(10),
+    fontSize: scale(15),
+    color: "#231F1F",
+    fontWeight: "500",
   },
-  inputContainerActive: {
-    borderColor: "#E53935",
+  clearButton: {
+    padding: scale(4),
   },
   dropdown: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
+    borderRadius: scale(12),
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    marginTop: 4,
-    marginBottom: 8,
-    maxHeight: 200,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
+    borderColor: "#EDEAE6",
+    marginTop: scale(4),
+    marginBottom: scale(8),
+    maxHeight: scale(200),
+    shadowColor: "rgba(30,20,20,0.06)",
+    shadowOpacity: 1,
+    shadowRadius: scale(8),
+    shadowOffset: { width: 0, height: scale(2) },
     elevation: 4,
     zIndex: 10,
   },
   dropdownStatus: {
-    padding: 16,
+    padding: scale(16),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: scale(8),
   },
   dropdownStatusText: {
-    fontSize: 13,
-    color: "#64748B",
-    fontWeight: "600",
+    fontSize: scale(13),
+    color: "#6B675F",
+    fontWeight: "500",
   },
   dropdownItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
+    padding: scale(12),
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
-    gap: 12,
+    borderBottomColor: "#F7F6F4",
+    gap: scale(12),
   },
   dropdownItemTextContainer: {
     flex: 1,
   },
   dropdownText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#0F172A",
+    fontSize: scale(14),
+    fontWeight: "500",
+    color: "#231F1F",
   },
   dropdownSubtext: {
-    fontSize: 11,
-    color: "#64748B",
-    marginTop: 2,
+    fontSize: scale(11),
+    color: "#A5A29B",
+    marginTop: scale(2),
   },
   hintsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginTop: 8,
-    marginBottom: 12,
+    gap: scale(8),
+    marginTop: scale(10),
+    marginBottom: scale(16),
   },
   hintChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: "#FEF2F2",
-    borderRadius: 99,
+    paddingHorizontal: scale(13),
+    paddingVertical: scale(7),
+    backgroundColor: "#F7F6F4",
+    borderWidth: 1,
+    borderColor: "#EDEAE6",
+    borderRadius: scale(16),
+  },
+  hintChipActive: {
+    backgroundColor: "#FDF0EE",
+    borderColor: "#F6D9D3",
   },
   hintChipText: {
-    color: "#EF4444",
-    fontWeight: "700",
-    fontSize: 11,
+    color: "#6B675F",
+    fontWeight: "500",
+    fontSize: scale(12.5),
   },
-  row: {
+  hintChipTextActive: {
+    color: "#A3341C",
+  },
+  dateRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 10,
+    gap: scale(10),
+    marginBottom: scale(16),
+  },
+  dateRowStacked: {
+    flexDirection: "column",
+    gap: scale(12),
   },
   dateBox: {
     flex: 1,
   },
   dateInput: {
-    height: 48,
+    height: scale(48),
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
+    borderColor: "#EDEAE6",
+    borderRadius: scale(12),
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    backgroundColor: "#F8FAFC",
-    marginBottom: 12,
+    paddingHorizontal: scale(12),
+    backgroundColor: "#FFFFFF",
   },
   dateText: {
-    marginLeft: 8,
-    fontSize: 13,
-    color: "#0F172A",
-    fontWeight: "600",
+    marginLeft: scale(8),
+    fontSize: scale(13.5),
+    color: "#231F1F",
+    fontWeight: "500",
   },
   roomsHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: 8,
-    marginBottom: 8,
+    marginBottom: scale(10),
   },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#334155",
-    letterSpacing: 0.5,
+  roomsTitle: {
+    fontSize: scale(13.5),
+    fontWeight: "500",
+    color: "#231F1F",
+  },
+  roomsTitleCount: {
+    color: "#A5A29B",
   },
   addRoomBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: scale(4),
   },
   addRoomText: {
-    color: "#EF4444",
-    fontWeight: "700",
-    fontSize: 12,
+    color: "#C0272D",
+    fontWeight: "500",
+    fontSize: scale(12.5),
   },
   roomCard: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 12,
+    backgroundColor: "#FBFAF9",
+    borderRadius: scale(14),
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    padding: 12,
-    marginBottom: 12,
+    borderColor: "#EDEAE6",
+    padding: scale(14),
+    marginBottom: scale(12),
   },
   roomTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: scale(12),
   },
   roomTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#0F172A",
+    fontSize: scale(12.5),
+    fontWeight: "500",
+    color: "#231F1F",
+  },
+  removeRoomBtn: {
+    padding: scale(4),
+  },
+  guestRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: scale(10),
+  },
+  guestControlBox: {
+    flex: 1,
+  },
+  guestSubLabel: {
+    fontSize: scale(11),
+    fontWeight: "500",
+    color: "#A5A29B",
+    marginBottom: scale(6),
   },
   stepper: {
-    height: 44,
+    height: scale(44),
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 10,
+    borderColor: "#EDEAE6",
+    borderRadius: scale(10),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 8,
+    paddingHorizontal: scale(6),
     backgroundColor: "#FFFFFF",
   },
   stepperBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    backgroundColor: "#FEF2F2",
+    width: scale(24),
+    height: scale(24),
+    borderRadius: scale(7),
+    backgroundColor: "#FDF0EE",
     alignItems: "center",
     justifyContent: "center",
   },
   stepperValue: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#0F172A",
+    fontSize: scale(14),
+    fontWeight: "500",
+    color: "#231F1F",
   },
   childAgesContainer: {
-    marginTop: 8,
+    marginTop: scale(12),
   },
   childAgesRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
-    marginTop: 4,
+    gap: scale(8),
   },
   childAgeInputBox: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 6,
+    borderColor: "#EDEAE6",
+    borderRadius: scale(10),
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(4),
+    gap: scale(6),
+    height: scale(44),
   },
   childAgeTag: {
-    fontSize: 11,
-    color: "#64748B",
-    fontWeight: "600",
+    fontSize: scale(12),
+    color: "#6B675F",
+    fontWeight: "500",
   },
   childAgeInput: {
-    width: 28,
-    height: 28,
+    width: scale(32),
+    height: scale(32),
     textAlign: "center",
-    fontWeight: "800",
-    fontSize: 13,
-    color: "#0F172A",
+    fontWeight: "500",
+    fontSize: scale(14),
+    color: "#231F1F",
   },
   errorText: {
-    color: "#DC2626",
-    fontWeight: "700",
-    marginVertical: 8,
-    fontSize: 12,
+    color: "#C0272D",
+    fontWeight: "500",
+    marginVertical: scale(8),
+    fontSize: scale(12),
   },
-  searchButton: {
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: "#EF4444",
+  searchButtonWrapper: {
+    marginTop: scale(4),
+    shadowColor: "rgba(176,36,42,0.28)",
+    shadowOffset: { width: 0, height: scale(8) },
+    shadowOpacity: 1,
+    shadowRadius: scale(16),
+    elevation: 4,
+  },
+  searchButtonGradient: {
+    borderRadius: scale(14),
+    paddingVertical: scale(15),
+  },
+  searchButtonContent: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: 8,
-    marginTop: 4,
-    shadowColor: "#EF4444",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    gap: scale(8),
   },
-  searchText: {
+  searchButtonText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
+    fontSize: scale(16),
+    fontWeight: "600",
+  },
+  trustBadgesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: scale(8),
+    marginTop: scale(16),
+  },
+  trustBadge: {
+    flex: 1,
+    minWidth: scale(90),
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#EDEAE6",
+    borderRadius: scale(14),
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(10),
+    alignItems: "center",
+    gap: scale(6),
+  },
+  trustBadgeText: {
+    fontSize: scale(10.5),
+    fontWeight: "500",
+    color: "#231F1F",
+    textAlign: "center",
   },
 });

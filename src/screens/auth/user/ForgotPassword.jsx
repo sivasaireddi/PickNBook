@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   ImageBackground,
@@ -11,108 +11,59 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import {
-  MaterialCommunityIcons,
-  MaterialIcons,
-} from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-
-import { validateLowercaseEmail } from "./AuthValidation";
-import {
-  generateMixedCaptcha,
-  validateCaptcha,
-} from "./Captcha";
-import {
-  readApiMessage,
-  requestAuth,
-} from "../../../services/authService";
+import { requestAuth } from "../../../services/authService";
 
 const flightCarImage = require("../../../../assets/loginimage.png");
 
-function ForgotPassword() {
+export default function ForgotPassword() {
   const navigation = useNavigation();
-
+  const [activeTab, setActiveTab] = useState("email"); // "email" | "mobile"
   const [email, setEmail] = useState("");
-  const [captcha, setCaptcha] = useState("");
-  const [generatedCaptcha, setGeneratedCaptcha] =
-    useState("");
-  const [errors, setErrors] = useState({});
-  const [statusMessage, setStatusMessage] =
-  useState("");
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [mobile, setMobile] = useState("");
   const [loading, setLoading] = useState(false);
-  const refreshCaptcha = () => {
-    setGeneratedCaptcha(generateMixedCaptcha());
-    setCaptcha("");
-    setErrors((prev) => ({
-      ...prev,
-      captcha: "",
-    }));
-  };
-
-  useEffect(() => {
-    refreshCaptcha();
-  }, []);
+  const [errorMsg, setErrorMsg] = useState("");
 
   const handleSubmit = async () => {
-    const nextErrors = {};
-    const emailError = validateLowercaseEmail(email);
-    const captchaError = validateCaptcha(
-      captcha,
-      generatedCaptcha
-    );
-
-    if (emailError) {
-      nextErrors.email = emailError;
+    setErrorMsg("");
+    if (activeTab === "email" && !email.trim()) {
+      setErrorMsg("Please enter your registered email");
+      return;
     }
-
-    if (captchaError) {
-      nextErrors.captcha = captchaError;
-    }
-
-    setErrors(nextErrors);
-
-    if (Object.keys(nextErrors).length > 0) {
-      setIsSuccess(false);
-      setStatusMessage("Please fix the highlighted fields.");
+    if (activeTab === "mobile" && !mobile.trim()) {
+      setErrorMsg("Please enter your registered mobile");
       return;
     }
 
     setLoading(true);
-    setIsSuccess(false);
-    setStatusMessage("");
 
     try {
-      const payload = await requestAuth(
-        "/api/Auth/forgot-password",
+      await requestAuth(
+        "/api/Auth/forgot-password/send-otp",
         {
           method: "POST",
           body: JSON.stringify({
-            email: email.trim(),
+            channel: activeTab === "email" ? "Email" : "Mobile",
+            email: activeTab === "email" ? email.trim() : "",
+            phoneNumber: activeTab === "mobile" ? mobile.trim() : "",
           }),
         },
-        "Failed to send OTP."
+        "Failed to send OTP.",
+        { timeoutMs: 45000 }
       );
 
-      setIsSuccess(true);
-      setStatusMessage(
-        readApiMessage(payload, "OTP sent successfully.")
-      );
-
-      setTimeout(() => {
-        navigation.navigate("VerifyOtp", {
-          email: email.trim(),
-        });
-      }, 700);
+      // On success navigate to VerifyOtp
+      navigation.navigate("VerifyOtp", {
+        channel: activeTab === "email" ? "Email" : "Mobile",
+        email: activeTab === "email" ? email.trim() : "",
+        phoneNumber: activeTab === "mobile" ? mobile.trim() : "",
+      });
     } catch (error) {
-      setIsSuccess(false);
-      setStatusMessage(
-        error?.message || "Failed to send OTP."
-      );
-      refreshCaptcha();
+      setErrorMsg(error?.message || "Failed to send OTP.");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -121,345 +72,355 @@ function ForgotPassword() {
       style={styles.container}
       resizeMode="cover"
     >
-      <KeyboardAvoidingView
-        style={styles.keyboardContainer}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 24 : 0}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <View style={styles.overlay}>
+        <KeyboardAvoidingView
+          style={styles.keyboardContainer}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <View style={styles.card}>
-            <View style={styles.brandSection}>
-              <Text style={styles.kicker}>Welcome to</Text>
-
-              <View style={styles.logoContainer}>
-                <MaterialCommunityIcons
-                  name="bus"
-                  size={30}
-                  color="#fff"
-                />
-              </View>
-
-              <Text style={styles.brandName}>Travling</Text>
-
-              <Text style={styles.brandCopy}>
-                Reset your account password in a secure flow
-                and get back to your bookings quickly.
-              </Text>
-
-              <Text style={styles.brandMeta}>
-                Email verification with captcha protection
-              </Text>
-            </View>
-
-            <View style={styles.formPanel}>
-              <Text style={styles.heading}>
-                Forgot Password
-              </Text>
-
-              <Text style={styles.subheading}>
-                Enter your registered email and the captcha
-                shown below to receive a reset OTP.
-              </Text>
-
-              {!!statusMessage && (
-                <Text
-                  style={[
-                    styles.statusMessage,
-                    isSuccess
-                      ? styles.success
-                      : styles.error,
-                  ]}
-                >
-                  {statusMessage}
-                </Text>
-              )}
-
-              <View style={styles.field}>
-                <Text style={styles.label}>Email</Text>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your email"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  value={email}
-                  onChangeText={(text) => {
-                    setEmail(text);
-                    setErrors((prev) => ({
-                      ...prev,
-                      email: text
-                        ? validateLowercaseEmail(text)
-                        : "",
-                    }));
-                    setStatusMessage("");
-                  }}
-                />
-
-                {!!errors.email && (
-                  <Text style={styles.errorText}>
-                    {errors.email}
-                  </Text>
-                )}
-              </View>
-
-              <View style={styles.field}>
-                <Text style={styles.label}>Captcha</Text>
-
-                <View style={styles.captchaCard}>
-                  <Text style={styles.captchaText}>
-                    {generatedCaptcha}
-                  </Text>
-
-                  <TouchableOpacity
-                    style={styles.refreshButton}
-                    onPress={refreshCaptcha}
-                    disabled={loading}
-                  >
-                    <MaterialIcons
-                      name="refresh"
-                      size={22}
-                      color="#0B5ED7"
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter captcha"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  value={captcha}
-                  onChangeText={(text) => {
-                    setCaptcha(text);
-                    setErrors((prev) => ({
-                      ...prev,
-                      captcha: text
-                        ? validateCaptcha(
-                            text,
-                            generatedCaptcha
-                          )
-                        : "",
-                    }));
-                    setStatusMessage("");
-                  }}
-                />
-
-                {!!errors.captcha && (
-                  <Text style={styles.errorText}>
-                    {errors.captcha}
-                  </Text>
-                )}
-              </View>
-
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Header */}
+            <View style={styles.header}>
               <TouchableOpacity
-                style={styles.submitButton}
-                onPress={handleSubmit}
-                disabled={loading}
+                style={styles.backButton}
+                onPress={() => navigation.goBack()}
               >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.submitText}>
-                    Send OTP
-                  </Text>
-                )}
+                <Ionicons name="arrow-back" size={16} color="#C61136" />
+                <Text style={styles.backButtonText}>Back</Text>
               </TouchableOpacity>
 
-              <View style={styles.linkContainer}>
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("Login")}
-                >
-                  <Text style={styles.link}>
-                    Back to Login
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("Register")}
-                >
-                  <Text style={styles.link}>
-                    Create Account
-                  </Text>
-                </TouchableOpacity>
+              <View style={styles.logoBox}>
+                <Text style={styles.logoText}>
+                  Pick<Text style={styles.logoHighlight}>N</Text>Book
+                </Text>
               </View>
             </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+
+            {/* Progress Dots */}
+            <View style={styles.progressRow}>
+              <View style={[styles.dot, styles.dotActiveRed]} />
+              <View style={styles.dot} />
+              <View style={styles.dot} />
+            </View>
+
+            {/* Titles */}
+            <Text style={styles.title}>Forgot password?</Text>
+            <Text style={styles.subtitle}>
+              Enter your registered email or mobile to receive a reset OTP.
+            </Text>
+
+            {/* Tabs */}
+            <View style={styles.tabContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  activeTab === "email" && styles.tabButtonActive,
+                ]}
+                onPress={() => {
+                  setActiveTab("email");
+                  setErrorMsg("");
+                }}
+              >
+                <Ionicons
+                  name="mail-outline"
+                  size={18}
+                  color={activeTab === "email" ? "#FFFFFF" : "#64748B"}
+                />
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    activeTab === "email" && styles.tabButtonTextActive,
+                  ]}
+                >
+                  Email
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  activeTab === "mobile" && styles.tabButtonActive,
+                ]}
+                onPress={() => {
+                  setActiveTab("mobile");
+                  setErrorMsg("");
+                }}
+              >
+                <Ionicons
+                  name="call-outline"
+                  size={18}
+                  color={activeTab === "mobile" ? "#FFFFFF" : "#64748B"}
+                />
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    activeTab === "mobile" && styles.tabButtonTextActive,
+                  ]}
+                >
+                  Mobile
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Error Message */}
+            {!!errorMsg && (
+              <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle" size={16} color="#DC2626" />
+                <Text style={styles.errorText}>{errorMsg}</Text>
+              </View>
+            )}
+
+            {/* Input Field */}
+            <View style={styles.inputWrapper}>
+              <Text style={styles.inputLabel}>
+                {activeTab === "email" ? "EMAIL ADDRESS" : "MOBILE NUMBER"}
+              </Text>
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name={activeTab === "email" ? "mail-outline" : "call-outline"}
+                  size={20}
+                  color="#64748B"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder={
+                    activeTab === "email"
+                      ? "Enter your registered email"
+                      : "Enter your registered mobile"
+                  }
+                  placeholderTextColor="#64748B"
+                  keyboardType={
+                    activeTab === "email" ? "email-address" : "numeric"
+                  }
+                  autoCapitalize="none"
+                  value={activeTab === "email" ? email : mobile}
+                  onChangeText={(v) => {
+                    activeTab === "email" ? setEmail(v) : setMobile(v);
+                    setErrorMsg("");
+                  }}
+                />
+              </View>
+            </View>
+
+            {/* Submit Button */}
+            <TouchableOpacity
+              style={styles.submitButton}
+              onPress={handleSubmit}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.submitText}>Send Reset OTP</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Back to Login Link */}
+            <TouchableOpacity
+              style={styles.backToLoginBtn}
+              onPress={() => navigation.navigate("Login")}
+            >
+              <Text style={styles.backToLoginText}>← Back to Login</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
     </ImageBackground>
   );
 }
-
-export default ForgotPassword;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.45)", // Light overlay for readability
+  },
   keyboardContainer: {
     flex: 1,
   },
-
   scrollContainer: {
     flexGrow: 1,
-    justifyContent: "center",
-    padding: 20,
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
-
-  card: {
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderRadius: 20,
-    overflow: "hidden",
-  },
-
-  brandSection: {
-    backgroundColor: "#0B5ED7",
-    padding: 25,
-    alignItems: "center",
-  },
-
-  kicker: {
-    color: "#fff",
-    fontSize: 18,
-    marginBottom: 10,
-  },
-
-  logoContainer: {
+  header: {
     flexDirection: "row",
-    marginBottom: 15,
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 40,
   },
-
-  secondLogo: {
-    marginLeft: 12,
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
+    borderWidth: 1,
+    borderColor: "rgba(198, 17, 54, 0.3)",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 4,
   },
-
-  brandName: {
-    fontSize: 30,
-    fontWeight: "bold",
-    color: "#fff",
+  backButtonText: {
+    color: "#C61136",
+    fontSize: 14,
+    fontWeight: "600",
   },
-
-  brandCopy: {
-    color: "#fff",
-    textAlign: "center",
-    marginTop: 10,
-    lineHeight: 22,
+  logoBox: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
-
-  brandMeta: {
-    color: "#fff",
-    marginTop: 10,
-    fontStyle: "italic",
-    textAlign: "center",
+  logoText: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#7E1946", // Dark burgundy/purple
+    letterSpacing: -0.5,
   },
-
-  formPanel: {
-    padding: 25,
+  logoHighlight: {
+    color: "#F6C000", // Yellow N
   },
-
-  heading: {
-    fontSize: 28,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-
-  subheading: {
-    color: "#666",
+  progressRow: {
+    flexDirection: "row",
+    gap: 6,
     marginBottom: 20,
   },
-
-  statusMessage: {
-    marginBottom: 15,
-    padding: 10,
-    borderRadius: 8,
-    textAlign: "center",
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
   },
-
-  success: {
-    backgroundColor: "#D1E7DD",
-    color: "#0F5132",
+  dotActiveRed: {
+    backgroundColor: "#C61136",
   },
-
-  error: {
-    backgroundColor: "#F8D7DA",
-    color: "#842029",
+  title: {
+    fontFamily: Platform.OS === "ios" ? "Georgia" : "serif",
+    fontSize: 32,
+    color: "#1E293B",
+    marginBottom: 10,
   },
-
-  field: {
-    marginBottom: 16,
+  subtitle: {
+    fontSize: 15,
+    color: "#334155",
+    lineHeight: 22,
+    marginBottom: 30,
+    fontWeight: "500",
   },
-
-  label: {
-    marginBottom: 8,
-    fontWeight: "600",
-  },
-
-  input: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 50,
-  },
-
-  captchaCard: {
+  tabContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: "#BFDBFE",
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
     borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 12,
-  },
-
-  captchaText: {
-    fontSize: 22,
-    fontWeight: "700",
-    letterSpacing: 2,
-    color: "#1E3A8A",
-  },
-
-  refreshButton: {
     padding: 4,
+    marginBottom: 24,
   },
-
-  errorText: {
-    color: "#dc2626",
-    marginTop: 5,
-    fontSize: 12,
-  },
-
-  submitButton: {
-    backgroundColor: "#0B5ED7",
-    paddingVertical: 15,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 8,
-  },
-
-  submitText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
-
-  linkContainer: {
+  tabButton: {
+    flex: 1,
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
   },
-
-  link: {
-    color: "#0B5ED7",
+  tabButtonActive: {
+    backgroundColor: "#C61136",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabButtonText: {
+    fontSize: 15,
     fontWeight: "600",
+    color: "#64748B",
+  },
+  tabButtonTextActive: {
+    color: "#FFFFFF",
+  },
+  inputWrapper: {
+    marginBottom: 24,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#475569",
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.8)",
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 56,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    fontSize: 15,
+    color: "#1E293B",
+    fontWeight: "500",
+    height: "100%",
+  },
+  submitButton: {
+    backgroundColor: "#C61136",
+    height: 56,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 24,
+    shadowColor: "#C61136",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  submitText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  backToLoginBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.8)",
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+  },
+  backToLoginText: {
+    color: "#475569",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    gap: 8,
+  },
+  errorText: {
+    color: "#DC2626",
+    fontSize: 13,
+    fontWeight: "500",
+    flex: 1,
   },
 });

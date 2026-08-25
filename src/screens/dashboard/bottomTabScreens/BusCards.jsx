@@ -14,8 +14,9 @@ import {
 
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing, runOnJS } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { searchBuses, getSeatLayout } from "../../../services/busService";
 
@@ -98,11 +99,11 @@ const getDateKey = (value) => {
 const getItemDateKey = (item) =>
   getDateKey(
     item?.travelDate ||
-      item?.journeyDate ||
-      item?.date ||
-      item?.departureDate ||
-      item?.departureTimeUtc ||
-      item?.departureTime,
+    item?.journeyDate ||
+    item?.date ||
+    item?.departureDate ||
+    item?.departureTimeUtc ||
+    item?.departureTime,
   );
 
 const getSeatScreenName = (layoutType, busType, variant) => {
@@ -305,9 +306,9 @@ const BusCardItemComponent = ({
     }).start();
   };
 
-  const deptTime = format12HourTime(item?.departureTimeUtc);
-  const arrTime = format12HourTime(item?.arrivalTimeUtc);
-  const durationStr = calculateDuration(item?.departureTimeUtc, item?.arrivalTimeUtc);
+  const deptTimeStr = item?.departureTime || "";
+  const arrTimeStr = item?.arrivalTime || "";
+  const durationStr = item?.duration || "";
   const operatorName = item?.operatorName || "Jagan Travels Elite";
   const availableSeats = item?.availableSeats ?? 17;
   const isLoadingThisCard = loadingBusId === busId;
@@ -355,8 +356,7 @@ const BusCardItemComponent = ({
               {/* Departure */}
               <View style={styles.timeBlockLeft}>
                 <View style={styles.timeRow}>
-                  <Text style={styles.timeDigitsText}>{deptTime.timeStr}</Text>
-                  <Text style={styles.timePeriodText}>{deptTime.period}</Text>
+                  <Text style={styles.timeDigitsText}>{deptTimeStr}</Text>
                 </View>
                 <Text style={styles.locationText} numberOfLines={1}>
                   {item?.boardingPoint || "ITI CIRCLE"}
@@ -372,8 +372,7 @@ const BusCardItemComponent = ({
               {/* Arrival */}
               <View style={styles.timeBlockRight}>
                 <View style={styles.timeRow}>
-                  <Text style={styles.timeDigitsText}>{arrTime.timeStr}</Text>
-                  <Text style={styles.timePeriodText}>{arrTime.period}</Text>
+                  <Text style={styles.timeDigitsText}>{arrTimeStr}</Text>
                 </View>
                 <Text style={styles.locationText} numberOfLines={1}>
                   {item?.droppingPoint || "Shamshabad"}
@@ -590,6 +589,7 @@ const BusCards = ({
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingBusId, setLoadingBusId] = useState(null);
+  const [navigatingBusId, setNavigatingBusId] = useState(null);
   const [policyModalBus, setPolicyModalBus] = useState(null);
 
   // Refs for tracking animation values, active AbortController, and request deduplication
@@ -605,7 +605,7 @@ const BusCards = ({
     item?.id ??
     item?.Id ??
     item?.busBookingId,
-  []);
+    []);
 
   const getAnimatedValues = useCallback((key) => {
     if (!animatedValuesRef.current.has(key)) {
@@ -640,27 +640,17 @@ const BusCards = ({
 
   const getCityName = useCallback((val) => (val && typeof val === "object" ? (val.cityName || val.name) : String(val || "")), []);
 
-  const calculateDuration = useCallback((start, end) => {
-    if (!start || !end) return "7h 30m";
-    const startDate = new Date(`${start}Z`);
-    const endDate = new Date(`${end}Z`);
-    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-      return "7h 30m";
-    }
-    const diff = endDate - startDate;
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor((diff / (1000 * 60)) % 60);
-    return `${hours}h ${minutes}m`;
-  }, []);
+
 
   const handleViewSeats = useCallback(async (item) => {
     const busId = getBusId(item);
 
-    if (!busId) {
-      console.log("Bus id missing:", item);
+    if (!busId || navigatingBusId) {
+      console.log("Bus id missing or already navigating:", item);
       return;
     }
 
+    setNavigatingBusId(busId);
     setLoadingBusId(busId);
 
     try {
@@ -713,8 +703,9 @@ const BusCards = ({
       });
     } finally {
       setLoadingBusId((current) => (current === busId ? null : current));
+      setNavigatingBusId(null);
     }
-  }, [getBusId, getCityName, from, to, date, navigation]);
+  }, [getBusId, getCityName, from, to, date, navigation, navigatingBusId]);
 
   const handleOpenBoardingDropping = useCallback((item) => {
     const busId = getBusId(item);
@@ -773,14 +764,7 @@ const BusCards = ({
       return;
     }
 
-    // 3. Request Cancellation: Cancel any pending request for a different search
-    if (activeAbortControllerRef.current) {
-      console.log("[BusSearch AbortController] Aborting previous pending search request...");
-      activeAbortControllerRef.current.abort("New search initiated");
-    }
-
-    const controller = new AbortController();
-    activeAbortControllerRef.current = controller;
+    // 3. Removed AbortController to prevent React Native Axios hang issues
     isFetchingRef.current = true;
     lastFetchedKeyRef.current = cacheKey;
 
@@ -788,7 +772,6 @@ const BusCards = ({
     setLoading(true);
     console.log(`[BusSearch API Request Start] Fetching buses for key: ${cacheKey}`);
     const requestStartTime = Date.now();
-    console.time("Bus Search API");
 
     try {
       const formattedDate = formatApiDate(date);
@@ -797,31 +780,24 @@ const BusCards = ({
           fromCityCode: from,
           toCityCode: to,
           departDate: formattedDate,
-        },
-        { signal: controller.signal }
+        }
       );
 
-      console.timeEnd("Bus Search API");
       const durationMs = Date.now() - requestStartTime;
       console.log(`[BusSearch API Response Received] Duration: ${durationMs}ms | Buses found: ${mappedBuses.length}`);
 
-      if (!controller.signal.aborted) {
-        // Cache search results for session
-        busSearchCache.set(cacheKey, mappedBuses);
-        setData(mappedBuses);
-      }
+      // Cache search results for session
+      busSearchCache.set(cacheKey, mappedBuses);
+      setData(mappedBuses);
     } catch (error) {
       if (axios.isCancel(error) || error.name === "CanceledError" || error.name === "AbortError") {
         console.log(`[BusSearch] Request aborted successfully for key: ${cacheKey}`);
       } else {
-        console.timeEnd("Bus Search API");
         console.error("[BusSearch API Error]:", error.response?.status, error.response?.data || error.message);
       }
     } finally {
-      if (activeAbortControllerRef.current === controller) {
-        setLoading(false);
-        isFetchingRef.current = false;
-      }
+      setLoading(false);
+      isFetchingRef.current = false;
     }
   }, [from, to, date]);
 
@@ -837,10 +813,7 @@ const BusCards = ({
     fetchBusData();
 
     return () => {
-      // Abort active request on component unmount
-      if (activeAbortControllerRef.current) {
-        activeAbortControllerRef.current.abort("Component unmounted");
-      }
+      // Cleanup if necessary
     };
   }, [fromKey, toKey, dateKey, fetchBusData]);
 
@@ -854,15 +827,46 @@ const BusCards = ({
   const filteredData = useMemo(() => {
     const selectedDateKey = getDateKey(date);
 
+    // Extract specific sub-location names from the selected `from` and `to` objects
+    // The label is typically "Ameerpet, Hyderabad" for sub-locations
+    const fromIsSub = from && from.label && from.label !== from.cityName;
+    const toIsSub = to && to.label && to.label !== to.cityName;
+
+    const selectedBoarding = fromIsSub ? from.label.split(',')[0].trim().toLowerCase() : null;
+    const selectedDropping = toIsSub ? to.label.split(',')[0].trim().toLowerCase() : null;
+
     return uniqueData.filter((item) => {
       const itemDateKey = getItemDateKey(item);
 
-      return (
-        (!selectedDateKey || !itemDateKey || itemDateKey === selectedDateKey) &&
-        matchesBusFilters(item, filters)
-      );
+      if (selectedDateKey && itemDateKey && itemDateKey !== selectedDateKey) {
+        return false;
+      }
+
+      if (!matchesBusFilters(item, filters)) {
+        return false;
+      }
+
+      // Filter by specific boarding point if selected
+      if (selectedBoarding) {
+        const hasMatchingBoarding = (item.boardingPoints || []).some(point => {
+          const pointName = (point.Name || point.name || point.Location || "").toLowerCase();
+          return pointName.includes(selectedBoarding) || selectedBoarding.includes(pointName);
+        });
+        if (!hasMatchingBoarding) return false;
+      }
+
+      // Filter by specific dropping point if selected
+      if (selectedDropping) {
+        const hasMatchingDropping = (item.droppingPoints || []).some(point => {
+          const pointName = (point.Name || point.name || point.Location || "").toLowerCase();
+          return pointName.includes(selectedDropping) || selectedDropping.includes(pointName);
+        });
+        if (!hasMatchingDropping) return false;
+      }
+
+      return true;
     });
-  }, [uniqueData, date, filters]);
+  }, [uniqueData, date, filters, from, to]);
 
   const sortedData = useMemo(() => {
     const items = [...filteredData];
@@ -874,20 +878,20 @@ const BusCards = ({
     };
 
     const getDeparture = (item) => {
-      const value = item?.departureTimeUtc ?? item?.departureTime ?? "";
+      const value = item?.departureDateTime ?? item?.departureTimeUtc ?? item?.departureTime ?? "";
       const time = new Date(`${value}Z`).getTime();
       return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY;
     };
 
     const getArrival = (item) => {
-      const value = item?.arrivalTimeUtc ?? item?.arrivalTime ?? "";
+      const value = item?.arrivalDateTime ?? item?.arrivalTimeUtc ?? item?.arrivalTime ?? "";
       const time = new Date(`${value}Z`).getTime();
       return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY;
     };
 
     const getDuration = (item) => {
-      const start = new Date(`${item?.departureTimeUtc ?? item?.departureTime ?? ""}Z`);
-      const end = new Date(`${item?.arrivalTimeUtc ?? item?.arrivalTime ?? ""}Z`);
+      const start = new Date(`${item?.departureDateTime ?? item?.departureTimeUtc ?? item?.departureTime ?? ""}Z`);
+      const end = new Date(`${item?.arrivalDateTime ?? item?.arrivalTimeUtc ?? item?.arrivalTime ?? ""}Z`);
 
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
         return Number.POSITIVE_INFINITY;
@@ -945,12 +949,11 @@ const BusCards = ({
           onOpenBoardingDropping={handleOpenBoardingDropping}
           onOpenPolicies={handleOpenPolicies}
           onViewSeats={handleViewSeats}
-          calculateDuration={calculateDuration}
           animatedValues={animatedValues}
         />
       );
     },
-    [getBusId, getAnimatedValues, loadingBusId, handleOpenBoardingDropping, handleOpenPolicies, handleViewSeats, calculateDuration],
+    [getBusId, getAnimatedValues, loadingBusId, handleOpenBoardingDropping, handleOpenPolicies, handleViewSeats],
   );
 
   const keyExtractor = useCallback(
@@ -977,8 +980,9 @@ const BusCards = ({
 
   return (
     <>
-      <FlatList
-        style={styles.list}
+      <View style={{ flex: 1 }}>
+        <FlatList
+          style={styles.list}
         data={sortedData}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
@@ -1016,6 +1020,7 @@ const BusCards = ({
           </View>
         }
       />
+      </View>
 
       <BusPoliciesModal
         visible={!!policyModalBus}

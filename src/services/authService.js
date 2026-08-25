@@ -158,7 +158,12 @@ export async function requestAuth(
   let response;
 
   try {
-    console.log("Request URL:", url);
+    console.log(`\n========== AUTH API REQUEST ==========`);
+    console.log(`[${options.method || "GET"}] ${url}`);
+    if (options.body) {
+      console.log(`Payload:`, JSON.stringify(JSON.parse(options.body), null, 2));
+    }
+    console.log(`======================================\n`);
     response = await fetch(url, {
       ...options,
       headers,
@@ -192,8 +197,10 @@ export async function requestAuth(
     );
   }
 
-  console.log("Response:", payload);
-  console.log("Status:", response?.status);
+  console.log(`\n========== AUTH API RESPONSE ==========`);
+  console.log(`[${response?.status}] ${url}`);
+  console.log(`Response Data:`, JSON.stringify(payload, null, 2));
+  console.log(`=======================================\n`);
 
   if (!response.ok) {
     const apiError = new Error(

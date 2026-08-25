@@ -31,8 +31,7 @@ import { requestAuth, readApiMessage } from "../../../services/authService";
 export default function VerifyRegistrationOtpModal({
   visible = true,
   onClose,
-  email = "sainimmakayala252@gmail.com",
-  phoneNumber = "",
+  formData = {},
   onSuccess,
   onBackToEdit,
 }) {
@@ -42,6 +41,9 @@ export default function VerifyRegistrationOtpModal({
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("OTP sent successfully");
   const [timeLeft, setTimeLeft] = useState(284); // 04:44 in seconds
+
+  const email = formData.email ? formData.email.trim().toLowerCase() : "";
+  const phoneNumber = formData.mobile ? formData.mobile.trim() : "";
 
   // Countdown timer logic
   useEffect(() => {
@@ -85,7 +87,8 @@ export default function VerifyRegistrationOtpModal({
     setErrorMsg("");
 
     try {
-      const payload = await requestAuth(
+      // 1. Verify OTP
+      await requestAuth(
         "/api/Auth/verify-registration-otp",
         {
           method: "POST",
@@ -93,14 +96,31 @@ export default function VerifyRegistrationOtpModal({
             email,
             phoneNumber,
             otp: otp.trim(),
+            channel: "email"
           }),
         },
         "Verification failed. Please check the OTP."
       );
 
-      const msg = readApiMessage(payload, "Registration verified successfully!");
+      // 2. If OTP is verified, register the user
+      const registerPayload = await requestAuth(
+        "/api/Auth/register",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            firstName: formData.firstName?.trim() || "",
+            lastName: formData.lastName?.trim() || "",
+            phoneNumber,
+            email,
+            password: formData.password || "",
+          }),
+        },
+        "Account creation failed after OTP verification."
+      );
+
+      const msg = readApiMessage(registerPayload, "Registration verified successfully!");
       if (onSuccess) {
-        onSuccess(msg, payload);
+        onSuccess(msg, registerPayload);
       }
     } catch (err) {
       // Fallback for demo/testing if backend endpoint differs
@@ -127,7 +147,8 @@ export default function VerifyRegistrationOtpModal({
             channel: "email",
           }),
         },
-        "Failed to resend OTP"
+        "Failed to resend OTP",
+        { timeoutMs: 45000 }
       );
 
       setSuccessMsg(readApiMessage(payload, "OTP sent successfully"));
