@@ -69,9 +69,9 @@ const SeatBottomSheet = ({
             {selectedSeats.map((seatCode) => (
               <View key={seatCode} style={styles.seatChip}>
                 <Ionicons
-                  name="checkbox"
+                  name="checkmark-circle"
                   size={14}
-                  color={BUS_SEAT_COLORS.primaryRed}
+                  color={BUS_SEAT_COLORS.selectedBorder}
                 />
                 <Text style={styles.seatChipText}>{seatCode}</Text>
               </View>
@@ -121,14 +121,14 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
-    paddingTop: 6,
+    paddingTop: 4,
     borderTopWidth: 1,
     borderTopColor: BUS_SEAT_COLORS.borderLight,
     flexShrink: 0,
   },
   dragHandleWrapper: {
     alignItems: "center",
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   dragHandle: {
     width: 36,
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 2,
+    marginTop: 0,
   },
   travelInfo: {
     flexDirection: "row",
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   travelName: {
-    fontSize: moderateScale(15),
+    fontSize: 16,
     fontWeight: "700",
     color: BUS_SEAT_COLORS.textPrimary,
     marginRight: 8,
@@ -158,29 +158,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: BUS_SEAT_COLORS.ratingBg,
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 6,
     gap: 2,
   },
   ratingText: {
-    fontSize: moderateScale(11),
+    fontSize: 12,
     fontWeight: "700",
     color: BUS_SEAT_COLORS.ratingText,
   },
   seatCountBadge: {
     backgroundColor: BUS_SEAT_COLORS.coachFloorBg,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   seatCountText: {
-    fontSize: moderateScale(11),
+    fontSize: 12,
     fontWeight: "600",
     color: BUS_SEAT_COLORS.textSecondary,
   },
   chipsWrapper: {
-    marginTop: 6,
+    marginTop: 4,
   },
   chipsScroll: {
     gap: 8,
@@ -191,25 +191,25 @@ const styles = StyleSheet.create({
     backgroundColor: BUS_SEAT_COLORS.selectedBg,
     borderWidth: 1,
     borderColor: BUS_SEAT_COLORS.selectedBorder,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
     gap: 4,
   },
   seatChipText: {
-    fontSize: moderateScale(11),
+    fontSize: 12,
     fontWeight: "700",
-    color: BUS_SEAT_COLORS.primaryRed,
+    color: BUS_SEAT_COLORS.selectedBorder,
   },
   noSeatHint: {
-    fontSize: moderateScale(12),
+    fontSize: 12,
     color: BUS_SEAT_COLORS.textMuted,
-    marginVertical: 4,
+    marginVertical: 0,
   },
   divider: {
     height: 1,
     backgroundColor: BUS_SEAT_COLORS.borderLight,
-    marginVertical: 8,
+    marginVertical: 4,
   },
   footerRow: {
     flexDirection: "row",
@@ -218,12 +218,12 @@ const styles = StyleSheet.create({
   },
   priceContainer: {},
   totalLabel: {
-    fontSize: moderateScale(11),
+    fontSize: 11,
     color: BUS_SEAT_COLORS.textSecondary,
     marginBottom: 0,
   },
   totalPrice: {
-    fontSize: moderateScale(18),
+    fontSize: 22,
     fontWeight: "700",
     color: BUS_SEAT_COLORS.textPrimary,
   },
@@ -232,10 +232,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: BUS_SEAT_COLORS.primaryRed,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
-    minWidth: 120,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    minWidth: 100,
     ...BUS_SEAT_SHADOWS.selectedGlow,
   },
   ctaDisabled: {
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
   ctaText: {
-    fontSize: moderateScale(14),
+    fontSize: 14,
     fontWeight: "700",
     color: "#FFFFFF",
   },

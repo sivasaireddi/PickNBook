@@ -14,44 +14,48 @@ export const BUS_SEAT_COLORS = {
   
   // Available Seat
   availableBg: "#FFFFFF",
-  availableBorder: "#D9D9D9",
-  availableStrip: "#9CA3AF",
-  availablePriceBg: "#F8FAFC",
-  availablePriceText: "#475569",
+  availableBorder: "#D1D5DB",
+  availableStrip: "#D1D5DB",
+  availablePriceBg: "#FFFFFF",
+  availablePriceText: "#1F2937",
+  availableText: "#1F2937",
 
   // Female Seat (Available)
-  femaleBg: "#FFFFFF",
+  femaleBg: "#FCE7F3",
   femaleBorder: "#EC4899",
   femaleStrip: "#EC4899",
-  femalePriceBg: "#FDF2F8",
-  femalePriceText: "#DB2777",
+  femalePriceBg: "#FCE7F3",
+  femalePriceText: "#9D174D",
+  femaleText: "#9D174D",
 
   // Male Seat (Available)
-  maleBg: "#FFFFFF",
+  maleBg: "#EFF6FF",
   maleBorder: "#3B82F6",
   maleStrip: "#3B82F6",
   malePriceBg: "#EFF6FF",
-  malePriceText: "#2563EB",
+  malePriceText: "#1D4ED8",
+  maleText: "#1D4ED8",
 
   // Booked Seat
   bookedBg: "#E5E7EB",
   bookedBorder: "#D1D5DB",
-  bookedStrip: "#6B7280",
+  bookedStrip: "#D1D5DB",
   bookedText: "#9CA3AF",
 
   // Female Booked Seat
-  femaleBookedBg: "#FCE7F3",
-  femaleBookedBorder: "#FBCFE8",
-  femaleBookedStrip: "#EC4899",
-  femaleBookedText: "#DB2777",
+  femaleBookedBg: "#F3E5EB",
+  femaleBookedBorder: "#D1D5DB",
+  femaleBookedStrip: "#DB2777",
+  femaleBookedText: "#9CA3AF",
 
   // Selected Seat
-  selectedBg: "#FFF1F1",
-  selectedBorder: "#E53935",
-  selectedStrip: "#E53935",
-  selectedGlow: "#E53935",
-  selectedPriceBg: "#E53935",
-  selectedPriceText: "#FFFFFF",
+  selectedBg: "#FFFFFF",
+  selectedBorder: "#16A34A",
+  selectedStrip: "#22C55E",
+  selectedGlow: "#16A34A",
+  selectedPriceBg: "#FFFFFF",
+  selectedPriceText: "#15803D",
+  selectedText: "#15803D",
 
   // Brand Buttons & Accents
   primaryRed: "#E53935",

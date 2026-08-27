@@ -8,6 +8,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -190,8 +191,23 @@ const buildPointOptions = (value, kind, fallbackLabel) => {
   );
 };
 
+// ─── Responsive Font Utility ───────────────────────────────────────────────
+const useResponsiveFont = () => {
+  const { width } = useWindowDimensions();
+  return useMemo(() => {
+    return (size) => {
+      const baseWidth = 375;
+      const scale = width / baseWidth;
+      return Math.round(size * Math.min(Math.max(scale, 0.9), 1.05));
+    };
+  }, [width]);
+};
+
 // ─── Horizon Route Banner ──────────────────────────────────────────────────
 const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint }) => {
+  const scaleFont = useResponsiveFont();
+  const styles = useMemo(() => createStyles(scaleFont), [scaleFont]);
+
   const originLabel = (fromCity || 'KADAPA').toUpperCase();
   const destLabel = (toCity || 'HYDERABAD').toUpperCase();
   const selectedName = (selectedPoint?.name || 'SHAMSHABAD').toUpperCase();
@@ -226,7 +242,7 @@ const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint }) => {
           <View style={[styles.stopMarker, styles.stopMarkerCenter]}>
             {/* Floating Bus Badge */}
             <View style={styles.busBadge}>
-              <MaterialCommunityIcons name="bus" size={16} color="#FFFFFF" />
+              <MaterialCommunityIcons name="bus" size={12} color="#FFFFFF" />
             </View>
 
             {/* Concentric Glow Ring */}
@@ -256,6 +272,9 @@ const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint }) => {
 
 // ─── Main Component ────────────────────────────────────────────────────────
 const BordingNDroppingPoints = ({ navigation, route }) => {
+  const scaleFont = useResponsiveFont();
+  const styles = useMemo(() => createStyles(scaleFont), [scaleFont]);
+
   const routeParams = route?.params ?? {};
   const routeBus = getObjectValue(routeParams.bus) ?? {};
 
@@ -714,7 +733,8 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
 
 export default BordingNDroppingPoints;
 
-const styles = StyleSheet.create({
+const createStyles = (scaleFont) =>
+  StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.bg,
@@ -722,7 +742,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 4,
   },
 
   // ─── Header ──────────────────────────────────────────────────────────────
@@ -730,7 +750,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   backButtonSquare: {
     width: 46,
@@ -749,22 +769,22 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   datePillText: {
-    fontSize: 12,
+    fontSize: scaleFont(11),
     fontWeight: '800',
     color: COLORS.primary,
     letterSpacing: 0.4,
   },
   titleSection: {
-    marginBottom: 8,
+    marginBottom: 4,
   },
   operatorTitle: {
-    fontSize: 26,
+    fontSize: scaleFont(16),
     fontWeight: '700',
     color: COLORS.ink,
     letterSpacing: -0.4,
   },
   routeSubtitle: {
-    fontSize: 15,
+    fontSize: scaleFont(12),
     color: COLORS.inkSoft,
     marginTop: 2,
     fontWeight: '600',
@@ -773,10 +793,10 @@ const styles = StyleSheet.create({
   // ─── Horizon Route Banner ────────────────────────────────────────────────
   bannerContainer: {
     borderRadius: 20,
-    height: 110,
+    height: 85,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    marginBottom: 10,
+    marginBottom: 8,
     justifyContent: 'center',
     elevation: 2,
     shadowColor: COLORS.primaryDeep,
@@ -792,7 +812,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 20,
     right: 20,
-    top: 26,
+    top: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -815,11 +835,11 @@ const styles = StyleSheet.create({
   },
   stopMarkerLeft: {
     alignItems: 'flex-start',
-    top: 18,
+    top: 10,
   },
   stopMarkerRight: {
     alignItems: 'flex-end',
-    top: 18,
+    top: 10,
   },
   stopMarkerCenter: {
     alignItems: 'center',
@@ -841,7 +861,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   stopNameText: {
-    fontSize: 12,
+    fontSize: scaleFont(9),
     fontWeight: '700',
     color: '#FFFFFF',
     marginTop: 4,
@@ -849,18 +869,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   busBadge: {
-    width: 24,
-    height: 20,
-    borderRadius: 5,
+    width: 20,
+    height: 16,
+    borderRadius: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.22)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 1,
   },
   glowRingOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     borderWidth: 2,
     borderColor: '#FFFFFF',
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
@@ -872,7 +892,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   selectedStopTitle: {
-    fontSize: 13,
+    fontSize: scaleFont(10),
     fontWeight: '700',
     color: '#FFFFFF',
     marginTop: 2,
@@ -880,7 +900,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   selectedStopTimeText: {
-    fontSize: 18,
+    fontSize: scaleFont(14),
     fontFamily: MONOSPACE_FONT,
     fontWeight: '700',
     color: '#FFFFFF',
@@ -889,10 +909,10 @@ const styles = StyleSheet.create({
 
   // ─── Seat Chip Section ──────────────────────────────────────────────────
   seatChipSection: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
   seatChipLabel: {
-    fontSize: 13,
+    fontSize: scaleFont(11),
     fontWeight: '700',
     color: COLORS.inkSoft,
     letterSpacing: 0.8,
@@ -906,7 +926,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   seatChipText: {
-    fontSize: 13,
+    fontSize: scaleFont(12),
     fontWeight: '700',
     color: COLORS.primary,
   },
@@ -919,7 +939,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.outline,
     padding: 3,
-    marginBottom: 10,
+    marginBottom: 6,
     height: 44,
   },
   segmentedTab: {
@@ -932,7 +952,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   segmentedTabText: {
-    fontSize: 14,
+    fontSize: scaleFont(13),
     fontWeight: '600',
     color: COLORS.inkSoft,
   },
@@ -954,7 +974,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   listCardTitle: {
-    fontSize: 17,
+    fontSize: scaleFont(15),
     fontWeight: '800',
     color: COLORS.ink,
     paddingHorizontal: 18,
@@ -992,18 +1012,19 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   pointName: {
-    fontSize: 16,
+    fontSize: scaleFont(15),
     fontWeight: '800',
     color: COLORS.ink,
   },
   pointAddress: {
-    fontSize: 13,
+    fontSize: scaleFont(12),
     color: COLORS.inkSoft,
     marginTop: 2,
     fontWeight: '400',
+    lineHeight: scaleFont(16),
   },
   pointTime: {
-    fontSize: 13,
+    fontSize: scaleFont(12),
     fontFamily: MONOSPACE_FONT,
     fontWeight: '700',
     color: COLORS.ink,
@@ -1034,7 +1055,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-    fontSize: 13,
+    fontSize: scaleFont(13),
     color: COLORS.inkSoft,
   },
   emptyList: {
@@ -1045,15 +1066,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyTitle: {
-    fontSize: 15,
+    fontSize: scaleFont(15),
     fontWeight: '700',
     color: COLORS.ink,
     marginBottom: 4,
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: scaleFont(13),
     color: COLORS.inkSoft,
     textAlign: 'center',
+    lineHeight: scaleFont(18),
   },
 
   // ─── Sticky Bottom CTA Bar ───────────────────────────────────────────────
@@ -1077,13 +1099,13 @@ const styles = StyleSheet.create({
     paddingRight: 14,
   },
   ctaSubLabel: {
-    fontSize: 11,
+    fontSize: scaleFont(10),
     fontWeight: '800',
     color: COLORS.inkSoft,
     letterSpacing: 0.6,
   },
   ctaRouteSummary: {
-    fontSize: 14,
+    fontSize: scaleFont(13),
     fontWeight: '800',
     color: COLORS.ink,
     marginTop: 3,
@@ -1104,7 +1126,7 @@ const styles = StyleSheet.create({
   },
   ctaButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: scaleFont(15),
     fontWeight: '800',
   },
 });

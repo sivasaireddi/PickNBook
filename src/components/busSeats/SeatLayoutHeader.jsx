@@ -44,8 +44,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 2,
+    paddingTop: 4,
+    paddingBottom: 0,
     backgroundColor: "#FFFFFF",
   },
   iconButton: {
@@ -58,12 +58,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   titleText: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: "500",
     color: "#111827",
   },
   subtitleText: {
-    fontSize: 12,
+    fontSize: 10,
     color: "#6B7280",
     marginTop: 0,
   },

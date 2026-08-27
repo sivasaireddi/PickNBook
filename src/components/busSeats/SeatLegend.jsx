@@ -5,42 +5,44 @@ const LEGEND_ITEMS = [
   {
     key: "available",
     label: "Available",
-    borderColor: "#9CA3AF",
-    stripColor: "#9CA3AF",
+    borderColor: "#D1D5DB",
+    stripColor: "#D1D5DB",
     bgColor: "#FFFFFF",
-    isFilled: false,
   },
   {
     key: "female",
     label: "For Female",
-    borderColor: "#F472B6",
-    stripColor: "#F472B6",
-    bgColor: "#FFFFFF",
-    isFilled: false,
+    borderColor: "#EC4899",
+    stripColor: "#EC4899",
+    bgColor: "#FCE7F3",
   },
   {
     key: "male",
     label: "For Male",
-    borderColor: "#60A5FA",
-    stripColor: "#60A5FA",
-    bgColor: "#FFFFFF",
-    isFilled: false,
+    borderColor: "#3B82F6",
+    stripColor: "#3B82F6",
+    bgColor: "#EFF6FF",
   },
   {
     key: "femaleBooked",
-    label: "Female booked",
-    borderColor: "#F472B6",
-    stripColor: "#F472B6",
-    bgColor: "#F472B6",
-    isFilled: true,
+    label: "Female Booked",
+    borderColor: "#D1D5DB",
+    stripColor: "#DB2777",
+    bgColor: "#F3E5EB",
   },
   {
     key: "booked",
     label: "Booked",
-    borderColor: "#4B5563",
-    stripColor: "#4B5563",
-    bgColor: "#4B5563",
-    isFilled: true,
+    borderColor: "#D1D5DB",
+    stripColor: "#D1D5DB",
+    bgColor: "#E5E7EB",
+  },
+  {
+    key: "selected",
+    label: "Selected",
+    borderColor: "#16A34A",
+    stripColor: "#22C55E",
+    bgColor: "#FFFFFF",
   },
 ];
 
@@ -59,17 +61,17 @@ const LegendCard = memo(({ item }) => {
         <View
           style={[
             styles.miniSeatPillow,
-            { backgroundColor: item.isFilled ? "#FFFFFF" : item.borderColor },
+            { backgroundColor: item.borderColor },
           ]}
         />
         <View
           style={[
             styles.miniSeatStrip,
-            { backgroundColor: item.isFilled ? "#FFFFFF" : item.stripColor },
+            { backgroundColor: item.stripColor },
           ]}
         />
       </View>
-      <Text numberOfLines={1} style={styles.legendText}>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.legendText}>
         {item.label}
       </Text>
     </View>
@@ -99,21 +101,21 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-start",
     paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   legendItem: {
     flex: 1,
     alignItems: "center",
   },
   miniSeat: {
-    width: 20,
-    height: 22,
-    borderRadius: 5,
+    width: 16,
+    height: 18,
+    borderRadius: 4,
     borderWidth: 1.5,
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: 2,
     overflow: "hidden",
   },
   miniSeatPillow: {
@@ -127,7 +129,7 @@ const styles = StyleSheet.create({
     height: 3,
   },
   legendText: {
-    fontSize: 9.5,
+    fontSize: 8,
     fontWeight: "500",
     color: "#374151",
     textAlign: "center",

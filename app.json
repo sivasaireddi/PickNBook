@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash-icon - Copy.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -29,9 +29,7 @@
       },
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/icon.png"
       },
       "permissions": [
         "INTERNET",
@@ -60,9 +58,11 @@
       ]
     ],
     "extra": {
+      "EXPO_PUBLIC_API_BASE_URL": "https://www.picknbook.in",
       "eas": {
-        "projectId": "6c528dca-6f51-4c04-a57b-c7224d98a049"
+        "projectId": "ed9eb6dd-51e5-44cc-af90-bd1498b289c1"
       }
-    }
+    },
+    "owner": "saireddyvenkata"
   }
 }

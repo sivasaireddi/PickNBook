@@ -15,8 +15,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { blockHotelRoom, getHotelPricingPreview, bookHotelOffer, fetchHotelCoupons, validateHotelCoupon } from "../services/hotelService";
 import { useHotelBooking } from "../context/HotelBookingContext";
-import GuestDetailsForm from "../components/GuestDetailsForm";
-import FareSummaryCard from "../components/FareSummaryCard";
+import CheckoutHeader from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CheckoutHeader";
+import BookingSummary from "./dashboard/bottomTabScreens/hotelCheckoutComponents/BookingSummary";
+import GuestAccordion from "./dashboard/bottomTabScreens/hotelCheckoutComponents/GuestAccordion";
+import GuestForm from "./dashboard/bottomTabScreens/hotelCheckoutComponents/GuestForm";
+import CouponSection from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CouponSection";
+import CouponBottomSheet from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CouponBottomSheet";
+import BookingPolicySection from "./dashboard/bottomTabScreens/hotelCheckoutComponents/BookingPolicySection";
+import CancellationPolicySheet from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CancellationPolicySheet";
+import FareSummary from "./dashboard/bottomTabScreens/hotelCheckoutComponents/FareSummary";
+import CheckoutBottomBar from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CheckoutBottomBar";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -77,6 +85,9 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const [paxState, setPaxState] = useState({});
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
+
+  const [showCouponSheet, setShowCouponSheet] = useState(false);
+  const [showPolicySheet, setShowPolicySheet] = useState(false);
 
   // 1. Trigger Step 4: Block Room pre-checkout
   useEffect(() => {
@@ -254,9 +265,17 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     return list.length > 0 ? list : selectedRoomSlots;
   }, [blockedResultData, selectedRoomSlots]);
 
-  const validationError = useMemo(() => {
-    if (blockingRooms) return "Verifying room availability...";
-    if (blockError) return blockError;
+  const validationState = useMemo(() => {
+    let isValid = true;
+    let globalError = "";
+    const fieldErrors = {};
+
+    if (blockingRooms) {
+      return { isValid: false, globalError: "Verifying room availability...", fieldErrors };
+    }
+    if (blockError) {
+      return { isValid: false, globalError: blockError, fieldErrors };
+    }
 
     for (let rIdx = 0; rIdx < authoritativeRoomList.length; rIdx++) {
       const roomObj = authoritativeRoomList[rIdx];
@@ -269,32 +288,37 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       for (let pIdx = 0; pIdx < totalPax; pIdx++) {
         const key = `room-${rIdx}-pax-${pIdx}`;
         const pax = paxState[key] || {};
+        const paxErrors = {};
 
-        if (!pax.firstName || !pax.firstName.trim()) {
-          return `Room ${rIdx + 1} Guest ${pIdx + 1}: First name is required.`;
-        }
-        if (!pax.lastName || !pax.lastName.trim()) {
-          return `Room ${rIdx + 1} Guest ${pIdx + 1}: Last name is required.`;
-        }
-        if (pax.isChild && (!pax.age || !pax.age.trim())) {
-          return `Room ${rIdx + 1} Child ${pIdx + 1}: Age is required.`;
-        }
+        if (!pax.firstName || !pax.firstName.trim()) paxErrors.firstName = "First name is required";
+        if (!pax.lastName || !pax.lastName.trim()) paxErrors.lastName = "Last name is required";
+        if (pax.isChild && (!pax.age || String(pax.age).trim() === "")) paxErrors.age = "Age is required";
+        
         if (pax.isLead) {
-          if (!isValidEmail(pax.email)) return `Room ${rIdx + 1} Lead Guest: Valid email is required.`;
-          if (!isValidPhone(pax.phone)) return `Room ${rIdx + 1} Lead Guest: Valid 10-digit phone is required.`;
+          if (!isValidEmail(pax.email)) paxErrors.email = "Valid email is required";
+          if (!isValidPhone(pax.phone)) paxErrors.phone = "Valid 10-digit mobile is required";
         }
 
         if (isPANMandatory && (!pax.pan || !isValidPAN(pax.pan))) {
-          return `Room ${rIdx + 1} Guest ${pIdx + 1}: Valid 10-character PAN number is required (e.g. DITPA7136P or ABCPS1234K).`;
+          paxErrors.pan = "Valid 10-character PAN is required";
         }
         if (isPassportMandatory && (!pax.passport || !pax.passport.trim())) {
-          return `Room ${rIdx + 1} Guest ${pIdx + 1}: Passport number is required.`;
+          paxErrors.passport = "Passport number is required";
+        }
+
+        if (Object.keys(paxErrors).length > 0) {
+          isValid = false;
+          fieldErrors[key] = paxErrors;
         }
       }
     }
 
-    if (!agreedToTerms) return "Please accept the hotel booking policies before proceeding.";
-    return "";
+    if (!agreedToTerms) {
+      isValid = false;
+      globalError = "Please accept the hotel booking policies before proceeding.";
+    }
+
+    return { isValid, globalError, fieldErrors };
   }, [blockingRooms, blockError, authoritativeRoomList, roomGuestsConfig, paxState, agreedToTerms]);
 
   const fareBreakdown = useMemo(() => {
@@ -444,8 +468,8 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   }, [authoritativeRoomList, selectedRoomSlots, pricingPreview]);
 
   const handleBookRoom = async () => {
-    if (validationError) {
-      Alert.alert("Check Passenger Details", validationError);
+    if (!validationState.isValid) {
+      Alert.alert("Check Passenger Details", validationState.globalError || "Please fill all required fields correctly.");
       return;
     }
 
@@ -603,150 +627,100 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      <View style={styles.header}>
-        <Pressable style={styles.iconBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color="#0F172A" />
-        </Pressable>
-        <Text style={styles.headerTitle} numberOfLines={1}>Checkout & Passenger Info</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <CheckoutHeader onBackPress={() => navigation.goBack()} />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Hotel Summary Card */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.hotelName}>{hotel.name || hotel.hotelName}</Text>
-          <Text style={styles.hotelAddress}>{hotel.address}</Text>
-          <Text style={styles.datesText}>
-            Dates: {searchParams.checkInDate} to {searchParams.checkOutDate} ({authoritativeRoomList.length} Room(s))
-          </Text>
-        </View>
+        <BookingSummary
+          hotelName={hotel.name || hotel.hotelName}
+          location={hotel.address}
+          checkInDate={searchParams.checkInDate}
+          checkOutDate={searchParams.checkOutDate}
+          roomCount={authoritativeRoomList.length}
+          isConfirmed={blockedResultData?.status === "Confirmed" || true}
+        />
 
-        {/* Passenger Forms per Room */}
-        {authoritativeRoomList.map((roomObj, rIdx) => {
-          const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0" };
-          const numAdults = Number(guestConfig.NoOfAdults) || 1;
-          const numChildren = Number(guestConfig.NoOfChild) || 0;
-          const totalPax = numAdults + numChildren;
+        <View style={styles.guestSection}>
+          <Text style={styles.sectionTitle}>Guest Details</Text>
+          {authoritativeRoomList.map((roomObj, rIdx) => {
+            const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0" };
+            const numAdults = Number(guestConfig.NoOfAdults) || 1;
+            const numChildren = Number(guestConfig.NoOfChild) || 0;
+            const totalPax = numAdults + numChildren;
 
-          const isPANMandatory = Boolean(roomObj.isPANMandatory || roomObj.IsPANMandatory);
-          const isPassportMandatory = Boolean(roomObj.isPassportMandatory || roomObj.IsPassportMandatory);
-          const roomTypeName = roomObj.roomTypeName || roomObj.RoomTypeName || roomObj.categoryName || "Standard Room";
+            const isPANMandatory = Boolean(roomObj.isPANMandatory || roomObj.IsPANMandatory);
+            const isPassportMandatory = Boolean(roomObj.isPassportMandatory || roomObj.IsPassportMandatory);
+            const roomTypeName = roomObj.roomTypeName || roomObj.RoomTypeName || roomObj.categoryName || "Standard Room";
 
-          const paxForms = [];
-          for (let pIdx = 0; pIdx < totalPax; pIdx++) {
-            const key = `room-${rIdx}-pax-${pIdx}`;
-            const pax = paxState[key] || {};
+            const paxForms = [];
+            for (let pIdx = 0; pIdx < totalPax; pIdx++) {
+              const key = `room-${rIdx}-pax-${pIdx}`;
+              const pax = paxState[key] || {};
+              const errors = validationState.fieldErrors[key] || {};
 
-            paxForms.push(
-              <GuestDetailsForm
-                key={key}
-                roomIndex={rIdx + 1}
-                roomTypeName={roomTypeName}
-                paxIndex={pIdx + 1}
-                isLead={pax.isLead}
-                isChild={pax.isChild}
-                title={pax.title}
-                firstName={pax.firstName}
-                lastName={pax.lastName}
-                email={pax.email}
-                phone={pax.phone}
-                pan={pax.pan}
-                passport={pax.passport}
-                age={pax.age}
-                isPANMandatory={isPANMandatory}
-                isPassportMandatory={isPassportMandatory}
-                onChangeTitle={(val) => handleUpdatePax(key, "title", val)}
-                onChangeFirstName={(val) => handleUpdatePax(key, "firstName", val)}
-                onChangeLastName={(val) => handleUpdatePax(key, "lastName", val)}
-                onChangeEmail={(val) => handleUpdatePax(key, "email", val)}
-                onChangePhone={(val) => handleUpdatePax(key, "phone", val)}
-                onChangePan={(val) => handleUpdatePax(key, "pan", val)}
-                onChangePassport={(val) => handleUpdatePax(key, "passport", val)}
-                onChangeAge={(val) => handleUpdatePax(key, "age", val)}
-              />
+              const isLead = pax.isLead;
+              
+              paxForms.push(
+                <GuestAccordion 
+                  key={key}
+                  title={`${(pIdx + 1).toString().padStart(2, '0')} ${isLead ? "Lead Guest" : `Guest ${pIdx + 1}`}`}
+                  subtitle={`${roomTypeName}`}
+                  isExpandedDefault={isLead}
+                >
+                  <GuestForm
+                    isLead={pax.isLead}
+                    isChild={pax.isChild}
+                    title={pax.title}
+                    firstName={pax.firstName}
+                    lastName={pax.lastName}
+                    email={pax.email}
+                    phone={pax.phone}
+                    pan={pax.pan}
+                    passport={pax.passport}
+                    age={pax.age}
+                    isPANMandatory={isPANMandatory}
+                    isPassportMandatory={isPassportMandatory}
+                    onChangeTitle={(val) => handleUpdatePax(key, "title", val)}
+                    onChangeFirstName={(val) => handleUpdatePax(key, "firstName", val)}
+                    onChangeLastName={(val) => handleUpdatePax(key, "lastName", val)}
+                    onChangeEmail={(val) => handleUpdatePax(key, "email", val)}
+                    onChangePhone={(val) => handleUpdatePax(key, "phone", val)}
+                    onChangePan={(val) => handleUpdatePax(key, "pan", val)}
+                    onChangePassport={(val) => handleUpdatePax(key, "passport", val)}
+                    onChangeAge={(val) => handleUpdatePax(key, "age", val)}
+                    errors={errors}
+                  />
+                </GuestAccordion>
+              );
+            }
+
+            return (
+              <View key={`room-block-${rIdx}`} style={styles.roomGroup}>
+                <Text style={styles.roomGroupTitle}>Room {rIdx + 1}</Text>
+                {paxForms}
+              </View>
             );
-          }
-
-          return (
-            <View key={`room-block-${rIdx}`} style={styles.roomBlockContainer}>
-              <Text style={styles.roomBlockTitle}>Room {rIdx + 1}: {roomTypeName}</Text>
-              {paxForms}
-            </View>
-          );
-        })}
-
-        {/* Step 5: Pricing Preview & Coupons */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>COUPON & DISCOUNTS</Text>
-          <View style={styles.couponContainer}>
-            <TextInput
-              style={styles.couponInput}
-              placeholder="e.g. WELCOME10, STEALDEAL"
-              placeholderTextColor="#94A3B8"
-              value={couponCodeInput}
-              onChangeText={setCouponCodeInput}
-              autoCapitalize="characters"
-              editable={!pricingPreview?.appliedCoupon}
-            />
-            <Pressable
-              style={[styles.couponBtn, pricingPreview?.appliedCoupon && styles.couponBtnApplied]}
-              onPress={pricingPreview?.appliedCoupon ? handleRemoveCoupon : handleApplyCoupon}
-              disabled={validatingCoupon}
-            >
-              {validatingCoupon ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.couponBtnText}>
-                  {pricingPreview?.appliedCoupon ? "Remove" : "Apply"}
-                </Text>
-              )}
-            </Pressable>
-          </View>
-          {couponMessage ? (
-            <Text style={[styles.couponMsg, pricingPreview?.couponDiscount > 0 ? styles.successMsg : styles.errorMsg]}>
-              {couponMessage}
-            </Text>
-          ) : null}
-
-          {availableCoupons.length > 0 && (
-            <View style={styles.dealsSection}>
-              <Text style={styles.dealsSectionTitle}>Available Coupons</Text>
-              {availableCoupons.map((coupon) => (
-                <View key={coupon.couponCode} style={styles.couponCard}>
-                  <View style={styles.couponCardLeft}>
-                    <Text style={styles.couponCardTitle}>{coupon.couponCode}</Text>
-                    {coupon.couponType && coupon.value ? (
-                      <Text style={styles.couponCardDesc}>
-                        Get {coupon.couponType === "Percentage" ? `${coupon.value}% OFF` : `₹${coupon.value} OFF`}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Pressable
-                    style={styles.couponCardBtn}
-                    onPress={() => handleApplyCoupon(coupon.couponCode)}
-                    disabled={validatingCoupon}
-                  >
-                    <Text style={styles.couponCardBtnText}>APPLY</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          )}
+          })}
         </View>
 
-        {/* Policy Agreement */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>BOOKING POLICIES</Text>
-          <View style={styles.termsRow}>
-            <Switch value={agreedToTerms} onValueChange={setAgreedToTerms} />
-            <Text style={styles.termsText}>
-              I confirm that all guest details are accurate and I agree to the supplier booking policies.
-            </Text>
-          </View>
-        </View>
+        <CouponSection
+          couponCodeInput={couponCodeInput}
+          setCouponCodeInput={setCouponCodeInput}
+          pricingPreview={pricingPreview}
+          validatingCoupon={validatingCoupon}
+          couponMessage={couponMessage}
+          handleApplyCoupon={handleApplyCoupon}
+          handleRemoveCoupon={handleRemoveCoupon}
+          availableCouponsCount={availableCoupons.length}
+          onViewAvailableCoupons={() => setShowCouponSheet(true)}
+        />
 
-        {/* Live Fare Breakdown */}
-        <FareSummaryCard
+        <BookingPolicySection 
+          agreedToTerms={agreedToTerms}
+          setAgreedToTerms={setAgreedToTerms}
+          onViewPolicies={() => setShowPolicySheet(true)}
+        />
+
+        <FareSummary 
           basePrice={fareBreakdown.base}
           gst={fareBreakdown.gst}
           convenienceFee={fareBreakdown.convenienceFee}
@@ -755,7 +729,21 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         />
       </ScrollView>
 
-      {/* Price Changed Modal Notice */}
+      {/* Modals & Sheets */}
+      <CouponBottomSheet 
+        visible={showCouponSheet}
+        onClose={() => setShowCouponSheet(false)}
+        availableCoupons={availableCoupons}
+        handleApplyCoupon={handleApplyCoupon}
+        validatingCoupon={validatingCoupon}
+      />
+      
+      <CancellationPolicySheet
+        visible={showPolicySheet}
+        onClose={() => setShowPolicySheet(false)}
+        rooms={authoritativeRoomList}
+      />
+
       <Modal visible={showPriceChangedModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -775,33 +763,12 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         </View>
       </Modal>
 
-      {/* Footer / Submit */}
-      <View style={styles.footer}>
-        {validationError ? (
-          <Text style={styles.validationHintBanner} numberOfLines={2}>
-            ⚠️ {validationError}
-          </Text>
-        ) : null}
-        <View style={styles.footerRow}>
-          <View style={styles.footerPriceBox}>
-            <Text style={styles.footerPriceLabel}>TOTAL PAYABLE</Text>
-            <Text style={styles.footerPriceValue}>
-              {formatCurrency(fareBreakdown.total)}
-            </Text>
-          </View>
-          <Pressable
-            style={[styles.bookBtn, (!agreedToTerms || Boolean(validationError)) && styles.bookBtnDisabled]}
-            onPress={handleBookRoom}
-            disabled={!agreedToTerms || Boolean(validationError) || bookingLoading}
-          >
-            {bookingLoading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.bookBtnText}>CONFIRM & BOOK ROOM</Text>
-            )}
-          </Pressable>
-        </View>
-      </View>
+      <CheckoutBottomBar
+        totalPrice={fareBreakdown.total}
+        onConfirm={handleBookRoom}
+        disabled={!agreedToTerms || !validationState.isValid}
+        loading={bookingLoading}
+      />
     </SafeAreaView>
   );
 }
@@ -911,6 +878,19 @@ const styles = StyleSheet.create({
     color: "#64748B",
     letterSpacing: 0.5,
     marginBottom: 8,
+  },
+  guestSection: {
+    marginBottom: 16,
+  },
+  roomGroup: {
+    marginBottom: 16,
+  },
+  roomGroupTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 8,
+    marginTop: 4,
   },
   roomBlockContainer: {
     gap: 4,

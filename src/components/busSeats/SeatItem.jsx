@@ -67,8 +67,8 @@ const SeatItem = ({
         bgColor: BUS_SEAT_COLORS.selectedBg,
         borderColor: BUS_SEAT_COLORS.selectedBorder,
         stripColor: BUS_SEAT_COLORS.selectedStrip,
-        textColor: BUS_SEAT_COLORS.selectedBorder,
-        priceColor: BUS_SEAT_COLORS.selectedBorder,
+        textColor: BUS_SEAT_COLORS.selectedText,
+        priceColor: BUS_SEAT_COLORS.selectedPriceText,
         shadow: BUS_SEAT_SHADOWS.selectedGlow,
       };
     }
@@ -99,7 +99,7 @@ const SeatItem = ({
         bgColor: BUS_SEAT_COLORS.femaleBg,
         borderColor: BUS_SEAT_COLORS.femaleBorder,
         stripColor: BUS_SEAT_COLORS.femaleStrip,
-        textColor: BUS_SEAT_COLORS.textPrimary,
+        textColor: BUS_SEAT_COLORS.femaleText,
         priceColor: BUS_SEAT_COLORS.femalePriceText,
         shadow: BUS_SEAT_SHADOWS.card,
       };
@@ -110,7 +110,7 @@ const SeatItem = ({
         bgColor: BUS_SEAT_COLORS.maleBg,
         borderColor: BUS_SEAT_COLORS.maleBorder,
         stripColor: BUS_SEAT_COLORS.maleStrip,
-        textColor: BUS_SEAT_COLORS.textPrimary,
+        textColor: BUS_SEAT_COLORS.maleText,
         priceColor: BUS_SEAT_COLORS.malePriceText,
         shadow: BUS_SEAT_SHADOWS.card,
       };
@@ -121,7 +121,7 @@ const SeatItem = ({
       bgColor: BUS_SEAT_COLORS.availableBg,
       borderColor: BUS_SEAT_COLORS.availableBorder,
       stripColor: BUS_SEAT_COLORS.availableStrip,
-      textColor: BUS_SEAT_COLORS.textPrimary,
+      textColor: BUS_SEAT_COLORS.availableText,
       priceColor: BUS_SEAT_COLORS.availablePriceText,
       shadow: BUS_SEAT_SHADOWS.card,
     };

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Animated,
   Dimensions,
@@ -15,6 +15,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect } from "@react-navigation/native";
+import * as SecureStore from "expo-secure-store";
 import FeaturedOffers from "./FeaturedOffers";
 
 const { width } = Dimensions.get("window");
@@ -71,6 +73,73 @@ function AnimatedCard({ children, onPress, style }) {
 }
 
 export default function HomeScreen({ navigation }) {
+  const [user, setUser] = useState({ name: 'User', profileImage: null });
+  const [heroContent, setHeroContent] = useState({
+    line1: 'Explore',
+    line2: 'Your Next',
+    highlight: 'Journey',
+  });
+  const [weather, setWeather] = useState({
+    temperature: '--',
+    city: 'Loading...',
+    condition: 'Sunny',
+    icon: 'sunny',
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+      const loadUserData = async () => {
+        try {
+          const storedUser = await SecureStore.getItemAsync('user');
+          const savedImage = await SecureStore.getItemAsync('profileImage');
+          
+          let userName = 'User';
+          let userImage = null;
+
+          if (storedUser) {
+            const parsed = JSON.parse(storedUser);
+            userName = parsed.firstName || parsed.fullName || 'User';
+            userImage = parsed.profileImageUrl || null;
+          }
+          if (savedImage) {
+            userImage = savedImage;
+          }
+
+          if (isActive) {
+            setUser({ name: userName, profileImage: userImage });
+          }
+        } catch (error) {
+          console.log('Error loading user data in HomeScreen:', error);
+        }
+      };
+
+      const fetchDynamicContent = async () => {
+        // Mocking an API call for Hero and Weather content
+        setTimeout(() => {
+          if (isActive) {
+            setHeroContent({
+              line1: 'Explore',
+              line2: 'Your Next',
+              highlight: 'Journey',
+            });
+            setWeather({
+              temperature: 28,
+              city: 'Hyderabad',
+              condition: 'Sunny',
+              icon: 'sunny',
+            });
+          }
+        }, 500);
+      };
+
+      loadUserData();
+      fetchDynamicContent();
+      
+      return () => { isActive = false; };
+    }, [])
+  );
+
   const quickActions = [
     {
       id: "buses",
@@ -192,7 +261,11 @@ export default function HomeScreen({ navigation }) {
                   </Pressable>
 
                   <View style={styles.avatarWrap}>
-                    <Ionicons name="person" size={20} color="#FFFFFF" />
+                    {user?.profileImage ? (
+                      <Image source={{ uri: user.profileImage }} style={styles.profileImage} />
+                    ) : (
+                      <Ionicons name="person" size={20} color="#FFFFFF" />
+                    )}
                   </View>
                 </View>
               </View>
@@ -200,19 +273,19 @@ export default function HomeScreen({ navigation }) {
               {/* HERO GREETING & HEADLINE & WEATHER */}
               <View style={styles.heroContentRow}>
                 <View style={styles.heroLeft}>
-                  <Text style={styles.greeting}>{getGreeting()}, Sai 👋</Text>
-                  <Text style={styles.headline}>Explore</Text>
+                  <Text style={styles.greeting}>{getGreeting()}, {user?.name || 'User'} 👋</Text>
+                  <Text style={styles.headline}>{heroContent?.line1}</Text>
                   <Text style={styles.headline}>
-                    Your Next <Text style={styles.headlineAccent}>Journey</Text>
+                    {heroContent?.line2} <Text style={styles.headlineAccent}>{heroContent?.highlight}</Text>
                   </Text>
                 </View>
 
                 {/* Weather Floating Pill */}
                 <View style={styles.weatherPill}>
-                  <Ionicons name="sunny" size={22} color="#FFB347" />
+                  <Ionicons name={weather?.icon ?? "sunny"} size={22} color="#FFB347" />
                   <View style={styles.weatherInfo}>
-                    <Text style={styles.weatherTemp}>28°</Text>
-                    <Text style={styles.weatherCity}>Hyderabad</Text>
+                    <Text style={styles.weatherTemp}>{weather?.temperature ?? '--'}°</Text>
+                    <Text style={styles.weatherCity}>{weather?.city ?? 'Location unavailable'}</Text>
                   </View>
                 </View>
               </View>
@@ -474,6 +547,11 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 3,
   },
+  profileImage: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+  },
 
   /* ── Hero Content Row ── */
   heroContentRow: {
@@ -488,7 +566,7 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: "800",
     color: "#475569",
     marginBottom: 6,
   },

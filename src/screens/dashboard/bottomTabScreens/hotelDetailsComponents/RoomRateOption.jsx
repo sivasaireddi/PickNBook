@@ -1,0 +1,180 @@
+import React from "react";
+import { View, Text, StyleSheet, Pressable } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+
+const formatCurrency = (value, currency = "INR") => {
+  const num = Number(value || 0);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: Number.isInteger(num) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+};
+
+export default function RoomRateOption({ room, displayCurrency, isSelected, onSelect }) {
+  const rmPrice = room.price?.offeredPrice || room.offeredPrice || 0;
+  
+  // Extract up to 3 important amenities
+  const previewAmenities = Array.isArray(room.amenities) 
+    ? room.amenities.slice(0, 3).map(am => typeof am === "object" ? (am?.name || am?.detail || "") : String(am)).filter(Boolean)
+    : [];
+
+  const promotion = room.roomPromotion || room.roomTypeName || "Standard Rate";
+
+  return (
+    <Pressable
+      style={[styles.container, isSelected && styles.containerSelected]}
+      onPress={onSelect}
+    >
+      <View style={styles.headerRow}>
+        <Text style={styles.promotionText} numberOfLines={1}>{promotion}</Text>
+        <Text style={styles.priceText}>{formatCurrency(rmPrice, displayCurrency)}</Text>
+      </View>
+
+      {room.description && room.description.filter(d => Boolean(d && String(d).trim())).length > 0 ? (
+        <Text style={styles.descText} numberOfLines={2}>
+          {room.description.filter(d => Boolean(d && String(d).trim())).join(" · ")}
+        </Text>
+      ) : null}
+
+      {previewAmenities.length > 0 && (
+        <View style={styles.amenitiesRow}>
+          {previewAmenities.map((am, idx) => (
+            <View key={idx} style={styles.amenityChip}>
+              <Ionicons name="checkmark" size={12} color="#059669" />
+              <Text style={styles.amenityChipText}>{am}</Text>
+            </View>
+          ))}
+          {Array.isArray(room.amenities) && room.amenities.length > 3 && (
+            <Text style={styles.moreAmenitiesText}>+{room.amenities.length - 3} more</Text>
+          )}
+        </View>
+      )}
+
+      <View style={styles.bottomRow}>
+        <View style={styles.flagsContainer}>
+          {room.isPANMandatory ? <Text style={styles.flagBadge}>PAN Req</Text> : null}
+          {room.isPassportMandatory ? <Text style={styles.flagBadge}>Passport Req</Text> : null}
+          {room.cancellationPolicies && room.cancellationPolicies.length > 0 ? (
+            <Text style={[styles.flagBadge, styles.flagBadgeGreen]}>Cancellation Available</Text>
+          ) : null}
+        </View>
+
+        <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+          {isSelected && <View style={styles.radioInner} />}
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 14,
+    marginBottom: 12,
+  },
+  containerSelected: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  promotionText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+    flex: 1,
+    paddingRight: 8,
+  },
+  priceText: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#EF4444",
+  },
+  descText: {
+    fontSize: 12,
+    color: "#64748B",
+    marginBottom: 8,
+  },
+  amenitiesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
+  },
+  amenityChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#DCFCE7",
+  },
+  amenityChipText: {
+    fontSize: 10,
+    color: "#15803D",
+    fontWeight: "600",
+  },
+  moreAmenitiesText: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+  bottomRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginTop: 4,
+  },
+  flagsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    flex: 1,
+  },
+  flagBadge: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#B45309",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  flagBadgeGreen: {
+    color: "#15803D",
+    backgroundColor: "#DCFCE7",
+  },
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#94A3B8",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
+  },
+  radioOuterSelected: {
+    borderColor: "#EF4444",
+  },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#EF4444",
+  },
+});
