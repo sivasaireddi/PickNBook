@@ -590,6 +590,8 @@ export async function blockSeats(payload) {
   }
 }
 
+
+
 /**
  * Option B: Book seats via POST /api/BusBookings/book (with auth header)
  */

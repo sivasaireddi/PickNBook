@@ -4,6 +4,16 @@
         "appVersionSource": "remote"
     },
     "build": {
+        "development": {
+            "developmentClient": true,
+            "distribution": "internal",
+            "android": {
+                "buildType": "apk"
+            },
+            "env": {
+                "EXPO_PUBLIC_API_BASE_URL": "https://paycheck-baton-overfull.ngrok-free.dev"
+            }
+        },
         "preview": {
             "distribution": "internal",
             "android": {
@@ -16,6 +26,9 @@
         "production": {
             "android": {
                 "buildType": "app-bundle"
+            },
+            "env": {
+                "EXPO_PUBLIC_API_BASE_URL": "https://paycheck-baton-overfull.ngrok-free.dev"
             }
         }
     }

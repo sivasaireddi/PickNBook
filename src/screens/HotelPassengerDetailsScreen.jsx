@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as SecureStore from "expo-secure-store";
 import { blockHotelRoom, getHotelPricingPreview, bookHotelOffer, fetchHotelCoupons, validateHotelCoupon } from "../services/hotelService";
 import { useHotelBooking } from "../context/HotelBookingContext";
 import CheckoutHeader from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CheckoutHeader";
@@ -563,35 +564,26 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         GuestName: `${leadPax.firstName || "Guest"} ${leadPax.lastName || "User"}`.trim(),
         GuestEmail: String(leadPax.email || "guest@example.com").trim(),
         GuestPhone: String(leadPax.phone || "9876543210").trim(),
-        Price: grandTotalPrice,
+        Price: totalAuthoritativePrice,
         CouponCode: pricingPreview?.appliedCoupon ? String(pricingPreview.appliedCoupon) : "",
         HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
 
-      console.log("[HotelPassengerDetails] submitting BookRoom API:", bookPayload);
-      const bookRes = await bookHotelOffer(bookPayload);
+      console.log("[HotelPassengerDetails] navigating to CheckoutScreen with payload:", bookPayload);
+      
+      const token = await SecureStore.getItemAsync("token");
 
-      console.log("[HotelPassengerDetails] BookRoom API response:", bookRes);
-
-      const bookResultObj = bookRes?.bookResult || bookRes || {};
-      const confirmationNo = String(bookResultObj.confirmationNo || bookResultObj.bookingRefNo || bookResultObj.bookingId || Date.now());
-      const bookingRefNo = String(bookResultObj.bookingRefNo || bookResultObj.confirmationNo || confirmationNo);
-
-      navigation.navigate("HotelBookingConfirmation", {
-        bookingResult: {
-          confirmationNo,
-          bookingRefNo,
-          bookingId: bookResultObj.bookingId || confirmationNo,
-          status: bookResultObj.status || bookResultObj.hotelBookingStatus || "Confirmed",
-          hotelName: hotel.name || hotel.hotelName || "Hotel Stay",
-          guestName: `${leadPax.firstName} ${leadPax.lastName}`,
-          checkInDate: searchParams.checkInDate,
-          checkOutDate: searchParams.checkOutDate,
-          fareBreakdown: bookResultObj.fareBreakdown || {
-            baseFare: grandTotalPrice,
-            totalPaid: grandTotalPrice,
-          },
-        },
+      navigation.navigate("CheckoutScreen", {
+        userToken: token || "",
+        amount: fareBreakdown.total,
+        bookingType: "Hotel",
+        bookingDetails: bookPayload,
+        customerDetails: {
+          name: `${leadPax.firstName || "Guest"} ${leadPax.lastName || "User"}`.trim(),
+          phone: String(leadPax.phone || "").trim(),
+          email: String(leadPax.email || "").trim(),
+          couponCode: pricingPreview?.appliedCoupon ? String(pricingPreview.appliedCoupon) : null,
+        }
       });
     } catch (err) {
       console.log("[HotelPassengerDetails] BookRoom error:", err?.message);

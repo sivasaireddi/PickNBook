@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "PickNbook",
-    "slug": "PickDrop",
+    "slug": "PickNBook",
+    "scheme": "picknbook",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -60,7 +61,7 @@
     "extra": {
       "EXPO_PUBLIC_API_BASE_URL": "https://www.picknbook.in",
       "eas": {
-        "projectId": "ed9eb6dd-51e5-44cc-af90-bd1498b289c1"
+        "projectId": "a33e12df-a948-4dd8-8da8-015371c078bf"
       }
     },
     "owner": "saireddyvenkata"

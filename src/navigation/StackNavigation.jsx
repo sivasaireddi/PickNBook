@@ -37,6 +37,11 @@ import BookingDetailsScreen from "../screens/booking/BookingDetailsScreen";
 import Seater from "../practice/Seater";
 import BusLocationSearchScreen from "../screens/dashboard/bottomTabScreens/BusLocationSearchScreen";
 
+// Cashfree Payment Screens
+import CheckoutScreen from "../screens/CheckoutScreen";
+import BookingConfirmationScreen from "../screens/BookingConfirmationScreen";
+import BookingFailureScreen from "../screens/BookingFailureScreen";
+
 const Stack = createNativeStackNavigator();
 
 const StackNavigation = () => {
@@ -117,6 +122,11 @@ const StackNavigation = () => {
         component={BusLocationSearchScreen}
         options={{ animation: 'slide_from_bottom' }}
       />
+      
+      {/* Cashfree Payment Screens */}
+      <Stack.Screen name="CheckoutScreen" component={CheckoutScreen} />
+      <Stack.Screen name="BookingConfirmationScreen" component={BookingConfirmationScreen} />
+      <Stack.Screen name="BookingFailureScreen" component={BookingFailureScreen} />
     </Stack.Navigator>
   );
 };

@@ -1325,14 +1325,14 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           firstName: String(p.firstName || p.fullName || "Passenger"),
           lastName: String(p.lastName || ""),
           age: Number(p.age) || 25,
-          gender: p.genderInt !== undefined ? p.genderInt : (String(p.genderStr || p.gender).toLowerCase() === "female" ? 2 : 1),
+          gender: p.genderInt !== undefined ? String(p.genderInt) : (String(p.genderStr || p.gender).toLowerCase() === "female" ? "2" : "1"),
           seatName: String(p.seatName || p.seatNumber || ""),
           fare: Number(p.fare) || 0,
-          address: String(p.address || "Default Address"),
-          city: String(p.city || "Default City"),
-          state: String(p.state || "Default State"),
-          contactNo: String(p.contactNo || passengerPhone),
-          email: String(p.email || passengerEmail),
+          contactNo: String(passengerPhone || "").trim(),
+          email: String(passengerEmail || "").trim(),
+          address: "123 Main St",
+          city: "Hyderabad",
+          state: "Telangana"
         };
 
         if (idProofRequired) {
@@ -1431,78 +1431,124 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       const srdvBlockKey = String(blockKey || "");
 
-      // 2. Build Book payload matching API Integration Guide schema
-      const bookPassengers = normalizedPassengers.map((p) => {
-        const passengerObj = {
-          fullName: String(p.fullName || `${p.firstName || ""} ${p.lastName || ""}`).trim() || "Passenger",
-          gender: (p.genderStr && ["Male", "Female"].includes(p.genderStr)) 
-            ? p.genderStr 
-            : (p.genderInt === 2 ? "Female" : "Male"),
-          seatNumber: String(p.seatNumber || p.seatName || ""),
-          age: Number(p.age) || 25,
-          baseFare: Number(p.baseFare || p.fare) || 0,
-          seatType: normalizeSeatType(p.seatType),
-          externalGst: Number(p.externalGst) || 0,
-        };
+      // 2. Extract Exact Seat Info from Block Response
+      const blockTicketPassengers = 
+        blockResponse?.BlockTicket?.Passenger || 
+        blockResponse?.Result?.BlockTicket?.Passenger || 
+        blockResponse?.Passenger ||
+        blockResponse?.Result?.Passenger ||
+        [];
+      const blockPassengerArray = Array.isArray(blockTicketPassengers) ? blockTicketPassengers : [blockTicketPassengers];
 
-        return passengerObj;
+      const previewSeats = selectedSeatCodes.map((seatCode) => {
+        // Find the matched seat in block response
+        const bp = blockPassengerArray.find(p => 
+          String(p?.Seat?.SeatName || p?.Seat?.seatName || p?.Seat?.seatNumber || p?.seat?.seatName || p?.seatName || p?.SeatName || "") === String(seatCode) ||
+          String(p?.Seat?.SeatNo || p?.Seat?.seatNo || p?.seatNumber || p?.SeatNumber || "") === String(seatCode)
+        );
+
+        const exactSeatType = bp?.Seat?.SeatType || bp?.Seat?.seatType || bp?.SeatType || bp?.seatType || "Seater";
+        const exactBaseFare = bp?.Seat?.Price?.BaseFare || bp?.Seat?.Price?.baseFare || bp?.Price?.BaseFare || bp?.Price?.baseFare || bp?.baseFare || bp?.BaseFare || 0;
+        const exactGst = bp?.Seat?.Price?.GSTAmount || bp?.Seat?.Price?.gstAmount || bp?.Price?.GSTAmount || bp?.Price?.gstAmount || bp?.gstAmount || bp?.GSTAmount || 0;
+
+        return {
+          seatCode: seatCode,
+          seatType: exactSeatType,
+          baseFare: exactBaseFare,
+          externalGst: exactGst
+        };
       });
 
-      const parsedSrdvIndex = Number(busObj.srdvIndex ?? busObj.SrdvIndex ?? route?.params?.srdvIndex ?? 0);
+      // 3. Dynamic Pricing Preview
+      let grandTotalToPay = Number(totalFare) || 0;
+      try {
+        const pricingPayload = {
+          traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
+          couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : null,
+          promotionId: null,
+          seats: previewSeats,
+          fromCity,
+          toCity,
+          departureTime,
+          busType,
+          totalFare: Number(totalFare) || 0
+        };
+        console.log("[PostBusBookingScreen] Calling Pricing Preview:", JSON.stringify(pricingPayload, null, 2));
+        const pricingResponse = await getPricingPreview(pricingPayload);
+        console.log("[PostBusBookingScreen] Pricing Preview Response:", JSON.stringify(pricingResponse, null, 2));
+
+        if (pricingResponse?.grandTotal) {
+          grandTotalToPay = Number(pricingResponse.grandTotal);
+        } else if (pricingResponse?.GrandTotal) {
+          grandTotalToPay = Number(pricingResponse.GrandTotal);
+        }
+      } catch (priceError) {
+        console.error("[PostBusBookingScreen] Pricing Preview failed, continuing with totalFare fallback:", priceError);
+      }
+
+      // 4. Build exact bookRequestBody for Cashfree Webhook Fulfillment
+      const bookPassengers = previewSeats.map((ps) => {
+        return {
+          seatNumber: String(ps.seatCode),
+          SeatType: String(ps.seatType),
+          BaseFare: Number(ps.baseFare),
+          ExternalGst: Number(ps.externalGst)
+        };
+      });
 
       const bookRequestBody = {
         traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
         resultIndex: String(busObj.resultIndex ?? busObj.ResultIndex ?? route?.params?.resultIndex ?? ""),
-        srdvIndex: !isNaN(parsedSrdvIndex) ? parsedSrdvIndex : 0,
-        blockKey: srdvBlockKey,
-        boardingPointId: String(boardingPointId || "").trim(),
-        boardingPointName: String(boardingPointName || "").trim(),
-        boardingPointTime: (boardingPointTime && String(boardingPointTime).trim()) ? String(boardingPointTime).trim() : (departureTime || null),
-        droppingPointId: String(droppingPointId || "").trim(),
-        droppingPointName: String(droppingPointName || "").trim(),
-        droppingPointTime: (droppingPointTime && String(droppingPointTime).trim()) ? String(droppingPointTime).trim() : (arrivalTime || null),
-        fromCity,
-        toCity,
-        departureTime,
-        arrivalTime,
-        operatorName,
-        busType,
-        totalFare: Number(totalFare) || 0,
-        passengerName: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
-        passengerPhone: passengerPhone.trim(),
-        passengerEmail: passengerEmail.trim(),
-        couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : (pricing?.appliedPromotionCode || pricing?.autoPromotionCode || null),
-        seats: selectedSeatCodes.length || 1,
+        boardingPointTime: null,
+        droppingPointTime: null,
         passengers: bookPassengers,
-        promotionId: normalizeIdValue(pricing?.promotionId ?? pricing?.appliedPromotionId ?? route?.params?.promotionId) || null,
-        selectedFeaturedOfferId: selectedFeaturedOfferId || null,
-        paymentMethod: "Razorpay",
+        busType: busType
       };
 
       const finalBookRequestBody = bookRequestBody;
 
-      // 3. Book Seats via Option B endpoint
-      console.log("[PostBusBookingScreen] Booking seats with payload:", JSON.stringify(finalBookRequestBody, null, 2));
-      const bookResponse = await bookSeats(finalBookRequestBody, authToken);
-      console.log("[PostBusBookingScreen] Booking success:", bookResponse);
+      // 3. Navigate to Cashfree Checkout as the Confirmation screen
+      // We append the block response to the request body so CheckoutScreen and Backend have it.
+      
+      const sanitizeBlockResponse = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj;
+        if (Array.isArray(obj)) return obj.map(sanitizeBlockResponse);
+        
+        const newObj = {};
+        for (const [key, value] of Object.entries(obj)) {
+          if (key === 'Time' && typeof value === 'string' && /^\d{1,2}:\d{2}/.test(value.trim())) {
+            newObj[key] = null; // Backend expects ISO string or null
+          } else if (typeof value === 'object') {
+            newObj[key] = sanitizeBlockResponse(value);
+          } else {
+            newObj[key] = value;
+          }
+        }
+        return newObj;
+      };
 
-      const bookingDetails = buildBookingDetailsPayload({
-        bookingResponse: bookResponse,
-        requestBody: bookRequestBody,
-        normalizedPassengers,
-        fareSummary,
-        selectedSeats: selectedSeatCodes,
-        busId,
-        passengerName,
-        passengerPhone,
-        passengerEmail,
-        routeParams: route?.params || {},
-      });
+      const sanitizedBlockResponse = sanitizeBlockResponse(blockResponse);
+
+      const bookingPayloadWithBlock = {
+        ...finalBookRequestBody,
+        blockResponse: sanitizedBlockResponse
+      };
+
+      console.log("Sanitized Payload being sent to Checkout:", JSON.stringify(bookingPayloadWithBlock, null, 2));
 
       setLoading(false);
 
-      navigation.navigate("BookingDetailsScreen", {
-        bookingDetails,
+      // Navigate to Cashfree Checkout as the Confirmation screen
+      navigation.navigate("CheckoutScreen", {
+        userToken: authToken,
+        amount: grandTotalToPay,
+        bookingDetails: bookingPayloadWithBlock,
+        customerDetails: {
+          name: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
+          phone: passengerPhone.trim(),
+          email: passengerEmail.trim(),
+          couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : null
+        }
       });
 
       return;
