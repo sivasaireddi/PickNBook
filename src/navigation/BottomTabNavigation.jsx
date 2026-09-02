@@ -35,23 +35,51 @@ function HomeStackNavigator() {
 }
 
 function TabBarIcon({ name, focused, color }) {
-  const scale = useRef(new Animated.Value(focused ? 1.08 : 1.0)).current;
+  const animValue = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
   useEffect(() => {
-    Animated.spring(scale, {
-      toValue: focused ? 1.08 : 1.0,
-      friction: 5,
-      tension: 70,
+    Animated.spring(animValue, {
+      toValue: focused ? 1 : 0,
+      friction: 6,
+      tension: 60,
       useNativeDriver: true,
     }).start();
-  }, [focused]);
+  }, [focused, animValue]);
+
+  const scale = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.08],
+  });
+  
+  const translateY = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -3],
+  });
 
   return (
     <View style={styles.iconContainer}>
-      <Animated.View style={{ transform: [{ scale }] }}>
+      <Animated.View style={{ transform: [{ scale }, { translateY }] }}>
         <Ionicons name={name} size={22} color={color} />
       </Animated.View>
     </View>
+  );
+}
+
+function AnimatedTabBarLabel({ focused, label, color }) {
+  const opacity = useRef(new Animated.Value(focused ? 1 : 0.6)).current;
+  
+  useEffect(() => {
+    Animated.timing(opacity, {
+      toValue: focused ? 1 : 0.6,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  }, [focused, opacity]);
+
+  return (
+    <Animated.Text style={[styles.tabLabel, { color, opacity }]}>
+      {label}
+    </Animated.Text>
   );
 }
 
@@ -76,10 +104,15 @@ export default function BottomTabNavigation() {
           shadowOpacity: 0.04,
           shadowRadius: 6,
         },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "600",
-          marginTop: 2,
+        tabBarLabel: ({ focused, color }) => {
+          let labelText = route.name;
+          if (route.name === "Home") labelText = "Home";
+          if (route.name === "Bookings") labelText = "Bookings";
+          if (route.name === "Offers") labelText = "Offers";
+          if (route.name === "Help") labelText = "Help";
+          if (route.name === "Account") labelText = "Account";
+          
+          return <AnimatedTabBarLabel focused={focused} color={color} label={labelText} />;
         },
         tabBarIcon: ({ color, focused }) => {
           let iconName;
@@ -114,5 +147,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     height: 28,
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+    textAlign: 'center',
   },
 });

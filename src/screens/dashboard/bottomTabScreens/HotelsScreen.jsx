@@ -9,6 +9,8 @@ import {
   View,
   useWindowDimensions,
   Platform,
+  Animated,
+  Easing,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -57,7 +59,7 @@ const formatApiDate = (date) => {
 };
 
 const SkylineSVG = () => (
-  <Svg width="100%" height={scale(56)} viewBox="0 0 380 56" preserveAspectRatio="none">
+  <Svg width="120%" height={scale(56)} viewBox="0 0 380 56" preserveAspectRatio="none" style={{ left: '-10%' }}>
     <Circle cx="320" cy="16" r="8" fill="#FFFFFF" opacity="0.13" />
     <Rect x="20" y="26" width="16" height="30" fill="#FFFFFF" opacity="0.13" />
     <Rect x="40" y="16" width="22" height="40" fill="#FFFFFF" opacity="0.13" />
@@ -71,6 +73,30 @@ const SkylineSVG = () => (
     <Rect x="340" y="22" width="20" height="34" fill="#FFFFFF" opacity="0.13" />
   </Svg>
 );
+
+const AnimatedPressable = ({ children, style, onPress, disabled, activeScale = 0.95, wrapperStyle }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+  return (
+    <Pressable
+      style={wrapperStyle}
+      onPressIn={() => {
+        if (disabled) return;
+        Animated.spring(scale, { toValue: activeScale, useNativeDriver: true }).start();
+      }}
+      onPressOut={() => {
+        if (disabled) return;
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
+      }}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Animated.View style={[style, { transform: [{ scale }] }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+};
+
 
 const HotelsScreen = () => {
   const navigation = useNavigation();
@@ -86,7 +112,74 @@ const HotelsScreen = () => {
   
   const suggestionTimer = useRef(null);
 
+  // Animation values
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.85)).current;
+  const titleTranslateX = useRef(new Animated.Value(-15)).current;
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+  const subtitleOpacity = useRef(new Animated.Value(0)).current;
+  const actionsOpacity = useRef(new Animated.Value(0)).current;
+  const actionsScale = useRef(new Animated.Value(0.9)).current;
+  const cardTranslateY = useRef(new Animated.Value(35)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+  const cardScale = useRef(new Animated.Value(0.98)).current;
+  
+  const badgesOpacity = [
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+    useRef(new Animated.Value(0)).current,
+  ];
+  const badgesTranslateY = [
+    useRef(new Animated.Value(15)).current,
+    useRef(new Animated.Value(15)).current,
+    useRef(new Animated.Value(15)).current,
+  ];
+  
+  const skylineTranslateX = useRef(new Animated.Value(0)).current;
+  const ctaArrowTranslateX = useRef(new Animated.Value(0)).current;
+  const destinationIconScale = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
+    // Skyline slow loop
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(skylineTranslateX, { toValue: -20, duration: 25000, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(skylineTranslateX, { toValue: 0, duration: 25000, easing: Easing.linear, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // CTA Arrow idle loop
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(ctaArrowTranslateX, { toValue: 4, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(ctaArrowTranslateX, { toValue: 0, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    ).start();
+
+    // Entrance Animation Sequence
+    Animated.stagger(150, [
+      Animated.parallel([
+        Animated.timing(logoOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(logoScale, { toValue: 1, friction: 6, tension: 50, useNativeDriver: true }),
+        Animated.timing(titleOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(titleTranslateX, { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
+        Animated.timing(actionsOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(actionsScale, { toValue: 1, friction: 6, tension: 50, useNativeDriver: true }),
+      ]),
+      Animated.timing(subtitleOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.parallel([
+        Animated.timing(cardOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.spring(cardTranslateY, { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
+        Animated.spring(cardScale, { toValue: 1, friction: 7, tension: 40, useNativeDriver: true }),
+      ]),
+      Animated.stagger(100, badgesOpacity.map((op, i) => 
+        Animated.parallel([
+          Animated.timing(op, { toValue: 1, duration: 300, useNativeDriver: true }),
+          Animated.spring(badgesTranslateY[i], { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
+        ])
+      ))
+    ]).start();
+
     return () => {
       if (suggestionTimer.current) clearTimeout(suggestionTimer.current);
     };
@@ -259,27 +352,29 @@ const HotelsScreen = () => {
             <SafeAreaView edges={["top"]} style={styles.safeArea}>
               <View style={styles.headerRow}>
                 <View style={styles.logoTitleGroup}>
-                  <View style={styles.logoBox}>
+                  <Animated.View style={[styles.logoBox, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
                     <Building2 size={scale(20)} color="#C0272D" />
-                  </View>
+                  </Animated.View>
                   <View>
-                    <Text style={styles.appName}>PickNBook</Text>
-                    <Text style={styles.appSubtitle}>Smart travel. Easy booking.</Text>
+                    <Animated.Text style={[styles.appName, { opacity: titleOpacity, transform: [{ translateX: titleTranslateX }] }]}>PickNBook</Animated.Text>
+                    <Animated.Text style={[styles.appSubtitle, { opacity: subtitleOpacity }]}>Smart travel. Easy booking.</Animated.Text>
                   </View>
                 </View>
-                <View style={styles.headerActions}>
-                  <Pressable style={styles.helpButton}>
+                <Animated.View style={[styles.headerActions, { opacity: actionsOpacity, transform: [{ scale: actionsScale }] }]}>
+                  <AnimatedPressable style={styles.helpButton} activeScale={0.92}>
                     <Headphones size={scale(14)} color="#FFFFFF" />
                     <Text style={styles.helpText}>Help</Text>
-                  </Pressable>
-                  <Pressable style={styles.notificationButton}>
+                  </AnimatedPressable>
+                  <AnimatedPressable style={styles.notificationButton} activeScale={0.92}>
                     <Bell size={scale(16)} color="#FFFFFF" />
                     <View style={styles.notificationDot} />
-                  </Pressable>
-                </View>
+                  </AnimatedPressable>
+                </Animated.View>
               </View>
               <View style={styles.skylineContainer}>
-                <SkylineSVG />
+                <Animated.View style={{ transform: [{ translateX: skylineTranslateX }] }}>
+                  <SkylineSVG />
+                </Animated.View>
               </View>
             </SafeAreaView>
           </LinearGradient>
@@ -287,17 +382,23 @@ const HotelsScreen = () => {
 
         {/* Search Card */}
         <View style={styles.cardContainer}>
-          <View style={styles.card}>
+          <Animated.View style={[styles.card, { opacity: cardOpacity, transform: [{ translateY: cardTranslateY }, { scale: cardScale }] }]}>
             <Text style={styles.label}>DESTINATION CITY</Text>
             <View style={[styles.inputContainer, showSuggestions && styles.inputContainerActive]}>
-              <View style={styles.inputIconChip}>
+              <Animated.View style={[styles.inputIconChip, { transform: [{ scale: destinationIconScale }] }]}>
                 <Building2 size={scale(14)} color="#C0272D" />
-              </View>
+              </Animated.View>
               <TextInput
                 placeholder="Search City (e.g. Delhi)"
                 placeholderTextColor="#A5A29B"
                 value={destinationInput}
-                onChangeText={handleCityInput}
+                onChangeText={(text) => {
+                  Animated.sequence([
+                    Animated.timing(destinationIconScale, { toValue: 0.9, duration: 50, useNativeDriver: true }),
+                    Animated.timing(destinationIconScale, { toValue: 1, duration: 150, useNativeDriver: true })
+                  ]).start();
+                  handleCityInput(text);
+                }}
                 style={styles.input}
                 onFocus={() => {
                    if (destinationInput.trim().length >= 2) setShowSuggestions(true);
@@ -343,33 +444,33 @@ const HotelsScreen = () => {
               </View>
             )}
 
-
-
             <View style={[styles.dateRow, width < 340 && styles.dateRowStacked]}>
               <View style={styles.dateBox}>
                 <Text style={styles.label}>CHECK-IN</Text>
-                <Pressable
+                <AnimatedPressable
                   style={styles.dateInput}
+                  activeScale={0.96}
                   onPress={() => setShowCheckInPicker(true)}
                 >
                   <CalendarDays size={scale(16)} color="#C0272D" />
                   <Text style={styles.dateText}>
                     {formatDisplayDate(checkInDate)}
                   </Text>
-                </Pressable>
+                </AnimatedPressable>
               </View>
 
               <View style={styles.dateBox}>
                 <Text style={styles.label}>CHECK-OUT</Text>
-                <Pressable
+                <AnimatedPressable
                   style={styles.dateInput}
+                  activeScale={0.96}
                   onPress={() => setShowCheckOutPicker(true)}
                 >
                   <CalendarDays size={scale(16)} color="#C0272D" />
                   <Text style={styles.dateText}>
                     {formatDisplayDate(checkOutDate)}
                   </Text>
-                </Pressable>
+                </AnimatedPressable>
               </View>
             </View>
 
@@ -377,10 +478,10 @@ const HotelsScreen = () => {
             <View style={styles.roomsHeader}>
               <Text style={styles.roomsTitle}>Rooms and guests <Text style={styles.roomsTitleCount}>({roomGuests.length})</Text></Text>
               {roomGuests.length < 4 && (
-                <Pressable style={styles.addRoomBtn} onPress={handleAddRoom}>
+                <AnimatedPressable style={styles.addRoomBtn} onPress={handleAddRoom} activeScale={0.9}>
                   <Plus size={scale(12)} color="#C0272D" />
                   <Text style={styles.addRoomText}>Add room</Text>
-                </Pressable>
+                </AnimatedPressable>
               )}
             </View>
 
@@ -401,38 +502,42 @@ const HotelsScreen = () => {
                     <View style={styles.guestControlBox}>
                       <Text style={styles.guestSubLabel}>Adults (12+)</Text>
                       <View style={styles.stepper}>
-                        <Pressable
+                        <AnimatedPressable
                           style={styles.stepperBtn}
+                          activeScale={0.8}
                           onPress={() => handleUpdateAdults(rIdx, -1)}
                         >
                           <Minus size={scale(14)} color="#C0272D" />
-                        </Pressable>
+                        </AnimatedPressable>
                         <Text style={styles.stepperValue}>{room.NoOfAdults}</Text>
-                        <Pressable
+                        <AnimatedPressable
                           style={styles.stepperBtn}
+                          activeScale={0.8}
                           onPress={() => handleUpdateAdults(rIdx, 1)}
                         >
                           <Plus size={scale(14)} color="#C0272D" />
-                        </Pressable>
+                        </AnimatedPressable>
                       </View>
                     </View>
 
                     <View style={styles.guestControlBox}>
                       <Text style={styles.guestSubLabel}>Children (0-11)</Text>
                       <View style={styles.stepper}>
-                        <Pressable
+                        <AnimatedPressable
                           style={styles.stepperBtn}
+                          activeScale={0.8}
                           onPress={() => handleUpdateChildren(rIdx, -1)}
                         >
                           <Minus size={scale(14)} color="#C0272D" />
-                        </Pressable>
+                        </AnimatedPressable>
                         <Text style={styles.stepperValue}>{room.NoOfChild}</Text>
-                        <Pressable
+                        <AnimatedPressable
                           style={styles.stepperBtn}
+                          activeScale={0.8}
                           onPress={() => handleUpdateChildren(rIdx, 1)}
                         >
                           <Plus size={scale(14)} color="#C0272D" />
-                        </Pressable>
+                        </AnimatedPressable>
                       </View>
                     </View>
                   </View>
@@ -462,7 +567,7 @@ const HotelsScreen = () => {
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <Pressable onPress={handleSearch} disabled={loading} style={({ pressed }) => [styles.searchButtonWrapper, pressed && { opacity: 0.9 }]}>
+            <AnimatedPressable onPress={handleSearch} disabled={loading} wrapperStyle={styles.searchButtonWrapper} activeScale={0.97}>
               <LinearGradient
                 colors={["#CB2E33", "#B0242A"]}
                 style={styles.searchButtonGradient}
@@ -473,27 +578,29 @@ const HotelsScreen = () => {
                   <View style={styles.searchButtonContent}>
                     <Search size={scale(16)} color="#ffffff" />
                     <Text style={styles.searchButtonText}>Search hotels</Text>
-                    <ArrowRight size={scale(16)} color="#ffffff" />
+                    <Animated.View style={{ transform: [{ translateX: ctaArrowTranslateX }] }}>
+                      <ArrowRight size={scale(16)} color="#ffffff" />
+                    </Animated.View>
                   </View>
                 )}
               </LinearGradient>
-            </Pressable>
-          </View>
+            </AnimatedPressable>
+          </Animated.View>
 
           {/* Trust Badges */}
           <View style={styles.trustBadgesRow}>
-            <View style={styles.trustBadge}>
+            <Animated.View style={[styles.trustBadge, { opacity: badgesOpacity[0], transform: [{ translateY: badgesTranslateY[0] }] }]}>
               <ShieldCheck size={scale(20)} color="#C0272D" />
               <Text style={styles.trustBadgeText}>Safe and secure</Text>
-            </View>
-            <View style={styles.trustBadge}>
+            </Animated.View>
+            <Animated.View style={[styles.trustBadge, { opacity: badgesOpacity[1], transform: [{ translateY: badgesTranslateY[1] }] }]}>
               <Ticket size={scale(20)} color="#C0272D" />
               <Text style={styles.trustBadgeText}>Easy cancellation</Text>
-            </View>
-            <View style={styles.trustBadge}>
+            </Animated.View>
+            <Animated.View style={[styles.trustBadge, { opacity: badgesOpacity[2], transform: [{ translateY: badgesTranslateY[2] }] }]}>
               <Clock size={scale(20)} color="#C0272D" />
               <Text style={styles.trustBadgeText}>Real-time rates</Text>
-            </View>
+            </Animated.View>
           </View>
         </View>
       </ScrollView>
@@ -630,14 +737,14 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: scale(20),
-    paddingTop: scale(22),
-    paddingHorizontal: scale(18),
-    paddingBottom: scale(20),
-    shadowColor: "rgba(30,20,20,0.10)",
-    shadowOffset: { width: 0, height: scale(12) },
+    paddingTop: scale(24),
+    paddingHorizontal: scale(20),
+    paddingBottom: scale(22),
+    shadowColor: "rgba(30,20,20,0.08)",
+    shadowOffset: { width: 0, height: scale(16) },
     shadowOpacity: 1,
-    shadowRadius: scale(28),
-    elevation: 8,
+    shadowRadius: scale(36),
+    elevation: 12,
   },
   label: {
     fontSize: scale(12),

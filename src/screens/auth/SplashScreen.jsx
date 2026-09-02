@@ -3,6 +3,8 @@ import { Animated, Easing, StyleSheet, Text, View, useWindowDimensions, Image } 
 import { getStoredAuthToken, clearAuthSession, isJwtExpired } from "../../utils/authSession";
 import { LinearGradient } from 'expo-linear-gradient';
 import { Bus, Building2, Plane } from 'lucide-react-native';
+import MaskedView from '@react-native-masked-view/masked-view';
+import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 const SPLASH_DURATION_MS = 3400;
 
@@ -11,6 +13,38 @@ const SERVICES = [
   { id: 'hotel', title: 'Hotel Booking', desc: 'Find Your Perfect Stay.', label: 'Hotels', Icon: Building2 },
   { id: 'flight', title: 'Flight Booking', desc: 'Fly To Your Next Adventure.', label: 'Flights', Icon: Plane },
 ];
+
+const FadedHeroImage = ({ source, style }) => (
+  <MaskedView
+    style={{ width: '100%', height: '100%' }}
+    maskElement={
+      <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+        <Svg height="100%" width="100%">
+          <Defs>
+            <RadialGradient
+              id="fadeGrad"
+              cx="50%"
+              cy="50%"
+              rx="50%"
+              ry="50%"
+              fx="50%"
+              fy="50%"
+              gradientUnits="userSpaceOnUse"
+            >
+              <Stop offset="0.35" stopColor="#000" stopOpacity="1" />
+              <Stop offset="0.75" stopColor="#000" stopOpacity="0" />
+            </RadialGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#fadeGrad)" />
+        </Svg>
+      </View>
+    }
+  >
+    <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
+      <Image source={source} style={style} />
+    </View>
+  </MaskedView>
+);
 
 const SplashScreen = ({ navigation }) => {
   const { width, height } = useWindowDimensions();
@@ -169,13 +203,13 @@ const SplashScreen = ({ navigation }) => {
 
       <View style={styles.heroSection}>
         <Animated.View style={[styles.heroImageContainer, { opacity: heroOpacities[0], transform: [{ scale: heroScales[0] }, { translateY: heroTranslateYs[0] }] }]}>
-          <Image source={require('../../../assets/splash/bus-hero.jpg')} style={styles.heroImage} />
+          <FadedHeroImage source={require('../../../assets/splash/bus-hero.jpg')} style={styles.heroImage} />
         </Animated.View>
         <Animated.View style={[styles.heroImageContainer, { opacity: heroOpacities[1], transform: [{ scale: heroScales[1] }, { translateY: heroTranslateYs[1] }] }]}>
-          <Image source={require('../../../assets/splash/hotel-hero.jpg')} style={styles.heroImage} />
+          <FadedHeroImage source={require('../../../assets/splash/hotel-hero.jpg')} style={styles.heroImage} />
         </Animated.View>
         <Animated.View style={[styles.heroImageContainer, { opacity: heroOpacities[2], transform: [{ scale: heroScales[2] }, { translateY: heroTranslateYs[2] }] }]}>
-          <Image source={require('../../../assets/splash/flight-hero.jpg')} style={styles.heroImage} />
+          <FadedHeroImage source={require('../../../assets/splash/flight-hero.jpg')} style={styles.heroImage} />
         </Animated.View>
       </View>
 
