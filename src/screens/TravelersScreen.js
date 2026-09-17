@@ -62,7 +62,7 @@ function extractErrorMessage(error, fallback = "Something went wrong.") {
 
 // ─── Type badge colors ──────────────────────────────────────────────────────
 const TYPE_BADGE = {
-  Adult: { bg: "#EFF6FF", text: "#2563EB" },
+  Adult: { bg: "#FEF2F2", text: "#E5383F" },
   Child: { bg: "#FFF7ED", text: "#EA580C" },
   Infant: { bg: "#F5F3FF", text: "#7C3AED" },
 };
@@ -848,7 +848,7 @@ const styles = StyleSheet.create({
   retryText: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#2563EB",
+    color: "#E5383F",
     marginLeft: 8,
   },
 
@@ -1004,7 +1004,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#2563EB",
+    backgroundColor: "#E5383F",
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 14,
@@ -1023,11 +1023,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#2563EB",
+    backgroundColor: "#E5383F",
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderRadius: 16,
-    shadowColor: "#2563EB",
+    shadowColor: "#E5383F",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -1162,7 +1162,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   dropdownOptionActive: {
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#FEF2F2",
   },
   dropdownOptionText: {
     fontSize: 15,
@@ -1170,13 +1170,13 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   dropdownOptionTextActive: {
-    color: "#2563EB",
+    color: "#E5383F",
     fontWeight: "600",
   },
 
   // ── Save Button ─────────────────────────────────────────────────────────────
   saveButton: {
-    backgroundColor: "#2563EB",
+    backgroundColor: "#E5383F",
     paddingVertical: 14,
     borderRadius: 14,
     alignItems: "center",

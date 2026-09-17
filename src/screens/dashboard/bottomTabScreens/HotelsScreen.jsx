@@ -12,14 +12,15 @@ import {
   Animated,
   Easing,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getBannerHeight } from "../../../utils/responsive";
 import {
   Building2,
   CalendarDays,
   Search,
   ArrowRight,
-  ArrowLeft,
   ShieldCheck,
   Ticket,
   Clock,
@@ -366,8 +367,8 @@ const HotelsScreen = () => {
         {/* Header Banner */}
         <View style={styles.headerBannerContainer}>
           <ImageBackground
-            source={require("../../../../assets/HotelBanner.jpg")}
-            style={[styles.headerBackground, { height: Math.min(Math.max(screenHeight * 0.34, 200), 300) }]}
+            source={require("../../../../assets/HotelBanner1.jsx.jpg")}
+            style={[styles.headerBackground, { height: getBannerHeight(screenHeight) }]}
             imageStyle={styles.headerBackgroundImage}
             resizeMode="cover"
           >
@@ -387,7 +388,7 @@ const HotelsScreen = () => {
                       }
                     }}
                   >
-                    <ArrowLeft size={scale(28)} color="#1F2937" strokeWidth={3} />
+                    <Ionicons name="chevron-back" size={22} color="#1F2937" />
                   </AnimatedPressable>
               </View>
             </LinearGradient>
@@ -693,19 +694,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: scale(16),
   },
   backButton: {
-    width: scale(46),
-    height: scale(46),
-    borderRadius: scale(23),
-    backgroundColor: "rgba(255,255,255,0.88)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.65)",
-    justifyContent: "center",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
+    justifyContent: "center",
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: scale(3) },
-    shadowOpacity: 0.16,
-    shadowRadius: scale(8),
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
   cardContainer: {
     marginHorizontal: scale(16),

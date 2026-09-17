@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Animated,
-  Easing,
   Image,
   ImageBackground,
   Platform,
@@ -13,11 +12,12 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "@react-navigation/native";
 import * as SecureStore from "expo-secure-store";
+import { getBannerHeight } from "../../../utils/responsive";
 import busImage from "../../../../assets/bus.png";
 import flightImage from "../../../../assets/flight.png";
 import hotelImage from "../../../../assets/hotel.png";
@@ -75,9 +75,13 @@ function AnimatedCard({ children, onPress, style }) {
 }
 
 export default function HomeScreen({ navigation }) {
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(insets.top, Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0);
+  const heroHeight = getBannerHeight(screenHeight);
   const cardWidth = (screenWidth - 48 - CARD_GAP) / 2;
-  const responsiveIconSize = Math.min(Math.max(Math.round(screenWidth * 0.16), 56), 72);
+  const logoHeight = Math.min(Math.max(Math.round(screenWidth * 0.22), 80), 100);
+  const logoWidth = Math.round(logoHeight * 2.5);
   const [user, setUser] = useState({ name: 'User', profileImage: null });
   const [heroContent, setHeroContent] = useState({
     line1: 'Discover More',
@@ -200,10 +204,6 @@ export default function HomeScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
-  /* App icon animations */
-  const iconRotateAnim = useRef(new Animated.Value(0)).current;
-  const iconPulseAnim = useRef(new Animated.Value(0.7)).current;
-
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -217,57 +217,12 @@ export default function HomeScreen({ navigation }) {
         useNativeDriver: true,
       }),
     ]).start();
-
-    // Spring-in on mount, then gentle breathing pulse
-    Animated.sequence([
-      Animated.spring(iconPulseAnim, {
-        toValue: 1,
-        friction: 4,
-        tension: 50,
-        useNativeDriver: true,
-      }),
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(iconPulseAnim, {
-            toValue: 1.08,
-            duration: 1800,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(iconPulseAnim, {
-            toValue: 1,
-            duration: 1800,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ])
-      ),
-    ]).start();
-
-    // Slow continuous rotation of the gradient ring
-    Animated.loop(
-      Animated.timing(iconRotateAnim, {
-        toValue: 1,
-        duration: 6000,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
-    ).start();
   }, []);
-
-  const ringRotate = iconRotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
-  const iconCounterRotate = iconRotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "-360deg"],
-  });
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F4F7FC" />
-      <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent={true} />
+      <SafeAreaView style={styles.safeArea} edges={["left", "right", "bottom"]}>
         <Animated.View
           style={{
             flex: 1,
@@ -283,50 +238,24 @@ export default function HomeScreen({ navigation }) {
             {/* ═══ HERO SECTION WITH BACKGROUND ARTWORK ═══ */}
             <ImageBackground
               source={require("../../../../assets/hero_bus.jpg")}
-              style={styles.heroBgContainer}
+              style={[
+                styles.heroBgContainer,
+                { height: heroHeight },
+              ]}
               imageStyle={styles.heroBgImage}
               resizeMode="cover"
             >
               {/* TOP HEADER BAR */}
-              <View style={styles.headerBar}>
+              <View style={[styles.headerBar, { paddingTop: topInset + 6 }]}>
                 <View style={styles.headerLeft}>
-                  <Pressable
-                    style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
-                  >
-                    {/* Outer pulse wrapper */}
-                    <Animated.View
-                      style={[
-                        styles.appIconPulseWrap,
-                        { transform: [{ scale: iconPulseAnim }] },
-                      ]}
-                    >
-                      {/* Rotating gradient ring */}
-                      <Animated.View
-                        style={{ transform: [{ rotate: ringRotate }] }}
-                      >
-                        <LinearGradient
-                          colors={["#FF3B5C", "#FF7043", "#6D5DF6", "#FF3B5C"]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.appIconGradientRing}
-                        >
-                          {/* Counter-rotating inner — keeps icon upright */}
-                          <Animated.View
-                            style={[
-                              styles.appIconInner,
-                              { transform: [{ rotate: iconCounterRotate }] },
-                            ]}
-                          >
-                            <Image
-                              source={require("../../../../assets/App-Icon.png")}
-                              style={styles.headerAppIcon}
-                              resizeMode="contain"
-                            />
-                          </Animated.View>
-                        </LinearGradient>
-                      </Animated.View>
-                    </Animated.View>
-                  </Pressable>
+                  <Image
+                    source={require("../../../../assets/Splash-Icon.png")}
+                    style={[
+                      styles.headerAppIcon,
+                      { width: logoWidth, height: logoHeight },
+                    ]}
+                    resizeMode="contain"
+                  />
                 </View>
                 <View style={styles.headerRight}>
                   <Pressable
@@ -338,15 +267,8 @@ export default function HomeScreen({ navigation }) {
                   >
                     <Ionicons name="notifications-outline" size={22} color="#111827" />
                   </Pressable>
-
                 </View>
               </View>
-
-              {/* SPACING FOR CLEAN HERO ARTWORK SHOWCASE */}
-              <View style={{ height: 175 }} />
-
-              {/* SPACING AT BOTTOM OF HERO ARTWORK */}
-              <View style={{ height: 35 }} />
             </ImageBackground>
 
             {/* ═══ WHITE SHEET CONTAINER OVERLAPPING HERO ═══ */}
@@ -457,52 +379,26 @@ const styles = StyleSheet.create({
   /* ── Hero Background & Header ── */
   heroBgContainer: {
     width: "100%",
-    paddingTop: Platform.OS === "android" ? 6 : 0,
+    justifyContent: "space-between",
   },
   heroBgImage: {
     opacity: 0.95,
-    transform: [{ translateY: -16 }, { scale: 1.12 }],
   },
   headerBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingLeft: 10,
+    paddingLeft: 0,
     paddingRight: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   headerLeft: {
     justifyContent: "center",
     alignItems: "flex-start",
-  },
-  appIconPulseWrap: {
-    shadowColor: "#FF3B5C",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.55,
-    shadowRadius: 14,
-    elevation: 10,
-  },
-  appIconGradientRing: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 3,
-  },
-  appIconInner: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 26,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
+    marginLeft: -22,
   },
   headerAppIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    resizeMode: "contain",
   },
   headerRight: {
     flexDirection: "row",

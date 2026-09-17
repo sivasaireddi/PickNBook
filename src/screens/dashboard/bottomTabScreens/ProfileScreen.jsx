@@ -338,10 +338,7 @@ const ProfileScreen = () => {
             <Text style={styles.userName}>{displayName}</Text>
             <Text style={styles.userEmail}>{displayEmail}</Text>
             <Text style={styles.userPhone}>{displayPhone}</Text>
-            <View style={styles.memberBadge}>
-              <Ionicons name="star-outline" size={13} color="#D97706" />
-              <Text style={styles.memberBadgeText}>Gold Member</Text>
-            </View>
+
           </View>
 
           <Ionicons name="chevron-forward" size={20} color="#64748B" />
@@ -383,25 +380,7 @@ const ProfileScreen = () => {
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
 
-          <View style={styles.divider} />
 
-          {/* Payment Methods */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            activeOpacity={0.7}
-            onPress={() => setPaymentModalVisible(true)}
-          >
-            <View style={[styles.iconBox, { backgroundColor: '#ECFDF5' }]}>
-              <Ionicons name="card-outline" size={22} color="#10B981" />
-            </View>
-            <View style={styles.menuTextContainer}>
-              <Text style={styles.menuTitle}>Payment Methods</Text>
-              <Text style={styles.menuSubtitle}>Manage cards and wallets</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
 
           {/* Help Center */}
           <TouchableOpacity
@@ -419,59 +398,7 @@ const ProfileScreen = () => {
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>
 
-          <View style={styles.divider} />
 
-          {/* Settings */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            activeOpacity={0.7}
-            onPress={() => setSettingsModalVisible(true)}
-          >
-            <View style={[styles.iconBox, { backgroundColor: '#F8FAFC' }]}>
-              <Ionicons name="settings-outline" size={22} color="#64748B" />
-            </View>
-            <View style={styles.menuTextContainer}>
-              <Text style={styles.menuTitle}>Settings</Text>
-              <Text style={styles.menuSubtitle}>App preferences and settings</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          {/* Create Account Screen Shortcut */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('CreateAccount')}
-          >
-            <View style={[styles.iconBox, { backgroundColor: '#FEF2F2' }]}>
-              <Ionicons name="person-add-outline" size={22} color="#E53935" />
-            </View>
-            <View style={styles.menuTextContainer}>
-              <Text style={styles.menuTitle}>Create Account</Text>
-              <Text style={styles.menuSubtitle}>Register a new user account</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          {/* Sign In Screen Shortcut */}
-          <TouchableOpacity
-            style={styles.menuItem}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('Login')}
-          >
-            <View style={[styles.iconBox, { backgroundColor: '#EFF6FF' }]}>
-              <Ionicons name="log-in-outline" size={22} color="#2563EB" />
-            </View>
-            <View style={styles.menuTextContainer}>
-              <Text style={styles.menuTitle}>Sign In / Login</Text>
-              <Text style={styles.menuSubtitle}>Access your account with credentials</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-          </TouchableOpacity>
         </View>
 
         {/* Logout Button Card */}
@@ -493,8 +420,7 @@ const ProfileScreen = () => {
           </View>
         </TouchableOpacity>
 
-        {/* Version Footer */}
-        <Text style={styles.versionText}>Version 1.0.0</Text>
+
       </ScrollView>
 
       {/* Modal 1: Edit Profile Modal */}

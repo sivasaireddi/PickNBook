@@ -50,7 +50,7 @@ function TabBarIcon({ name, focused, color }) {
     inputRange: [0, 1],
     outputRange: [1, 1.08],
   });
-  
+
   const translateY = animValue.interpolate({
     inputRange: [0, 1],
     outputRange: [0, -3],
@@ -67,7 +67,7 @@ function TabBarIcon({ name, focused, color }) {
 
 function AnimatedTabBarLabel({ focused, label, color }) {
   const opacity = useRef(new Animated.Value(focused ? 1 : 0.6)).current;
-  
+
   useEffect(() => {
     Animated.timing(opacity, {
       toValue: focused ? 1 : 0.6,
@@ -114,7 +114,7 @@ export default function BottomTabNavigation() {
           if (route.name === "Offers") labelText = "Offers";
           if (route.name === "Help") labelText = "Help";
           if (route.name === "Account") labelText = "Account";
-          
+
           return <AnimatedTabBarLabel focused={focused} color={color} label={labelText} />;
         },
         tabBarIcon: ({ color, focused }) => {

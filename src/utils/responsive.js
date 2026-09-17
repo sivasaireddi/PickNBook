@@ -28,6 +28,11 @@ export const scale = (size) => {
   return PixelRatio.roundToNearestPixel(clampedSize);
 };
 
+export const getBannerHeight = (height) => {
+  const h = height || screenHeight || Dimensions.get("window").height;
+  return Math.min(Math.max(h * 0.34, 200), 300);
+};
+
 export const wp = widthPercentageToDP;
 export const hp = heightPercentageToDP;
 
