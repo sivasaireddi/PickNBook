@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { API_BASE_URL } from "../constants/config";
 
 // Base URL resolution order:
 // 1. EXPO_PUBLIC_API_BASE_URL (recommended for Expo Go)
@@ -10,8 +11,7 @@ import Constants from "expo-constants";
 // - local network IP: http://192.168.x.x:5207
 // - ngrok tunnel: https://xxxx.ngrok-free.dev
 // - emulator/simulator host aliases when appropriate
-const DEFAULT_API_BASE_URL =
-  "https://paycheck-baton-overfull.ngrok-free.dev";
+const DEFAULT_API_BASE_URL = API_BASE_URL;
 
 const readExtraBaseUrl = () =>
   Constants?.expoConfig?.extra?.apiBaseUrl ||
@@ -19,10 +19,7 @@ const readExtraBaseUrl = () =>
   Constants?.manifest2?.extra?.apiBaseUrl ||
   "";
 
-export let AUTH_API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ||
-  readExtraBaseUrl() ||
-  DEFAULT_API_BASE_URL;
+export let AUTH_API_BASE_URL = DEFAULT_API_BASE_URL;
 
 export function toAuthUrl(endpoint) {
   const baseUrl = String(AUTH_API_BASE_URL || "").replace(/\/+$/, "");
@@ -228,3 +225,116 @@ export async function requestAuth(
 
   return payload;
 }
+
+export async function sendLoginOtp(phoneNumber) {
+  return await requestAuth(
+    "/api/Auth/send-login-otp",
+    {
+      method: "POST",
+      body: JSON.stringify({ phoneNumber }),
+    },
+    "Failed to send OTP. Please check the mobile number."
+  );
+}
+
+export async function verifyLoginOtp(phoneNumber, otp, guestId = null) {
+  const headers = {};
+  if (guestId) {
+    headers["X-Guest-Id"] = guestId;
+  }
+
+  return await requestAuth(
+    "/api/Auth/verify-login-otp",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ phoneNumber: format10DigitPhoneNumber(phoneNumber), otp }),
+    },
+    "Invalid or expired OTP."
+  );
+}
+
+export function format10DigitPhoneNumber(phone) {
+  if (!phone) return "";
+  const cleaned = String(phone).replace(/\D/g, "");
+  if (cleaned.length === 12 && cleaned.startsWith("91")) {
+    return cleaned.slice(2);
+  }
+  if (cleaned.length > 10) {
+    return cleaned.slice(-10);
+  }
+  return cleaned;
+}
+
+export async function sendRegistrationOtp({ channel = "Mobile", phoneNumber, email }) {
+  const formattedChannel = channel === "Email" || channel === "email" ? "Email" : "Mobile";
+  const bodyPayload = {
+    channel: formattedChannel,
+  };
+
+  if (formattedChannel === "Mobile") {
+    bodyPayload.phoneNumber = format10DigitPhoneNumber(phoneNumber);
+  } else {
+    bodyPayload.email = String(email || "").trim().toLowerCase();
+  }
+
+  return await requestAuth(
+    "/api/Auth/send-registration-otp",
+    {
+      method: "POST",
+      body: JSON.stringify(bodyPayload),
+    },
+    "Failed to send registration OTP.",
+    { timeoutMs: 45000 }
+  );
+}
+
+export async function verifyRegistrationOtp({ channel = "Mobile", phoneNumber, email, otp }) {
+  const formattedChannel = channel === "Email" || channel === "email" ? "Email" : "Mobile";
+  const bodyPayload = {
+    channel: formattedChannel,
+    otp: String(otp || "").trim(),
+  };
+
+  if (formattedChannel === "Mobile") {
+    bodyPayload.phoneNumber = format10DigitPhoneNumber(phoneNumber);
+  } else {
+    bodyPayload.email = String(email || "").trim().toLowerCase();
+  }
+
+  return await requestAuth(
+    "/api/Auth/verify-registration-otp",
+    {
+      method: "POST",
+      body: JSON.stringify(bodyPayload),
+    },
+    "OTP verification failed. Please check the entered code."
+  );
+}
+
+export async function registerUser(
+  { firstName, lastName, phoneNumber, email, password },
+  guestId = null
+) {
+  const headers = {};
+  if (guestId) {
+    headers["X-Guest-Id"] = guestId;
+  }
+
+  return await requestAuth(
+    "/api/Auth/register",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        firstName: String(firstName || "").trim(),
+        lastName: String(lastName || "").trim(),
+        phoneNumber: format10DigitPhoneNumber(phoneNumber),
+        email: String(email || "").trim().toLowerCase(),
+        password: String(password || ""),
+      }),
+    },
+    "User registration failed. Please try again."
+  );
+}
+

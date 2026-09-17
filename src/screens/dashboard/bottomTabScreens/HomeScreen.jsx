@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Animated,
-  Dimensions,
+  Easing,
   Image,
   ImageBackground,
   Platform,
@@ -10,6 +10,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,11 +18,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "@react-navigation/native";
 import * as SecureStore from "expo-secure-store";
-import FeaturedOffers from "./FeaturedOffers";
+import busImage from "../../../../assets/bus.png";
+import flightImage from "../../../../assets/flight.png";
+import hotelImage from "../../../../assets/hotel.png";
+import myBookingsImage from "../../../../assets/mybookings.png";
 
-const { width } = Dimensions.get("window");
 const CARD_GAP = 14;
-const CARD_WIDTH = (width - 40 - CARD_GAP) / 2; // 2x2 grid column width
 
 const COLORS = {
   primary: "#FF3B5C",
@@ -73,18 +75,16 @@ function AnimatedCard({ children, onPress, style }) {
 }
 
 export default function HomeScreen({ navigation }) {
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = (screenWidth - 48 - CARD_GAP) / 2;
+  const responsiveIconSize = Math.min(Math.max(Math.round(screenWidth * 0.16), 56), 72);
   const [user, setUser] = useState({ name: 'User', profileImage: null });
   const [heroContent, setHeroContent] = useState({
-    line1: 'Explore',
-    line2: 'Your Next',
+    line1: 'Discover More',
+    line2: 'With Every',
     highlight: 'Journey',
   });
-  const [weather, setWeather] = useState({
-    temperature: '--',
-    city: 'Loading...',
-    condition: 'Sunny',
-    icon: 'sunny',
-  });
+
 
   useFocusEffect(
     useCallback(() => {
@@ -93,7 +93,7 @@ export default function HomeScreen({ navigation }) {
         try {
           const storedUser = await SecureStore.getItemAsync('user');
           const savedImage = await SecureStore.getItemAsync('profileImage');
-          
+
           let userName = 'User';
           let userImage = null;
 
@@ -119,15 +119,9 @@ export default function HomeScreen({ navigation }) {
         setTimeout(() => {
           if (isActive) {
             setHeroContent({
-              line1: 'Explore',
-              line2: 'Your Next',
+              line1: 'Discover More',
+              line2: 'With Every',
               highlight: 'Journey',
-            });
-            setWeather({
-              temperature: 28,
-              city: 'Hyderabad',
-              condition: 'Sunny',
-              icon: 'sunny',
             });
           }
         }, 500);
@@ -135,7 +129,7 @@ export default function HomeScreen({ navigation }) {
 
       loadUserData();
       fetchDynamicContent();
-      
+
       return () => { isActive = false; };
     }, [])
   );
@@ -146,8 +140,8 @@ export default function HomeScreen({ navigation }) {
       title: "Buses",
       icon: "bus",
       color: "#FF3B5C",
-      bgGrad: ["#FFE0E6", "#FFBCC7"],
-      description: "Book affordable\nbus tickets",
+      bgGrad: ["#FFF0F3", "#FFDCE3"],
+      image: busImage,
       onPress: () => navigation.navigate("BusScreen"),
     },
     {
@@ -155,8 +149,8 @@ export default function HomeScreen({ navigation }) {
       title: "Flights",
       icon: "airplane",
       color: "#4F8DFF",
-      bgGrad: ["#DBEAFE", "#BFDBFE"],
-      description: "Fly to your\ndream destinations",
+      bgGrad: ["#F0F5FF", "#DCE8FF"],
+      image: flightImage,
       onPress: () => navigation.navigate("FlightScreen"),
     },
     {
@@ -164,8 +158,8 @@ export default function HomeScreen({ navigation }) {
       title: "Hotels",
       icon: "bed",
       color: "#20C997",
-      bgGrad: ["#D1FAE5", "#A7F3D0"],
-      description: "Find cozy\nstays",
+      bgGrad: ["#E8F8F0", "#D3F4E3"],
+      image: hotelImage,
       onPress: () => navigation.navigate("Hotels"),
     },
     {
@@ -173,8 +167,8 @@ export default function HomeScreen({ navigation }) {
       title: "My Bookings",
       icon: "ticket",
       color: "#6D5DF6",
-      bgGrad: ["#EDE9FE", "#DDD6FE"],
-      description: "Manage your\ntickets",
+      bgGrad: ["#F3F0FF", "#E5DDFF"],
+      image: myBookingsImage,
       onPress: () => navigation.navigate("Bookings"),
     },
   ];
@@ -198,13 +192,17 @@ export default function HomeScreen({ navigation }) {
     {
       name: "Dubai",
       subtitle: "City of Dreams",
-      image: require("../../../../assets/dest_dubai.jpg"),
+      image: require("../../../../assets/HotelBanner.jpg"),
     },
   ];
 
   /* Mount fade-in animation */
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
+
+  /* App icon animations */
+  const iconRotateAnim = useRef(new Animated.Value(0)).current;
+  const iconPulseAnim = useRef(new Animated.Value(0.7)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -219,7 +217,52 @@ export default function HomeScreen({ navigation }) {
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Spring-in on mount, then gentle breathing pulse
+    Animated.sequence([
+      Animated.spring(iconPulseAnim, {
+        toValue: 1,
+        friction: 4,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(iconPulseAnim, {
+            toValue: 1.08,
+            duration: 1800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(iconPulseAnim, {
+            toValue: 1,
+            duration: 1800,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ])
+      ),
+    ]).start();
+
+    // Slow continuous rotation of the gradient ring
+    Animated.loop(
+      Animated.timing(iconRotateAnim, {
+        toValue: 1,
+        duration: 6000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    ).start();
   }, []);
+
+  const ringRotate = iconRotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+  const iconCounterRotate = iconRotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "-360deg"],
+  });
 
   return (
     <View style={styles.root}>
@@ -239,59 +282,71 @@ export default function HomeScreen({ navigation }) {
           >
             {/* ═══ HERO SECTION WITH BACKGROUND ARTWORK ═══ */}
             <ImageBackground
-              source={require("../../../../assets/hero_bg.jpg")}
+              source={require("../../../../assets/hero_bus.jpg")}
               style={styles.heroBgContainer}
               imageStyle={styles.heroBgImage}
               resizeMode="cover"
             >
               {/* TOP HEADER BAR */}
               <View style={styles.headerBar}>
-                <Text style={styles.brandName}>PickNBook</Text>
+                <View style={styles.headerLeft}>
+                  <Pressable
+                    style={({ pressed }) => [{ opacity: pressed ? 0.75 : 1 }]}
+                  >
+                    {/* Outer pulse wrapper */}
+                    <Animated.View
+                      style={[
+                        styles.appIconPulseWrap,
+                        { transform: [{ scale: iconPulseAnim }] },
+                      ]}
+                    >
+                      {/* Rotating gradient ring */}
+                      <Animated.View
+                        style={{ transform: [{ rotate: ringRotate }] }}
+                      >
+                        <LinearGradient
+                          colors={["#FF3B5C", "#FF7043", "#6D5DF6", "#FF3B5C"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.appIconGradientRing}
+                        >
+                          {/* Counter-rotating inner — keeps icon upright */}
+                          <Animated.View
+                            style={[
+                              styles.appIconInner,
+                              { transform: [{ rotate: iconCounterRotate }] },
+                            ]}
+                          >
+                            <Image
+                              source={require("../../../../assets/App-Icon.png")}
+                              style={styles.headerAppIcon}
+                              resizeMode="contain"
+                            />
+                          </Animated.View>
+                        </LinearGradient>
+                      </Animated.View>
+                    </Animated.View>
+                  </Pressable>
+                </View>
                 <View style={styles.headerRight}>
                   <Pressable
+                    onPress={() => navigation.navigate("NotificationsScreen")}
                     style={({ pressed }) => [
                       styles.notifBtn,
                       pressed && { opacity: 0.75 },
                     ]}
                   >
                     <Ionicons name="notifications-outline" size={22} color="#111827" />
-                    <View style={styles.notifBadge}>
-                      <Text style={styles.notifBadgeText}>3</Text>
-                    </View>
                   </Pressable>
 
-                  <View style={styles.avatarWrap}>
-                    {user?.profileImage ? (
-                      <Image source={{ uri: user.profileImage }} style={styles.profileImage} />
-                    ) : (
-                      <Ionicons name="person" size={20} color="#FFFFFF" />
-                    )}
-                  </View>
                 </View>
               </View>
 
-              {/* HERO GREETING & HEADLINE & WEATHER */}
-              <View style={styles.heroContentRow}>
-                <View style={styles.heroLeft}>
-                  <Text style={styles.greeting}>{getGreeting()}, {user?.name || 'User'} 👋</Text>
-                  <Text style={styles.headline}>{heroContent?.line1}</Text>
-                  <Text style={styles.headline}>
-                    {heroContent?.line2} <Text style={styles.headlineAccent}>{heroContent?.highlight}</Text>
-                  </Text>
-                </View>
-
-                {/* Weather Floating Pill */}
-                <View style={styles.weatherPill}>
-                  <Ionicons name={weather?.icon ?? "sunny"} size={22} color="#FFB347" />
-                  <View style={styles.weatherInfo}>
-                    <Text style={styles.weatherTemp}>{weather?.temperature ?? '--'}°</Text>
-                    <Text style={styles.weatherCity}>{weather?.city ?? 'Location unavailable'}</Text>
-                  </View>
-                </View>
-              </View>
+              {/* SPACING FOR CLEAN HERO ARTWORK SHOWCASE */}
+              <View style={{ height: 175 }} />
 
               {/* SPACING AT BOTTOM OF HERO ARTWORK */}
-              <View style={{ height: 40 }} />
+              <View style={{ height: 35 }} />
             </ImageBackground>
 
             {/* ═══ WHITE SHEET CONTAINER OVERLAPPING HERO ═══ */}
@@ -302,103 +357,32 @@ export default function HomeScreen({ navigation }) {
                   <AnimatedCard
                     key={action.id}
                     onPress={action.onPress}
-                    style={styles.gridCard}
+                    style={[styles.gridCard, { width: cardWidth, backgroundColor: action.bgGrad[0], borderColor: action.bgGrad[1] }]}
                   >
-                    <View style={styles.cardHeaderRow}>
-                      <LinearGradient
-                        colors={action.bgGrad}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.categoryIconWrap}
-                      >
-                        <Ionicons name={action.icon} size={20} color={action.color} />
-                      </LinearGradient>
+                    <View style={styles.cardImageContainer}>
+                      <Image source={action.image} style={styles.cardBgImage} resizeMode="contain" />
                     </View>
 
-                    <Text style={styles.categoryTitle}>{action.title}</Text>
-                    <Text style={styles.categorySub}>{action.description}</Text>
-
-                    <View style={styles.cardFooterRow}>
+                    <View style={styles.cardContentBottom}>
+                      <Text
+                        style={styles.categoryTitle}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.78}
+                      >
+                        {action.title}
+                      </Text>
                       <View
                         style={[
                           styles.categoryArrow,
                           { backgroundColor: action.color },
                         ]}
                       >
-                        <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+                        <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
                       </View>
                     </View>
                   </AnimatedCard>
                 ))}
-              </View>
-
-              {/* ═══ PROMOTIONAL BANNER ═══ */}
-              <View style={styles.sectionWrap}>
-                <Pressable onPress={() => navigation.navigate("BusScreen")}>
-                  <LinearGradient
-                    colors={["#E53935", "#C2185B"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.promoBanner}
-                  >
-                    <View style={styles.promoLeft}>
-                      <Text style={styles.promoBadgeText}>SUMMER SPECIAL OFFER</Text>
-                      <Text style={styles.promoHeadline}>Save up to 50%</Text>
-                      <Text style={styles.promoSub}>On Bus Tickets</Text>
-
-                      <View style={styles.promoBtn}>
-                        <Text style={styles.promoBtnText}>Book Now</Text>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={14}
-                          color="#E53935"
-                        />
-                      </View>
-                    </View>
-
-                    <View style={styles.promoRight}>
-                      <Image
-                        source={require("../../../../assets/hero_bg.jpg")}
-                        style={styles.promoBusImg}
-                        resizeMode="cover"
-                      />
-                    </View>
-
-                    {/* Carousel Pagination Dots */}
-                    <View style={styles.paginationRow}>
-                      <View style={[styles.dot, styles.dotActive]} />
-                      <View style={styles.dot} />
-                      <View style={styles.dot} />
-                      <View style={styles.dot} />
-                    </View>
-                  </LinearGradient>
-                </Pressable>
-              </View>
-
-              {/* ═══ CONTINUE PLANNING ═══ */}
-              <View style={styles.sectionWrap}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Continue Planning</Text>
-                  <Pressable style={({ pressed }) => pressed && { opacity: 0.7 }}>
-                    <Text style={styles.viewAll}>View all</Text>
-                  </Pressable>
-                </View>
-                <View style={styles.planCard}>
-                  <View style={styles.planIconWrap}>
-                    <Ionicons name="bus" size={20} color={COLORS.primary} />
-                  </View>
-                  <View style={styles.planContent}>
-                    <Text style={styles.planRoute}>
-                      Hyderabad <Text style={styles.planArrowText}>→</Text> Bangalore
-                    </Text>
-                    <Text style={styles.planMeta}>12 Jun 2025  •  1 Adult</Text>
-                  </View>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={20}
-                    color={COLORS.textMuted}
-                  />
-                </View>
               </View>
 
               {/* ═══ TRENDING DESTINATIONS ═══ */}
@@ -443,11 +427,6 @@ export default function HomeScreen({ navigation }) {
                   ))}
                 </ScrollView>
               </View>
-
-              {/* ═══ FEATURED OFFERS ═══ */}
-              <View style={styles.sectionWrap}>
-                <FeaturedOffers />
-              </View>
             </View>
           </ScrollView>
         </Animated.View>
@@ -470,8 +449,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 20,
-    flexGrow: 0,
+    flexGrow: 1,
+    paddingBottom: 40,
+    backgroundColor: "#FFFFFF",
   },
 
   /* ── Hero Background & Header ── */
@@ -480,20 +460,49 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "android" ? 6 : 0,
   },
   heroBgImage: {
-    opacity: 0.9,
+    opacity: 0.95,
+    transform: [{ translateY: -16 }, { scale: 1.12 }],
   },
   headerBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingLeft: 10,
+    paddingRight: 16,
+    paddingVertical: 8,
   },
-  brandName: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#0F172A",
-    letterSpacing: -0.5,
+  headerLeft: {
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  appIconPulseWrap: {
+    shadowColor: "#FF3B5C",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  appIconGradientRing: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 3,
+  },
+  appIconInner: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 26,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  headerAppIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   headerRight: {
     flexDirection: "row",
@@ -564,11 +573,16 @@ const styles = StyleSheet.create({
   heroLeft: {
     flex: 1,
   },
-  greeting: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#475569",
+  greetingRow: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 6,
+    gap: 6,
+  },
+  greeting: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#0F172A",
   },
   headline: {
     fontSize: 34,
@@ -580,6 +594,16 @@ const styles = StyleSheet.create({
   headlineAccent: {
     color: COLORS.primary,
     fontStyle: "italic",
+  },
+  heroSubText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#334155",
+    textShadowColor: "rgba(51, 65, 85, 0.3)",
+    textShadowOffset: { width: 0.5, height: 0.5 },
+    textShadowRadius: 1,
+    marginTop: 12,
+    lineHeight: 20,
   },
 
   /* ── Weather Pill ── */
@@ -614,11 +638,13 @@ const styles = StyleSheet.create({
 
   /* ── White Sheet Container ── */
   whiteSheet: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     marginTop: -20,
     paddingTop: 24,
+    paddingBottom: 36,
     minHeight: 500,
   },
 
@@ -627,17 +653,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     gap: CARD_GAP,
   },
   gridCard: {
-    width: CARD_WIDTH,
-    backgroundColor: COLORS.card,
+    height: 126,
     borderRadius: 20,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 9,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
     shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.04,
@@ -645,33 +669,47 @@ const styles = StyleSheet.create({
     elevation: 3,
     justifyContent: "space-between",
   },
-  cardHeaderRow: {
-    marginBottom: 6,
+  cardImageContainer: {
+    width: '100%',
+    height: 80,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
   },
-  categoryIconWrap: {
-    width: 40,
-    height: 40,
+  busImageWrapper: {
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
+  },
+  busImageScaled: {
+    width: '185%',
+    height: '185%',
+  },
+  cardBgImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'transparent',
+  },
+  cardContentBottom: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 26,
+    gap: 6,
   },
   categoryTitle: {
+    flex: 1,
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: "800",
     color: "#0F172A",
-    marginBottom: 2,
-  },
-  categorySub: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#64748B",
-    lineHeight: 14,
-    marginBottom: 4,
-  },
-  cardFooterRow: {
-    alignItems: "flex-end",
   },
   categoryArrow: {
+    flexShrink: 0,
     width: 26,
     height: 26,
     borderRadius: 13,
@@ -683,6 +721,7 @@ const styles = StyleSheet.create({
   sectionWrap: {
     paddingHorizontal: 20,
     marginTop: 24,
+    paddingBottom: 16,
   },
   sectionHeader: {
     flexDirection: "row",
@@ -833,7 +872,8 @@ const styles = StyleSheet.create({
   /* ── Destinations ── */
   destScroll: {
     gap: 12,
-    paddingRight: 10,
+    paddingRight: 20,
+    paddingVertical: 10,
   },
   destCard: {
     width: 135,

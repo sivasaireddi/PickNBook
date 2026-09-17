@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import * as SecureStore from "expo-secure-store";
+import { API_BASE_URL } from "../../constants/config";
 
 export default function OTPScreen() {
   const navigation = useNavigation();
@@ -29,7 +30,7 @@ export default function OTPScreen() {
       const challengeId = await SecureStore.getItemAsync("challengeId");
 
       const res = await fetch(
-        "https://paycheck-baton-overfull.ngrok-free.dev/api/Auth/admin/login/verify-otp",
+        `${API_BASE_URL}/api/Auth/admin/login/verify-otp`,
         {
           method: "POST",
           headers: {

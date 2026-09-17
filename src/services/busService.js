@@ -1,13 +1,10 @@
 import axios from "axios";
 import Constants from "expo-constants";
 import { getStoredAuthToken } from "../utils/authSession";
+import { API_BASE_URL } from "../constants/config";
 
 const runtimeEnv = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
-let BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ||
-  runtimeEnv.EXPO_PUBLIC_API_BASE_URL ||
-  runtimeEnv.apiBaseUrl ||
-  "https://paycheck-baton-overfull.ngrok-free.dev";
+let BASE_URL = API_BASE_URL;
 
 console.log("[BusService] Resolved API Base URL:", BASE_URL);
 
@@ -155,7 +152,7 @@ export async function searchBuses(params = {}, options = {}) {
     console.log("[BusService] Response:", JSON.stringify(response.data, null, 2));
 
     const responseData = response.data || {};
-    
+
     // Extract traceId and buses list
     const rawTraceId = responseData.traceId ?? responseData.TraceId ?? "";
     let traceId = rawTraceId !== "" ? String(rawTraceId).trim() : "";
@@ -183,8 +180,8 @@ export async function searchBuses(params = {}, options = {}) {
         bus.resultIndex !== undefined && bus.resultIndex !== null
           ? String(bus.resultIndex).trim()
           : (bus.ResultIndex !== undefined && bus.ResultIndex !== null
-              ? String(bus.ResultIndex).trim()
-              : "");
+            ? String(bus.ResultIndex).trim()
+            : "");
 
       const boardingPoints = (bus.BoardingPoints ?? bus.boardingPoints ?? []).map(point => ({
         ...point,
@@ -259,10 +256,10 @@ export async function searchBuses(params = {}, options = {}) {
  */
 function flattenSeats(data) {
   const result = [];
-  
+
   function recurse(item) {
     if (!item) return;
-    
+
     if (Array.isArray(item)) {
       item.forEach(recurse);
     } else if (typeof item === "object") {
@@ -470,17 +467,104 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     decks.forEach(({ seats: deckSeats }) => {
       if (deckSeats.length === 0) return;
 
-      // 1. Map RowNo to sequential horizontal lane indices (0, 1, 2…) for this deck
-      const uniqueRows = [...new Set(deckSeats.map((s) => Number(s.row) || 0))].sort((a, b) => a - b);
+      // Find main row tracks by seat count
+      const rowCounts = new Map();
+      deckSeats.forEach((s) => {
+        const r = Number(s.row) || 0;
+        rowCounts.set(r, (rowCounts.get(r) || 0) + 1);
+      });
+
+      const allUniqueRows = [...rowCounts.keys()].sort((a, b) => a - b);
+      const majorLanes = allUniqueRows.filter((r) => (rowCounts.get(r) || 0) >= 3);
+      const mainLanes = majorLanes.length >= 2 ? majorLanes : allUniqueRows;
+
       const rowGridMap = new Map();
       let aisleAfterGridRow = -1;
-      uniqueRows.forEach((rowVal, idx) => {
-        rowGridMap.set(rowVal, idx);
-        if (idx > 0 && rowVal - uniqueRows[idx - 1] > 1 && aisleAfterGridRow === -1) {
-          aisleAfterGridRow = idx - 1; // Mark the lane right before the gap
+
+      if (mainLanes.length === 3) {
+        // Standard 2+1 layout in India (RHD):
+        // Single seat column MUST be on LEFT (gridRow 0)
+        // Double seat columns MUST be on RIGHT (gridRow 1, 2) under steering wheel
+        const [r0, r1, r2] = mainLanes;
+
+        // Detect whether (r0, r1) is the double pair or (r1, r2) is the double pair
+        let is01Double = false;
+
+        // 1. Check for single prefix ('S') or regular prefix ('R')
+        const r2Seats = deckSeats.filter((s) => Number(s.row) === r2);
+        const r0Seats = deckSeats.filter((s) => Number(s.row) === r0);
+        const r2HasSinglePrefix = r2Seats.some((s) => String(s.seatCode || s.seatName).toUpperCase().startsWith("S"));
+        const r0HasSinglePrefix = r0Seats.some((s) => String(s.seatCode || s.seatName).toUpperCase().startsWith("S"));
+
+        if (r2HasSinglePrefix && !r0HasSinglePrefix) {
+          is01Double = true;
+        } else if (r0HasSinglePrefix && !r2HasSinglePrefix) {
+          is01Double = false;
+        } else {
+          // 2. Check for consecutive seat number pairing between adjacent lanes
+          let consecutive01 = 0;
+          let consecutive12 = 0;
+
+          const extractNum = (str) => {
+            const m = String(str).match(/\d+/);
+            return m ? parseInt(m[0], 10) : null;
+          };
+
+          const cols0Map = new Map(r0Seats.map((s) => [Number(s.column), extractNum(s.seatCode || s.seatName)]));
+          const r1Seats = deckSeats.filter((s) => Number(s.row) === r1);
+          const cols1Map = new Map(r1Seats.map((s) => [Number(s.column), extractNum(s.seatCode || s.seatName)]));
+          const cols2Map = new Map(r2Seats.map((s) => [Number(s.column), extractNum(s.seatCode || s.seatName)]));
+
+          cols1Map.forEach((num1, col) => {
+            const num0 = cols0Map.get(col);
+            const num2 = cols2Map.get(col);
+            if (num0 !== null && num1 !== null && Math.abs(num0 - num1) === 1) consecutive01++;
+            if (num1 !== null && num2 !== null && Math.abs(num1 - num2) === 1) consecutive12++;
+          });
+
+          is01Double = consecutive01 >= consecutive12;
         }
-      });
-      if (uniqueRows.length > maxOverallRows) maxOverallRows = uniqueRows.length;
+
+        if (is01Double) {
+          // r2 is SINGLE (e.g. S1..S10 or U1..U13) -> mapped to LEFT (0)
+          // r0, r1 are DOUBLE (e.g. R1..R20 or U2..U15) -> mapped to RIGHT (1, 2)
+          rowGridMap.set(r2, 0);
+          rowGridMap.set(r0, 1);
+          rowGridMap.set(r1, 2);
+          allUniqueRows.forEach((r) => {
+            if (!rowGridMap.has(r)) rowGridMap.set(r, 1);
+          });
+        } else {
+          // r0 is SINGLE (e.g. Seat 1, 6, 7..) -> mapped to LEFT (0)
+          // r1, r2 are DOUBLE (e.g. Seat 2 & 3..) -> mapped to RIGHT (1, 2)
+          rowGridMap.set(r0, 0);
+          rowGridMap.set(r1, 1);
+          rowGridMap.set(r2, 2);
+          allUniqueRows.forEach((r) => {
+            if (!rowGridMap.has(r)) rowGridMap.set(r, 1);
+          });
+        }
+        aisleAfterGridRow = 0;
+      } else if (mainLanes.length === 4) {
+        // 2+2 layout: 2 on left (0, 1), aisle after 1, 2 on right (2, 3)
+        mainLanes.forEach((r, idx) => rowGridMap.set(r, idx));
+        allUniqueRows.forEach((r) => {
+          if (!rowGridMap.has(r)) rowGridMap.set(r, 1);
+        });
+        aisleAfterGridRow = 1;
+      } else if (mainLanes.length === 2) {
+        // 1+1 layout: 1 on left (0), aisle after 0, 1 on right (1)
+        mainLanes.forEach((r, idx) => rowGridMap.set(r, idx));
+        allUniqueRows.forEach((r) => {
+          if (!rowGridMap.has(r)) rowGridMap.set(r, 0);
+        });
+        aisleAfterGridRow = 0;
+      } else {
+        allUniqueRows.forEach((r, idx) => rowGridMap.set(r, idx));
+        aisleAfterGridRow = Math.floor((allUniqueRows.length - 1) / 2);
+      }
+
+      if (allUniqueRows.length > maxOverallRows) maxOverallRows = allUniqueRows.length;
       if (aisleAfterGridRow !== -1 && globalAisleAfterGridRow === -1) globalAisleAfterGridRow = aisleAfterGridRow;
 
       // 2. Map ColumnNo to vertical grid coordinates starting from 0 for this deck
@@ -496,7 +580,7 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
         const rawCol = Number(seat.column) || 0;
         seat.gridRow = rowGridMap.get(rawRow) ?? 0;
         seat.gridCol = Math.max(0, rawCol - minGridCol);
-        seat.aisleAfterGridRow = aisleAfterGridRow !== -1 ? aisleAfterGridRow : (uniqueRows.length === 3 ? 1 : -1);
+        seat.aisleAfterGridRow = aisleAfterGridRow !== -1 ? aisleAfterGridRow : (allUniqueRows.length === 3 ? 0 : -1);
       });
     });
 
@@ -554,7 +638,7 @@ export async function getBoardingPoints(payload) {
     const response = await client.post("/api/BusBookings/boarding-points", payload);
     console.log("[BusService] getBoardingPoints response status:", response?.status);
     console.log("[BusService] Raw Boarding & Dropping Points API Response:", JSON.stringify(response?.data, null, 2));
-    
+
     const data = response?.data;
     const inner = data?.Result ?? data?.result ?? data?.data ?? data ?? {};
     const bp = inner.BoardingPoints ?? inner.BoardingPointsDetails ?? inner.boardingPoints ?? data?.BoardingPoints ?? [];
@@ -728,7 +812,7 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
       }
     );
 
-    
+
     console.log("[BusService] cancelBusPassengers response status:", response?.status);
     console.log("[BusService] cancelBusPassengers response data:", JSON.stringify(response?.data, null, 2));
     return response.data;

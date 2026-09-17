@@ -5,6 +5,7 @@ import {
   Modal,
   PanResponder,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -73,6 +74,70 @@ const CheckboxRow = ({ label, selected, onPress }) => (
   </TouchableOpacity>
 );
 
+// ─── Memoized Bus Type Card (Pressable for instant touch) ────────────────────
+
+const BUS_TYPE_HIT_SLOP = { top: 6, bottom: 6, left: 4, right: 4 };
+const BUS_TYPE_RIPPLE = { color: "rgba(200, 16, 46, 0.12)", borderless: false };
+
+const BusTypeCard = React.memo(({ value, label, iconName, selected, cardWidth, onToggle }) => {
+  const handlePress = useCallback(() => {
+    onToggle(value);
+  }, [onToggle, value]);
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      hitSlop={BUS_TYPE_HIT_SLOP}
+      android_ripple={BUS_TYPE_RIPPLE}
+      style={({ pressed }) => [
+        styles.gridCard,
+        { width: cardWidth },
+        selected && styles.gridCardActive,
+        pressed && styles.gridCardPressed,
+      ]}
+    >
+      <MaterialCommunityIcons
+        name={iconName}
+        size={24}
+        color={selected ? COLORS.primary : "#445065"}
+      />
+      <Text
+        style={[styles.gridCardText, selected && styles.gridCardTextActive]}
+        numberOfLines={2}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+});
+
+// ─── Memoized Bus Type Grid ──────────────────────────────────────────────────
+
+const BusTypeGrid = React.memo(({ busTypes, selectedBusTypes, cardWidth, onToggle }) => (
+  <FilterCard title="Bus Type">
+    <View style={styles.fourGrid}>
+      {busTypes.map((item) => {
+        const label = item.label ?? item;
+        const value = item.value ?? item.label ?? item;
+        const selected = selectedBusTypes.includes(value);
+        const iconName = item.icon ?? "help-circle-outline";
+
+        return (
+          <BusTypeCard
+            key={value}
+            value={value}
+            label={label}
+            iconName={iconName}
+            selected={selected}
+            cardWidth={cardWidth}
+            onToggle={onToggle}
+          />
+        );
+      })}
+    </View>
+  </FilterCard>
+));
+
 // ─── Dual-thumb Price Slider ─────────────────────────────────────────────────
 
 const PriceSlider = ({ min, max, valueMin, valueMax, onChangeMin, onChangeMax }) => {
@@ -89,13 +154,13 @@ const PriceSlider = ({ min, max, valueMin, valueMax, onChangeMin, onChangeMax })
   const rightRatio = priceToRatio(valueMax ?? max);
 
   // Refs that always hold the latest ratio (updated every render)
-  const leftRatioRef  = useRef(leftRatio);
+  const leftRatioRef = useRef(leftRatio);
   const rightRatioRef = useRef(rightRatio);
-  leftRatioRef.current  = leftRatio;
+  leftRatioRef.current = leftRatio;
   rightRatioRef.current = rightRatio;
 
   // Snapshot ratio captured at the START of each drag — dx is relative to this
-  const leftStartRatio  = useRef(leftRatio);
+  const leftStartRatio = useRef(leftRatio);
   const rightStartRatio = useRef(rightRatio);
 
   // trackWidth ref so PanResponder closures always see the latest value
@@ -105,7 +170,7 @@ const PriceSlider = ({ min, max, valueMin, valueMax, onChangeMin, onChangeMax })
   const leftPan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder:  () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         // Snapshot the ratio exactly where the thumb is right now
         leftStartRatio.current = leftRatioRef.current;
@@ -124,7 +189,7 @@ const PriceSlider = ({ min, max, valueMin, valueMax, onChangeMin, onChangeMax })
   const rightPan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder:  () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         rightStartRatio.current = rightRatioRef.current;
       },
@@ -195,10 +260,9 @@ export default function FilterModal({
   visible,
   onClose,
   filters = createDefaultBusFilters(),
-  setFilters = () => {},
+  setFilters = () => { },
   options = {},
   resultCount,
-  onReset,
 }) {
   const [boardingQuery, setBoardingQuery] = useState("");
   const [droppingQuery, setDroppingQuery] = useState("");
@@ -241,16 +305,24 @@ export default function FilterModal({
     [options?.travels, travelQuery],
   );
 
-  const updateFilterList = (key, value) => {
+  const updateFilterList = useCallback((key, value) => {
     setFilters((current) => ({
       ...current,
       [key]: toggleListValue(current?.[key] ?? [], value),
     }));
-  };
+  }, [setFilters]);
+
+  // Stable callback specifically for Bus Type toggling — avoids re-creating
+  // a closure per card on every render.
+  const toggleBusType = useCallback((value) => {
+    setFilters((current) => ({
+      ...current,
+      busTypes: toggleListValue(current?.busTypes ?? [], value),
+    }));
+  }, [setFilters]);
 
   const clearAll = () => {
-    if (typeof onReset === "function") onReset();
-    else setFilters(createDefaultBusFilters());
+    setFilters(createDefaultBusFilters());
   };
 
   const selectedMin = parsePriceInput(filters?.priceMin) ?? minimumPrice;
@@ -352,15 +424,9 @@ export default function FilterModal({
               <Feather name="filter" size={16} color="#fff" />
               <Text style={styles.headerTitle}>FILTERS</Text>
             </View>
-            <View style={styles.headerActions}>
-              <TouchableOpacity style={styles.resetButton} onPress={clearAll} activeOpacity={0.88}>
-                <Feather name="rotate-ccw" size={18} color="#fff" />
-                <Text style={styles.resetText}>Reset</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.88}>
-                <Feather name="x" size={18} color="#fff" />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.88}>
+              <Feather name="x" size={18} color="#fff" />
+            </TouchableOpacity>
           </View>
 
           <ScrollView
@@ -385,14 +451,13 @@ export default function FilterModal({
               />
             </FilterCard>
 
-            {/* ── Bus Type – 4 columns ── */}
-            {renderGridSection(
-              "Bus Type",
-              busTypes,
-              "busTypes",
-              null,
-              MaterialCommunityIcons,
-            )}
+            {/* ── Bus Type – 4 columns (memoized for instant touch) ── */}
+            <BusTypeGrid
+              busTypes={busTypes}
+              selectedBusTypes={filters?.busTypes ?? []}
+              cardWidth={cardWidth}
+              onToggle={toggleBusType}
+            />
 
             {/* ── Departure Time – 4 columns ── */}
             {renderGridSection(
@@ -413,46 +478,47 @@ export default function FilterModal({
             )}
 
             {/* ── Amenities ── */}
-            <FilterCard title="Amenities">
-              {amenityItems.length > 0 ? (
-                <View style={styles.amenityList}>
-                  {amenityItems.map((item) => {
-                    const selected = (filters?.amenities ?? []).includes(item);
-                    const icon =
-                      item === "Blankets"
-                        ? "blanket"
-                        : item === "Charging Point"
-                        ? "lightning-bolt-outline"
-                        : item === "Pillow"
-                        ? "pillow"
-                        : "checkbox-blank-outline";
-                    return (
-                      <TouchableOpacity
-                        key={item}
-                        style={[styles.amenityRow, selected && styles.amenityRowSelected]}
-                        onPress={() => updateFilterList("amenities", item)}
-                        activeOpacity={0.85}
-                      >
-                        <MaterialCommunityIcons
-                          name={icon}
-                          size={24}
-                          color={selected ? COLORS.primary : "#A0A7B4"}
+            <FilterCard
+              title={
+                (filters?.amenities?.length ?? 0) > 0
+                  ? `Amenities (${filters.amenities.length} selected)`
+                  : "Amenities"
+              }
+            >
+              <View style={styles.searchRow}>
+                <Feather name="search" size={16} color="#6f84a4" />
+                <TextInput
+                  value={amenityQuery}
+                  onChangeText={setAmenityQuery}
+                  placeholder="Search amenities"
+                  placeholderTextColor="#9aa9bf"
+                  style={styles.searchInput}
+                />
+              </View>
+              <View style={styles.optionList}>
+                <ScrollView
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                  style={styles.optionScroll}
+                  contentContainerStyle={styles.optionScrollContent}
+                >
+                  {amenityItems.length > 0 ? (
+                    amenityItems.map((item) => {
+                      const selected = (filters?.amenities ?? []).includes(item);
+                      return (
+                        <CheckboxRow
+                          key={item}
+                          label={item}
+                          selected={selected}
+                          onPress={() => updateFilterList("amenities", item)}
                         />
-                        <Text
-                          style={[
-                            styles.amenityRowText,
-                            selected && styles.amenityRowTextSelected,
-                          ]}
-                        >
-                          {item}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : (
-                <View style={styles.emptyStrip} />
-              )}
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.emptyHint}>No amenities found.</Text>
+                  )}
+                </ScrollView>
+              </View>
             </FilterCard>
 
             {renderListSection(
@@ -512,15 +578,7 @@ const styles = StyleSheet.create({
   },
   headerTitleWrap: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerTitle: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 1 },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  resetButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-  },
-  resetText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+
   closeButton: {
     width: 30,
     height: 30,
@@ -604,6 +662,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   gridCardActive: { borderColor: COLORS.primary, backgroundColor: "#FFF4F4" },
+  gridCardPressed: { opacity: 0.7 },
   gridCardText: {
     marginTop: 6,
     fontSize: 11,
@@ -614,22 +673,7 @@ const styles = StyleSheet.create({
   },
   gridCardTextActive: { color: COLORS.primary },
 
-  // Amenities
-  amenityList: { gap: 12 },
-  amenityRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 62,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: "#F1B9B9",
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-  },
-  amenityRowSelected: { borderColor: COLORS.primary, backgroundColor: "#FFF4F4" },
-  amenityRowText: { marginLeft: 12, fontSize: 15, fontWeight: "600", color: "#2A3550" },
-  amenityRowTextSelected: { color: COLORS.primary },
+  // (amenity styles removed — section now uses shared searchRow/optionList/CheckboxRow styles)
 
   // Search + list
   searchRow: {

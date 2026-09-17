@@ -61,6 +61,7 @@ const extractLabel = (value) => {
   if (value && typeof value === "object") {
     return firstNonEmpty([
       value.name,
+      value.Name,
       value.label,
       value.title,
       value.value,
@@ -221,6 +222,30 @@ const matchesSelection = (itemValues, selectedValues) => {
   });
 };
 
+const matchesAllSelections = (itemValues, selectedValues) => {
+  const selections = uniqueLabels((selectedValues || []).filter(Boolean));
+
+  if (!selections.length) return true;
+
+  const normalizedItemValues = uniqueLabels(itemValues.filter(Boolean));
+
+  if (!normalizedItemValues.length) return false;
+
+  return selections.every((selection) => {
+    const normalizedSelection = normalizeText(selection);
+
+    return normalizedItemValues.some((itemValue) => {
+      const normalizedItemValue = normalizeText(itemValue);
+
+      return (
+        normalizedItemValue === normalizedSelection ||
+        normalizedItemValue.includes(normalizedSelection) ||
+        normalizedSelection.includes(normalizedItemValue)
+      );
+    });
+  });
+};
+
 const matchesPriceRange = (item, priceMin, priceMax) => {
   const hasMin = priceMin !== null;
   const hasMax = priceMax !== null;
@@ -273,6 +298,7 @@ export const buildBusFilterOptions = (items = []) => {
     amenities: uniqueLabels(
       buses.flatMap((item) =>
         collectItemLabels(item, [
+          "Amenities",
           "amenities",
           "amenity",
           "features",
@@ -348,8 +374,9 @@ export const matchesBusFilters = (item, filters = createDefaultBusFilters()) => 
   }
 
   if (
-    !matchesSelection(
+    !matchesAllSelections(
       collectItemLabels(item, [
+        "Amenities",
         "amenities",
         "amenity",
         "features",

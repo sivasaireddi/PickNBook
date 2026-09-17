@@ -21,6 +21,7 @@ import AmenitiesPreview from "./hotelDetailsComponents/AmenitiesPreview";
 import AmenitiesBottomSheet from "./hotelDetailsComponents/AmenitiesBottomSheet";
 import RoomCategoryCard from "./hotelDetailsComponents/RoomCategoryCard";
 import RoomSelectionSheet from "./hotelDetailsComponents/RoomSelectionSheet";
+import { getRatePlanKey } from "./hotelDetailsComponents/RoomRateOption";
 import BookingBottomBar from "./hotelDetailsComponents/BookingBottomBar";
 
 const formatCurrency = (value, currency = "INR") => {
@@ -46,9 +47,9 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
   const routeParams = route?.params || {};
   const activeHotel = routeParams.hotel || contextSelectedHotel || {};
 
-  const targetTraceId = String(routeParams.traceId || session.traceId || activeHotel.traceId || "");
-  const targetSrdvType = String(routeParams.srdvType || session.srdvType || activeHotel.srdvType || "MixAPI");
-  const targetSrdvIndex = String(routeParams.srdvIndex || session.srdvIndex || activeHotel.srdvIndex || "15");
+  const targetTraceId = String(routeParams.traceId || activeHotel.traceId || session.traceId || "");
+  const targetSrdvType = String(routeParams.srdvType || activeHotel.srdvType || session.srdvType || "MixAPI");
+  const targetSrdvIndex = String(routeParams.srdvIndex || activeHotel.srdvIndex || session.srdvIndex || "15");
   const targetResultIndex = String(routeParams.resultIndex || activeHotel.resultIndex || activeHotel.hotelCode || "");
   const targetHotelCode = String(routeParams.hotelCode || activeHotel.hotelCode || activeHotel.resultIndex || "");
 
@@ -106,66 +107,129 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
         }
       } catch (infoErr) {
         console.log("[HotelOfferDetailsScreen] getHotelInfo notice:", infoErr?.message);
+        const fallbackPic = activeHotel.hotelPicture || routeParams.hotelPicture || "";
+        const fallbackImgs = Array.isArray(activeHotel.images) && activeHotel.images.length > 0
+          ? activeHotel.images
+          : (fallbackPic ? [fallbackPic] : []);
+
+        const fallbackFacilities = Array.isArray(activeHotel.facilities)
+          ? activeHotel.facilities.flatMap(f => (f.facilitiesNames ? f.facilitiesNames.map(n => ({ name: n })) : (typeof f === "string" ? [{ name: f }] : [f])))
+          : [];
+
         fetchedDetails = {
-          hotelName: activeHotel.name || activeHotel.hotelName || "Hotel Details",
+          hotelName: activeHotel.name || activeHotel.hotelName || routeParams.hotelName || "Hotel Details",
           hotelCode: targetHotelCode,
-          starRating: activeHotel.rating || 4,
-          address: activeHotel.address || "Address unavailable",
-          city: searchParams?.cityCode || "",
-          images: activeHotel.images || [],
+          starRating: activeHotel.rating || activeHotel.starRating || routeParams.starRating || 4,
+          address: activeHotel.address || activeHotel.hotelAddress || routeParams.hotelAddress || "Address unavailable",
+          city: activeHotel.city || activeHotel.cityName || searchParams?.cityCode || "",
+          state: activeHotel.state || "",
+          countryName: activeHotel.countryName || activeHotel.country || "India",
+          pinCode: activeHotel.pinCode || "",
+          hotelPicture: fallbackPic,
+          images: fallbackImgs,
+          hotelFacilities: fallbackFacilities,
         };
         setHotelDetails(fetchedDetails);
       }
 
       // Step 3: Call GetHotelRoom AFTER GetHotelInfo completes on supplier session
+      let roomsData = [];
       try {
         const roomsRes = await getHotelRoom(payload);
         const roomResData = roomsRes?.getHotelRoomResult || {};
-        const roomsData = roomResData.hotelRoomsDetails || roomResData.HotelRoomDetails || [];
+        roomsData = roomResData.hotelRoomsDetails || roomResData.HotelRoomDetails || [];
+      } catch (roomErr) {
+        console.log("[HotelOfferDetailsScreen] getHotelRoom notice:", roomErr?.message);
+      }
 
-        if (Array.isArray(roomsData) && roomsData.length > 0) {
-          setRoomsList(roomsData);
-          setHotelDetailsData(fetchedDetails || {}, roomsData);
+      // If live room API failed or returned empty, construct room offer from search results
+      if (!Array.isArray(roomsData) || roomsData.length === 0) {
+        if (activeHotel?.price || activeHotel?.offeredFare) {
+          console.log("[HotelOfferDetailsScreen] Utilizing fallback room configuration from search results");
+          const defaultPriceObj = activeHotel.price || {
+            currencyCode: "INR",
+            roomPrice: activeHotel.offeredFare || 0,
+            offeredPrice: activeHotel.offeredFare || 0,
+            publishedPrice: activeHotel.offeredFare || 0,
+            tax: 0,
+            extraGuestCharge: 0,
+            childCharge: 0,
+            otherCharges: 0,
+            discount: 0,
+            agentMarkUp: 50,
+            b2CBasePrice: (activeHotel.offeredFare || 0) + 50,
+            b2CTotalPrice: (activeHotel.offeredFare || 0) + 50,
+          };
 
-          // Auto pre-select initial room slots
-          const initialSlots = [];
-          let flatRoomItems = [];
-          roomsData.forEach((cat) => {
-            (cat.rooms || []).forEach((rm) => {
-              flatRoomItems.push({
-                ...rm,
-                categoryName: cat.categoryName,
-              });
+          const rawFacilities = Array.isArray(activeHotel.facilities)
+            ? activeHotel.facilities.flatMap(f => f.facilitiesNames || (typeof f === "string" ? [f] : []))
+            : ["Free Wi-Fi", "Air Conditioning", "Daily Housekeeping"];
+
+          const roomPhoto = activeHotel.hotelPicture || routeParams.hotelPicture || (activeHotel.images && activeHotel.images[0]) || "";
+
+          roomsData = [
+            {
+              categoryName: "Standard Room",
+              rooms: [
+                {
+                  roomId: `room-${targetHotelCode || "std"}-1`,
+                  roomTypeCode: "STD",
+                  roomTypeName: "Standard Room - Best Available Rate",
+                  ratePlanCode: "EP",
+                  ratePlan: "Room Only",
+                  price: defaultPriceObj,
+                  offeredPrice: defaultPriceObj.offeredPrice || activeHotel.offeredFare || 0,
+                  roomImages: roomPhoto ? [{ image: roomPhoto }] : [],
+                  amenities: rawFacilities.length > 0 ? rawFacilities : ["Free Wi-Fi", "Air Conditioning"],
+                  cancellationPolicy: "Standard refundable cancellation policy applies.",
+                  bedTypes: "1 Double Bed or 2 Twin Beds",
+                  smokingPreference: "NoPreference",
+                },
+              ],
+            },
+          ];
+        }
+      }
+
+      if (Array.isArray(roomsData) && roomsData.length > 0) {
+        setRoomsList(roomsData);
+        setHotelDetailsData(fetchedDetails || {}, roomsData);
+
+        // Only auto-select when the hotel exposes exactly one category with one rate plan.
+        // When multiple rate plans exist, the guest must make the choice explicitly.
+        const initialSlots = [];
+        let flatRoomItems = [];
+        roomsData.forEach((cat) => {
+          (cat.rooms || []).forEach((rm) => {
+            flatRoomItems.push({
+              ...rm,
+              categoryName: cat.categoryName,
             });
           });
+        });
 
-          if (flatRoomItems.length > 0) {
-            for (let i = 0; i < requiredRoomCount; i++) {
-              const roomToPick = flatRoomItems[i] || flatRoomItems[0];
-              initialSlots.push({
-                ...roomToPick,
-                slotIndex: i + 1,
-                traceId: targetTraceId,
-                srdvType: targetSrdvType,
-                srdvIndex: targetSrdvIndex,
-                resultIndex: targetResultIndex,
-                hotelCode: targetHotelCode,
-              });
-            }
+        const hasSingleRatePlan =
+          roomsData.length === 1 &&
+          Array.isArray(roomsData[0]?.rooms) &&
+          roomsData[0].rooms.length === 1;
+
+        if (hasSingleRatePlan && flatRoomItems.length > 0) {
+          for (let i = 0; i < requiredRoomCount; i++) {
+            const roomToPick = flatRoomItems[i] || flatRoomItems[0];
+            initialSlots.push({
+              ...roomToPick,
+              slotIndex: i + 1,
+              traceId: targetTraceId,
+              srdvType: targetSrdvType,
+              srdvIndex: targetSrdvIndex,
+              resultIndex: targetResultIndex,
+              hotelCode: targetHotelCode,
+            });
           }
-          setSelectedRoomSlots(initialSlots);
-        } else {
-          setRoomError("No room inventory available for this hotel on your selected dates.");
         }
-      } catch (roomErr) {
-        const roomErrMsg = roomErr?.message || "Room inventory request failed.";
-        console.log("[HotelOfferDetailsScreen] getHotelRoom error:", roomErrMsg);
-        
-        if (roomErrMsg.toLowerCase().includes("trace id")) {
-          setRoomError("Your search session expired (Trace ID timeout). Please search again to get fresh live rates.");
-        } else {
-          setRoomError(roomErrMsg || "No room inventory available for this hotel.");
-        }
+        setSelectedRoomSlots(initialSlots);
+      } else {
+        setRoomError("No room inventory available for this hotel on your selected dates.");
       }
     } catch (err) {
       console.log("[HotelOfferDetailsScreen] General fetch error:", err?.message);
@@ -263,9 +327,13 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
     );
   }
 
-  const galleryImages = Array.isArray(hotelDetails.images) && hotelDetails.images.length > 0
+  const galleryImages = (Array.isArray(hotelDetails.images) && hotelDetails.images.length > 0
     ? hotelDetails.images.map(img => typeof img === "object" ? (img?.image || img?.url || "") : String(img)).filter(Boolean)
-    : (hotelDetails.hotelPicture ? [hotelDetails.hotelPicture] : []);
+    : [])
+    .concat(
+      hotelDetails.hotelPicture ? [hotelDetails.hotelPicture] : (activeHotel.hotelPicture ? [activeHotel.hotelPicture] : (routeParams.hotelPicture ? [routeParams.hotelPicture] : []))
+    )
+    .filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
 
   const facilities = Array.isArray(hotelDetails.hotelFacilities) ? hotelDetails.hotelFacilities : [];
 
@@ -310,12 +378,22 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
               <Text style={styles.roomErrorTitle}>No Rooms Currently Available</Text>
               <Text style={styles.roomErrorSub}>{roomError}</Text>
 
-              <Pressable
-                style={styles.newSearchBtn}
-                onPress={() => navigation.navigate("DashBoard", { screen: "Hotels" })}
-              >
-                <Text style={styles.newSearchBtnText}>Start New Search</Text>
-              </Pressable>
+              <View style={styles.roomErrorActionRow}>
+                <Pressable
+                  style={styles.retryRoomBtn}
+                  onPress={fetchHotelDetailsAndRooms}
+                >
+                  <Ionicons name="reload-outline" size={15} color="#0F172A" style={{ marginRight: 4 }} />
+                  <Text style={styles.retryRoomBtnText}>Retry</Text>
+                </Pressable>
+
+                <Pressable
+                  style={styles.newSearchBtn}
+                  onPress={() => navigation.navigate("Hotels")}
+                >
+                  <Text style={styles.newSearchBtnText}>Start New Search</Text>
+                </Pressable>
+              </View>
             </View>
           ) : roomsList.length > 0 ? (
             Array.from({ length: requiredRoomCount }).map((_, slotIdx) => {
@@ -331,7 +409,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
                       categoryName={cat.categoryName}
                       rooms={cat.rooms}
                       displayCurrency={displayCurrency}
-                      selectedRoomId={currentSlot?.roomId}
+                      selectedRatePlanKey={getRatePlanKey(currentSlot)}
                       onViewOptions={(categoryName, rooms) => handleOpenOptions(slotIdx, categoryName, rooms)}
                     />
                   ))}
@@ -345,7 +423,8 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
       {!roomError && roomsList.length > 0 && (
         <BookingBottomBar 
           totalPrice={totalPriceSum}
-          roomCount={requiredRoomCount}
+          roomCount={selectedRoomSlots.length}
+          requiredRoomCount={requiredRoomCount}
           displayCurrency={displayCurrency}
           onContinue={handleContinue}
           disabled={selectedRoomSlots.length < requiredRoomCount}
@@ -364,7 +443,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
         onClose={() => setSheetConfig({ ...sheetConfig, visible: false })}
         categoryName={sheetConfig.categoryName}
         rooms={sheetConfig.rooms}
-        selectedRoomId={selectedRoomSlots[sheetConfig.slotIdx]?.roomId}
+        selectedRatePlanKey={getRatePlanKey(selectedRoomSlots[sheetConfig.slotIdx])}
         onSelectRoom={handleSelectRoomFromSheet}
         displayCurrency={displayCurrency}
       />
@@ -453,10 +532,31 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 16,
     lineHeight: 16,
+    maxWidth: "90%",
+  },
+  roomErrorActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  retryRoomBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  retryRoomBtnText: {
+    color: "#0F172A",
+    fontWeight: "700",
+    fontSize: 13,
   },
   newSearchBtn: {
     backgroundColor: "#EF4444",
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 10,
   },
@@ -478,4 +578,3 @@ const styles = StyleSheet.create({
     borderColor: "#E2E8F0",
   },
 });
-

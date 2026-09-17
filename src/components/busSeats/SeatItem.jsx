@@ -1,7 +1,7 @@
-import React, { memo, useEffect } from "react";
+import React, { memo } from "react";
 import {
+  Image,
   StyleSheet,
-  Text,
   View,
   Pressable,
 } from "react-native";
@@ -11,7 +11,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { BUS_SEAT_COLORS, BUS_SEAT_SHADOWS } from "../../theme/busSeatTheme";
-import { moderateScale } from "react-native-size-matters";
 
 const formatPrice = (val = 0) => {
   const num = Number(val);
@@ -46,7 +45,7 @@ const SeatItem = ({
     seat?.gender ?? seat?.seatGender ?? seat?.type ?? ""
   ).toLowerCase();
 
-  // Price determination
+  // Keep the existing fare data path intact; the formatted value is no longer rendered in the seat.
   const priceVal =
     seat?.priceInr ??
     seat?.price ??
@@ -57,7 +56,6 @@ const SeatItem = ({
     seat?.Price?.fare ??
     layoutPrice ??
     0;
-
   const formattedPrice = formatPrice(priceVal);
 
   // Compute theme according to status rules
@@ -79,8 +77,11 @@ const SeatItem = ({
           bgColor: BUS_SEAT_COLORS.femaleBookedBg,
           borderColor: BUS_SEAT_COLORS.femaleBookedBorder,
           stripColor: BUS_SEAT_COLORS.femaleBookedStrip,
+          pillowColor: BUS_SEAT_COLORS.femaleBookedStrip,
+          bottomStripColor: BUS_SEAT_COLORS.femaleBookedStrip,
           textColor: BUS_SEAT_COLORS.femaleBookedText,
           priceColor: BUS_SEAT_COLORS.femaleBookedText,
+          borderWidth: 1.8,
           shadow: null,
         };
       }
@@ -90,6 +91,7 @@ const SeatItem = ({
         stripColor: BUS_SEAT_COLORS.bookedStrip,
         textColor: BUS_SEAT_COLORS.bookedText,
         priceColor: BUS_SEAT_COLORS.bookedText,
+        borderWidth: 1.8,
         shadow: null,
       };
     }
@@ -123,6 +125,7 @@ const SeatItem = ({
       stripColor: BUS_SEAT_COLORS.availableStrip,
       textColor: BUS_SEAT_COLORS.availableText,
       priceColor: BUS_SEAT_COLORS.availablePriceText,
+      borderWidth: 1.8,
       shadow: BUS_SEAT_SHADOWS.card,
     };
   };
@@ -139,15 +142,20 @@ const SeatItem = ({
     pressScale.value = withTiming(1, { duration: 180 });
   };
 
-  const seatLabelFontSize =
-    height < 45 ? 10 :
-    height < 60 ? 11 :
-    12;
-
-  const seatPriceFontSize =
-    height < 45 ? 8 :
-    height < 60 ? 9 :
-    10;
+  const genderImageSource =
+    gender === "female"
+      ? require("../../../assets/woman.png")
+      : !isBooked && gender === "male"
+        ? require("../../../assets/man.png")
+        : null;
+  const seatMinDimension = Math.min(Number(width) || 0, Number(height) || 0);
+  const genderIconSize = Math.max(18, Math.min(40, seatMinDimension * 0.52));
+  const genderIconColor =
+    gender === "female"
+      ? isBooked
+        ? BUS_SEAT_COLORS.femaleBookedText
+        : BUS_SEAT_COLORS.femaleBorder
+      : BUS_SEAT_COLORS.maleText;
 
   return (
     <Animated.View
@@ -168,6 +176,7 @@ const SeatItem = ({
           {
             backgroundColor: theme.bgColor,
             borderColor: theme.borderColor,
+            ...(theme.borderWidth ? { borderWidth: theme.borderWidth } : {}),
           },
           isFilteredOut && styles.filteredOut,
         ]}
@@ -177,40 +186,38 @@ const SeatItem = ({
           style={[
             styles.pillow,
             {
-              backgroundColor: theme.borderColor,
+              backgroundColor: theme.pillowColor || theme.borderColor,
               height: isSleeper ? 5 : 3,
             },
           ]}
         />
 
-        {/* Center Stack: Seat Name (Top) + Price (Below) */}
+        {/* Center gender icon. Seat IDs and fares remain in the data and are not rendered here. */}
         <View style={styles.contentStack}>
-          <Text
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.75}
-            style={[styles.seatName, { color: theme.textColor, fontSize: seatLabelFontSize }]}
-          >
-            {seat.seatName || seat.seatCode}
-          </Text>
-
-          {formattedPrice !== "" && (
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-              style={[styles.priceText, { color: theme.priceColor, fontSize: seatPriceFontSize }]}
-            >
-              {formattedPrice}
-            </Text>
-          )}
+          {genderImageSource ? (
+            <Image
+              source={genderImageSource}
+              style={[
+                styles.genderIcon,
+                {
+                  width: genderIconSize,
+                  height: genderIconSize,
+                  tintColor: genderIconColor,
+                },
+              ]}
+              resizeMode="contain"
+            />
+          ) : null}
         </View>
 
         {/* Bottom Indicator Strip */}
         <View
           style={[
             styles.bottomStrip,
-            { backgroundColor: theme.stripColor },
+            {
+              backgroundColor: theme.bottomStripColor || theme.stripColor,
+              height: theme.bottomStripColor ? (isSleeper ? 5 : 3.5) : undefined,
+            },
           ]}
         />
       </Pressable>
@@ -244,14 +251,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 1.5,
     paddingVertical: 1,
   },
-  seatName: {
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  priceText: {
-    fontWeight: "600",
-    textAlign: "center",
-    marginTop: 0.5,
+  genderIcon: {
+    alignSelf: "center",
+    maxWidth: "100%",
+    maxHeight: "100%",
   },
   bottomStrip: {
     width: "100%",

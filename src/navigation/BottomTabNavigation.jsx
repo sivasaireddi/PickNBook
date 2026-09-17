@@ -77,9 +77,12 @@ function AnimatedTabBarLabel({ focused, label, color }) {
   }, [focused, opacity]);
 
   return (
-    <Animated.Text style={[styles.tabLabel, { color, opacity }]}>
-      {label}
-    </Animated.Text>
+    <View style={{ alignItems: "center" }}>
+      <Animated.Text style={[styles.tabLabel, { color, opacity, fontWeight: focused ? "700" : "500" }]}>
+        {label}
+      </Animated.Text>
+      {focused && <View style={styles.activeIndicator} />}
+    </View>
   );
 }
 
@@ -89,13 +92,13 @@ export default function BottomTabNavigation() {
       initialRouteName="Home"
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: "#FF3B5C",
-        tabBarInactiveTintColor: "#9CA3AF",
+        tabBarActiveTintColor: "#E52332",
+        tabBarInactiveTintColor: "#6B7280",
         tabBarStyle: {
           backgroundColor: "#FFFFFF",
           borderTopWidth: 1,
           borderTopColor: "#F1F5F9",
-          height: Platform.OS === "ios" ? 82 : 62,
+          height: Platform.OS === "ios" ? 84 : 64,
           paddingTop: 6,
           paddingBottom: Platform.OS === "ios" ? 22 : 8,
           elevation: 8,
@@ -150,8 +153,14 @@ const styles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: 11,
-    fontWeight: "600",
     marginTop: 2,
-    textAlign: 'center',
+    textAlign: "center",
+  },
+  activeIndicator: {
+    width: 16,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#E52332",
+    marginTop: 3,
   },
 });

@@ -38,9 +38,7 @@ export default function BusListScreen({ route }) {
     setResultCount(typeof count === "number" ? count : null);
   }, []);
 
-  const resetFilters = useCallback(() => {
-    setFilters(createDefaultBusFilters());
-  }, []);
+
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
@@ -81,7 +79,6 @@ export default function BusListScreen({ route }) {
         setFilters={setFilters}
         options={filterOptions}
         resultCount={resultCount}
-        onReset={resetFilters}
       />
     </SafeAreaView>
   );

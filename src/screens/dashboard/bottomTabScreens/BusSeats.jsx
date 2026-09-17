@@ -18,9 +18,9 @@ import DeckHeader from '../../../components/busSeats/DeckHeader';
 import DriverIndicator from '../../../components/busSeats/DriverIndicator';
 import SeatBottomSheet from '../../../components/busSeats/SeatBottomSheet';
 import { moderateScale } from 'react-native-size-matters';
+import { API_BASE_URL } from '../../../constants/config';
 
-const API_BASE_URL =
-  'https://paycheck-baton-overfull.ngrok-free.dev/api/BusBookings';
+const BUS_SEATS_API_BASE_URL = `${API_BASE_URL}/api/BusBookings`;
 
 const SEAT_SIZE = 38;
 const CELL_GAP = 6;
@@ -48,9 +48,8 @@ const BusSeats = ({ route, navigation }) => {
     try {
       setLoading(true);
       setError('');
-      const response = await axios.get(
-        `${API_BASE_URL}/${encodeURIComponent(String(busId))}/seats`
-      );
+      const url = `${BUS_SEATS_API_BASE_URL}/${encodeURIComponent(String(busId))}/seats`;
+      const response = await axios.get(url);
 
       const nextSeats = Array.isArray(response.data?.seats)
         ? response.data.seats

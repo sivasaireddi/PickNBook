@@ -1,37 +1,69 @@
-const fs = require("fs");
-const path = require("path");
-
-function parseEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return {};
-  const content = fs.readFileSync(filePath, "utf8");
-
-  return content.split(/\r?\n/).reduce((acc, line) => {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#")) return acc;
-
-    const index = trimmed.indexOf("=");
-
-    if (index === -1) return acc;
-
-    acc[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim();
-
-    return acc;
-  }, {});
-}
-
-module.exports = ({ config }) => {
-  const env = parseEnvFile(path.join(__dirname, ".env"));
-
-  return {
-    ...config,
+module.exports = {
+  expo: {
+    name: "PickNbook",
+    slug: "PickNBook",
+    scheme: "picknbook",
+    version: "1.0.0",
+    orientation: "portrait",
+    icon: "./assets/App-Icon.png",
+    userInterfaceStyle: "light",
+    splash: {
+      image: "./assets/Splash-Icon.png",
+      resizeMode: "contain",
+      backgroundColor: "#ffffff"
+    },
+    ios: {
+      supportsTablet: true,
+      infoPlist: {
+        UIBackgroundModes: [
+          "location",
+          "fetch"
+        ]
+      }
+    },
     android: {
-      ...config.android,
-      package: "com.sainimmakayala.picknbook",
+      package: "com.picknbook.com",
+      config: {
+        googleMaps: {
+          apiKey: "AIzaSyB9xc0jsXjB47ClikNaJ4Po0cQRLYaONio"
+        }
+      },
+      adaptiveIcon: {
+        backgroundColor: "#ffffff",
+        foregroundImage: "./assets/App-Icon.png"
+      },
+      permissions: [
+        "INTERNET",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
     },
+    web: {
+      favicon: "./assets/favicon.png"
+    },
+    plugins: [
+      "@react-native-community/datetimepicker",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          locationAlwaysAndWhenInUsePermission: "Allow PickNbook to access your location even in the background.",
+          locationAlwaysPermission: "Allow PickNbook to access your location always.",
+          locationWhenInUsePermission: "Allow PickNbook to access your location while using the app.",
+          isAndroidBackgroundLocationEnabled: true,
+          isAndroidForegroundServiceEnabled: true
+        }
+      ]
+    ],
     extra: {
-      ...config.extra,
-      ...env,
+      EXPO_PUBLIC_API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL,
+      eas: {
+        projectId: "a33e12df-a948-4dd8-8da8-015371c078bf"
+      }
     },
-  };
+    owner: "saireddyvenkata"
+  }
 };

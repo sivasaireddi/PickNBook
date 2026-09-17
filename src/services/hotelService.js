@@ -1,10 +1,9 @@
 import * as SecureStore from "expo-secure-store";
 import axios from "axios";
 import { readApiMessage } from "./authService";
+import { API_BASE_URL } from "../constants/config";
 
-export const HOTEL_API_BASE_URL =
-  process.env.EXPO_PUBLIC_HOTEL_API_BASE_URL ||
-  "https://paycheck-baton-overfull.ngrok-free.dev";
+export const HOTEL_API_BASE_URL = API_BASE_URL;
 
 const DEFAULT_CLIENT_ID = process.env.EXPO_PUBLIC_HOTEL_CLIENT_ID || "180232";
 const DEFAULT_USERNAME = process.env.EXPO_PUBLIC_HOTEL_USERNAME || "PickNBk6";
@@ -56,7 +55,7 @@ const CITY_TO_ID = {
 };
 
 export function resolveCityId(cityInput) {
-  if (!cityInput) return "725862";
+  if (!cityInput) return "";
   const cleanInput = String(cityInput).trim();
   if (/^\d+$/.test(cleanInput)) {
     return cleanInput;
@@ -65,7 +64,7 @@ export function resolveCityId(cityInput) {
   if (CITY_TO_ID[lower]) {
     return CITY_TO_ID[lower];
   }
-  return "725862";
+  return "";
 }
 
 function getDefaultDateString(offsetDays = 0) {
@@ -106,7 +105,7 @@ export async function searchHotelOffers(params = {}) {
     params.cityCode ||
     params.CityCode ||
     params.city ||
-    "725862";
+    "";
 
   const rawCheckIn =
     params.checkInDate || params.CheckInDate || params.checkIn;
@@ -123,6 +122,9 @@ export async function searchHotelOffers(params = {}) {
     params.guestNationality || params.GuestNationality || "IN";
 
   const resolvedCityId = resolveCityId(rawCity);
+  if (!resolvedCityId) {
+    throw new Error("Destination city is required.");
+  }
   const finalCheckInDate =
     typeof rawCheckIn === "string" && rawCheckIn.trim()
       ? rawCheckIn.trim()
@@ -149,10 +151,10 @@ export async function searchHotelOffers(params = {}) {
   const roomGuestsList = Array.isArray(params.RoomGuests || params.roomGuests)
     ? (params.RoomGuests || params.roomGuests)
     : Array.from({ length: Math.max(1, Number(rawRooms) || 1) }, () => ({
-        NoOfAdults: String(rawAdults),
-        NoOfChild: String(rawChildren),
-        ChildAge: childAgesArray,
-      }));
+      NoOfAdults: String(rawAdults),
+      NoOfChild: String(rawChildren),
+      ChildAge: childAgesArray,
+    }));
 
   const payloadBody = {
     EndUserIp: String(params.EndUserIp || params.endUserIp || DEFAULT_END_USER_IP),
@@ -294,19 +296,35 @@ export async function getHotelInfo(payload = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await axios.post(
-    toHotelUrl("/api/Hotels/GetHotelInfo"),
-    formattedPayload,
-    { headers }
-  );
+  try {
+    const response = await axios.post(
+      toHotelUrl("/api/Hotels/GetHotelInfo"),
+      formattedPayload,
+      { headers }
+    );
 
-  console.log("[hotelService] GetHotelInfo API response payload:", JSON.stringify(response?.data, null, 2));
+    console.log("[hotelService] GetHotelInfo API response payload:", JSON.stringify(response?.data, null, 2));
 
-  if (response?.data?.hotelInfoResult?.error?.errorCode && response.data.hotelInfoResult.error.errorCode !== 0) {
-    throw new Error(response.data.hotelInfoResult.error.errorMessage || "Trace ID or hotel details not found");
+    if (response?.data?.hotelInfoResult?.error?.errorCode && response.data.hotelInfoResult.error.errorCode !== 0) {
+      throw new Error(response.data.hotelInfoResult.error.errorMessage || "Trace ID or hotel details not found");
+    }
+
+    return response.data;
+  } catch (err) {
+    if (err.response?.data) {
+      console.log("[hotelService] GetHotelInfo HTTP error response data:", JSON.stringify(err.response.data, null, 2));
+      const serverMsg =
+        err.response.data?.hotelInfoResult?.error?.errorMessage ||
+        err.response.data?.errorMessage ||
+        err.response.data?.title ||
+        err.response.data?.message ||
+        (typeof err.response.data === "string" ? err.response.data : null);
+      if (serverMsg) {
+        throw new Error(serverMsg);
+      }
+    }
+    throw err;
   }
-
-  return response.data;
 }
 
 /**
@@ -345,19 +363,35 @@ export async function getHotelRoom(payload = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await axios.post(
-    toHotelUrl("/api/Hotels/GetHotelRoom"),
-    formattedPayload,
-    { headers }
-  );
+  try {
+    const response = await axios.post(
+      toHotelUrl("/api/Hotels/GetHotelRoom"),
+      formattedPayload,
+      { headers }
+    );
 
-  console.log("[hotelService] GetHotelRoom API response payload:", JSON.stringify(response?.data, null, 2));
+    console.log("[hotelService] GetHotelRoom API response payload:", JSON.stringify(response?.data, null, 2));
 
-  if (response?.data?.getHotelRoomResult?.error?.errorCode && response.data.getHotelRoomResult.error.errorCode !== 0) {
-    throw new Error(response.data.getHotelRoomResult.error.errorMessage || "Trace ID or room details not found");
+    if (response?.data?.getHotelRoomResult?.error?.errorCode && response.data.getHotelRoomResult.error.errorCode !== 0) {
+      throw new Error(response.data.getHotelRoomResult.error.errorMessage || "Trace ID or room details not found");
+    }
+
+    return response.data;
+  } catch (err) {
+    if (err.response?.data) {
+      console.log("[hotelService] GetHotelRoom HTTP error response data:", JSON.stringify(err.response.data, null, 2));
+      const serverMsg =
+        err.response.data?.getHotelRoomResult?.error?.errorMessage ||
+        err.response.data?.errorMessage ||
+        err.response.data?.title ||
+        err.response.data?.message ||
+        (typeof err.response.data === "string" ? err.response.data : null);
+      if (serverMsg) {
+        throw new Error(serverMsg);
+      }
+    }
+    throw err;
   }
-
-  return response.data;
 }
 
 /**
@@ -586,6 +620,15 @@ export async function bookHotelOffer(params = {}) {
     extractedPrice = Number(params.offeredPrice || 0);
   }
 
+  const guestName = params.GuestName || params.guestName;
+  const guestEmail = params.GuestEmail || params.guestEmail;
+  const guestPhone = params.GuestPhone || params.guestPhone;
+
+  if (!guestName || !guestEmail || !guestPhone) {
+    throw new Error("Missing required guest information (Name, Email, or Phone).");
+  }
+
+
   const rawRooms = Array.isArray(params.HotelRoomsDetails || params.hotelRoomsDetails)
     ? (params.HotelRoomsDetails || params.hotelRoomsDetails)
     : [];
@@ -615,9 +658,9 @@ export async function bookHotelOffer(params = {}) {
     NoOfRooms: Number(params.NoOfRooms || params.noOfRooms || roomDetailsList.length || 1),
     ClientReferenceNo: clientRef,
     IsVoucherBooking: Boolean(params.IsVoucherBooking ?? params.isVoucherBooking ?? true),
-    GuestName: String(params.GuestName || params.guestName || "Guest User"),
-    GuestEmail: String(params.GuestEmail || params.guestEmail || "guest@example.com"),
-    GuestPhone: String(params.GuestPhone || params.guestPhone || "9876543210"),
+    GuestName: String(guestName),
+    GuestEmail: String(guestEmail),
+    GuestPhone: String(guestPhone),
     Price: extractedPrice,
     HotelRoomsDetails: roomDetailsList,
   };

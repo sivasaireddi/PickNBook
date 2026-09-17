@@ -95,7 +95,7 @@ const getSeatDeckKey = (definition = {}) => {
 
 const isHorizontalSleeper = (definition = {}) => {
   const seatType = String(definition?.seatType ?? definition?.SeatType ?? "").toUpperCase();
-  if (seatType.includes("VERTICAL")) return false; 
+  if (seatType.includes("VERTICAL")) return false;
   if (definition?.isSleeper || seatType.includes("HORIZONTAL") || (seatType.includes("SLEEPER") && !seatType.includes("SEATER"))) {
     return true;
   }
@@ -195,42 +195,18 @@ const DeckCardContainer = memo(
       if (aisleRow !== -1 && aisleRow < mr) {
         aisleDetected = true;
       } else {
-        const sortedRows = [...new Set(seats.map(s => Number(s.row) || 0))].sort((a, b) => a - b);
-        for (let i = 1; i < sortedRows.length; i++) {
-          if (sortedRows[i] - sortedRows[i - 1] > 1) {
-            aisleDetected = true;
-            aisleRow = i - 1;
-            break;
-          }
-        }
-      }
-
-      if (!aisleDetected) {
-        if (mr === 1) { // 1+1 layout
+        if (mr === 1) { // 1+1 layout (2 lanes)
           aisleDetected = true;
           aisleRow = 0;
-        } else if (mr === 2) { // 2+1 layout without empty column
+        } else if (mr === 2) { // 2+1 layout (3 lanes): 1 on left, 2 on steering (right) side
           aisleDetected = true;
-          aisleRow = 1;
-        } else if (mr === 3) { // 2+2 layout without empty column
+          aisleRow = 0;
+        } else if (mr === 3) { // 2+2 layout (4 lanes): 2 on left, 2 on right
           aisleDetected = true;
           aisleRow = 1;
         } else if (mr >= 4) {
-          // Check if any inner lane (not the edges) has very few seats (e.g., <= 2)
-          // This usually means it's an empty column acting as the aisle.
-          let hasEmptyInnerLane = false;
-          for (let i = 1; i < mr; i++) {
-            const seatsInLane = seats.filter(s => (s.gridRow ?? 0) === i).length;
-            if (seatsInLane <= 2) {
-              hasEmptyInnerLane = true;
-              break;
-            }
-          }
-          // If no empty inner lane was found, it's a dense layout (like 3+2) and needs a forced aisle
-          if (!hasEmptyInnerLane) {
-            aisleDetected = true;
-            aisleRow = Math.floor(mr / 2); // e.g. for mr=4 (5 lanes), aisle after 2 (3+2 layout)
-          }
+          aisleDetected = true;
+          aisleRow = 1;
         }
       }
 
@@ -257,13 +233,13 @@ const DeckCardContainer = memo(
     const totalRows = maxGridCol + 1;
 
     // Responsive Dimension Calculations based on parent layout
-    const deckHeaderHeight = 32; 
+    const deckHeaderHeight = 32;
     const availableGridHeight = availableCanvasHeight - deckHeaderHeight - CARD_PADDING * 2 - 12; // 12 for cabinDivider and extra safe padding
 
     const maxCellW = 42;
     const rawCellW = (availableCanvasWidth - CARD_PADDING * 2 - (hasAisle && totalCols > 1 ? AISLE_W : 0)) / totalCols;
     const cellW = Math.min(maxCellW, Math.max(24, rawCellW));
-    
+
     const gridTotalW = cellW * totalCols + (hasAisle && totalCols > 1 ? AISLE_W : 0);
     const offsetX = Math.max(0, (availableCanvasWidth - CARD_PADDING * 2 - gridTotalW) / 2);
 
@@ -314,19 +290,26 @@ const DeckCardContainer = memo(
             const rawGridRow = seat.gridRow ?? 0;
             const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
 
-            const aisleOff = hasAisle && mappedCol > aisleAfterRow ? AISLE_W : 0;
             const isH = isHorizontalSleeper(seat);
             const seatWidthMult = Number(seat.width ?? seat.Width ?? 1);
-            
+
+            // When a seat has width > 1 (e.g. 2-lane wide vertical sleeper L6, L7, U16, U17),
+            // clamp starting column so it fits inside the bus deck container and spans lanes 1 & 2
+            const effectiveCol = seatWidthMult > 1
+              ? Math.max(0, Math.min(mappedCol, totalCols - seatWidthMult))
+              : mappedCol;
+
+            const aisleOff = hasAisle && effectiveCol > aisleAfterRow ? AISLE_W : 0;
+
             const baseW = isH ? SLEEPER_W_DYN : SEATER_W_DYN;
             const seatW = seatWidthMult > 1
-                ? baseW * seatWidthMult + CELL_GAP * (seatWidthMult - 1)
-                : baseW;
+              ? baseW * seatWidthMult + CELL_GAP * (seatWidthMult - 1)
+              : baseW;
             const renderedHeight = isH ? SLEEPER_H_DYN : SEATER_H_DYN;
 
             const gridC = Number(seat.column ?? seat.gridCol ?? seat.ColumnNo ?? 0);
 
-            const left = offsetX + mappedCol * cellW + aisleOff;
+            const left = offsetX + effectiveCol * cellW + aisleOff;
             const top = gridC * cellH;
 
             return (
@@ -360,7 +343,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   const busId = route?.params?.busId ?? DEFAULT_BUS_ID;
   const seededLayout = normalizeSeatLayoutPayload(route?.params?.seatLayout ?? null);
   const insets = useSafeAreaInsets();
-  
+
   const [layout, setLayout] = useState(seededLayout);
   const [loading, setLoading] = useState(!seededLayout);
   const [error, setError] = useState("");
@@ -502,8 +485,8 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   const numDecks = (lowerDeckData ? 1 : 0) + (upperDeckData ? 1 : 0);
   const deckGap = 10;
   const deckHorizontalPadding = 12 * 2;
-  const availableDeckWidth = numDecks === 2 
-    ? (seatAreaSize.width - deckHorizontalPadding - deckGap) / 2 
+  const availableDeckWidth = numDecks === 2
+    ? (seatAreaSize.width - deckHorizontalPadding - deckGap) / 2
     : seatAreaSize.width - deckHorizontalPadding;
 
   /* ── Render States ── */
@@ -556,7 +539,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
         {/* Flexible Seat Content Area */}
         <View style={styles.seatContent} onLayout={handleSeatAreaLayout}>
           {seatAreaSize.height > 0 && (
-            <ScrollView 
+            <ScrollView
               style={{ flex: 1 }}
               contentContainerStyle={{ paddingBottom: 40 }}
               showsVerticalScrollIndicator={false}

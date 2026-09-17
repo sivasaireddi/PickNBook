@@ -48,14 +48,14 @@ const FadedHeroImage = ({ source, style }) => (
 
 const SplashScreen = ({ navigation }) => {
   const { width, height } = useWindowDimensions();
-  
+
   const [activeService, setActiveService] = useState(-1);
-  
+
   const bgOpacity = useRef(new Animated.Value(0)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.85)).current;
   const taglineOpacity = useRef(new Animated.Value(0)).current;
-  
+
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardTranslateY = useRef(new Animated.Value(20)).current;
 
@@ -93,7 +93,7 @@ const SplashScreen = ({ navigation }) => {
     if (activeService >= 0) {
       cardOpacity.setValue(0);
       cardTranslateY.setValue(15);
-      
+
       const animations = [
         Animated.timing(cardOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
         Animated.timing(cardTranslateY, { toValue: 0, duration: 400, easing: Easing.out(Easing.quad), useNativeDriver: true })
@@ -103,7 +103,7 @@ const SplashScreen = ({ navigation }) => {
         if (index === activeService) {
           heroScales[index].setValue(0.95);
           heroTranslateYs[index].setValue(20);
-          
+
           animations.push(
             Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
             Animated.timing(heroScales[index], { toValue: 1, duration: 400, easing: Easing.out(Easing.quad), useNativeDriver: true }),
@@ -123,7 +123,7 @@ const SplashScreen = ({ navigation }) => {
   // Timing Logic & Navigation
   useEffect(() => {
     let isMounted = true;
-    
+
     const timers = [
       setTimeout(() => isMounted && setActiveService(0), 600),   // Bus
       setTimeout(() => isMounted && setActiveService(1), 1400),  // Hotel
@@ -173,14 +173,14 @@ const SplashScreen = ({ navigation }) => {
         colors={['#FFFFFF', '#FFF8F6', '#FCE4EC']}
         style={StyleSheet.absoluteFillObject}
       />
-      
+
       <View style={styles.topSection}>
         <Animated.View style={{ opacity: logoOpacity, transform: [{ scale: logoScale }], alignItems: 'center' }}>
-          <Text style={styles.logoText}>
-            <Text style={{ color: '#D71920' }}>Pick</Text>
-            <Text style={{ color: '#FF8A00' }}>N</Text>
-            <Text style={{ color: '#121826' }}>Book</Text>
-          </Text>
+          <Image
+            source={require('../../../assets/Splash-Icon.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </Animated.View>
         <Animated.Text style={[styles.tagline, { opacity: taglineOpacity }]}>
           One App. Every Journey.
@@ -243,10 +243,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-  logoText: {
-    fontSize: 44,
-    fontWeight: '900',
-    letterSpacing: 0.5,
+  logoImage: {
+    width: 240,
+    height: 96,
   },
   tagline: {
     fontSize: 16,

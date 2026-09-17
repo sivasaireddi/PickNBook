@@ -1,19 +1,8 @@
 import React, { memo } from "react";
-import { StyleSheet, Text, View, Pressable, Share } from "react-native";
+import { StyleSheet, Text, View, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { BUS_SEAT_COLORS } from "../../theme/busSeatTheme";
 
 const SeatLayoutHeader = ({ title, subtitle, onBackPress }) => {
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `Check out this bus trip from ${title} on ${subtitle}`,
-      });
-    } catch (error) {
-      console.log("Error sharing", error);
-    }
-  };
-
   return (
     <View style={styles.headerContainer}>
       <Pressable hitSlop={15} onPress={onBackPress} style={styles.iconButton}>
@@ -29,10 +18,6 @@ const SeatLayoutHeader = ({ title, subtitle, onBackPress }) => {
           {subtitle}
         </Text>
       </View>
-
-      <Pressable hitSlop={15} onPress={handleShare} style={styles.iconButtonRight}>
-        <Ionicons name="share-social-outline" size={20} color="#111827" />
-      </Pressable>
     </View>
   );
 };
@@ -50,9 +35,6 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     marginRight: 12,
-  },
-  iconButtonRight: {
-    marginLeft: 12,
   },
   centerContent: {
     flex: 1,

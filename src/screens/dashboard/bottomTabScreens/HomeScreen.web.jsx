@@ -5,12 +5,16 @@ import {
   View,
   ScrollView,
   TouchableOpacity,
+  Image,
   Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AppHeader from "../../../components/AppHeader";
-import FeaturedOffers from "./FeaturedOffers";
+import busImage from "../../../../assets/bus.png";
+import flightImage from "../../../../assets/flight.png";
+import hotelImage from "../../../../assets/hotel.png";
+import myBookingsImage from "../../../../assets/mybookings.png";
 
 export default function HomeScreenWeb({ navigation }) {
   const quickActions = [
@@ -20,7 +24,7 @@ export default function HomeScreenWeb({ navigation }) {
       icon: "bus",
       color: "#E11D48",
       bgColor: "#FFE4E6",
-      description: "Book cheap bus tickets online with best routes",
+      image: busImage,
       onPress: () => navigation.navigate("BusScreen"),
     },
     {
@@ -29,25 +33,25 @@ export default function HomeScreenWeb({ navigation }) {
       icon: "airplane",
       color: "#0284C7",
       bgColor: "#E0F2FE",
-      description: "Compare and book international & domestic flights",
+      image: flightImage,
       onPress: () => navigation.navigate("FlightScreen"),
     },
     {
       id: "hotels",
       title: "Hotels",
       icon: "bed",
-      color: "#7C3AED",
-      bgColor: "#F3E8FF",
-      description: "Find cozy stays, luxury hotels & budget rooms",
+      color: "#059669",
+      bgColor: "#D1FAE5",
+      image: hotelImage,
       onPress: () => navigation.navigate("Hotels"),
     },
     {
       id: "bookings",
       title: "My Bookings",
       icon: "receipt",
-      color: "#059669",
-      bgColor: "#D1FAE5",
-      description: "Manage, cancel, or download your booking tickets",
+      color: "#7C3AED",
+      bgColor: "#F3E8FF",
+      image: myBookingsImage,
       onPress: () => navigation.navigate("Bookings"),
     },
   ];
@@ -72,24 +76,21 @@ export default function HomeScreenWeb({ navigation }) {
             {quickActions.map((action) => (
               <TouchableOpacity
                 key={action.id}
-                style={styles.gridCard}
+                style={[styles.gridCard, { backgroundColor: action.bgColor, borderColor: action.bgColor }]}
                 activeOpacity={0.8}
                 onPress={action.onPress}
               >
-                <View style={[styles.iconContainer, { backgroundColor: action.bgColor }]}>
-                  <Ionicons name={action.icon} size={32} color={action.color} />
+                <View style={styles.imageContainer}>
+                  <Image source={action.image} style={styles.cardImage} resizeMode="contain" />
                 </View>
-                <View style={styles.cardTextContainer}>
-                  <Text style={styles.cardTitle}>{action.title}</Text>
-                  <Text style={styles.cardDesc}>{action.description}</Text>
+                <View style={styles.cardBottom}>
+                  <Text style={styles.cardTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>{action.title}</Text>
+                  <View style={[styles.arrowButton, { backgroundColor: action.color }]}>
+                    <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+                  </View>
                 </View>
               </TouchableOpacity>
             ))}
-          </View>
-
-          {/* Featured Offers */}
-          <View style={styles.sectionContainer}>
-            <FeaturedOffers />
           </View>
 
           {/* Why Choose Us */}
@@ -171,14 +172,14 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "space-between",
     marginBottom: 36,
-    gap: 16,
+    gap: 12,
   },
   gridCard: {
     flex: 1,
     minWidth: 220,
-    backgroundColor: "#FFFFFF",
+    height: 140,
     borderRadius: 20,
-    padding: 20,
+    padding: 9,
     flexDirection: "column",
     borderWidth: 1,
     borderColor: "#F1F5F9",
@@ -188,27 +189,52 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 3,
   },
-  iconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+  imageContainer: {
+    flex: 1,
+    minHeight: 80,
+    backgroundColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    paddingHorizontal: 2,
   },
-  cardTextContainer: {
-    flex: 1,
+  busImageWrapper: {
+    width: "100%",
+    height: "100%",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  busImageScaled: {
+    width: "185%",
+    height: "185%",
+  },
+  cardImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "transparent",
+  },
+  cardBottom: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "800",
     color: "#0F172A",
-    marginBottom: 6,
+    flex: 1,
+    flexShrink: 1,
   },
-  cardDesc: {
-    fontSize: 13,
-    color: "#475569",
-    lineHeight: 18,
+  arrowButton: {
+    flexShrink: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sectionContainer: {
     marginBottom: 36,

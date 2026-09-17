@@ -1,7 +1,8 @@
 import Constants from "expo-constants";
+import { API_BASE_URL } from "../constants/config";
 
 const runtimeEnv = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
-export const BASE_URL = (process.env.EXPO_PUBLIC_API_BASE_URL || runtimeEnv.EXPO_PUBLIC_API_BASE_URL || runtimeEnv.apiBaseUrl || 'https://paycheck-baton-overfull.ngrok-free.dev').replace(/\/+$/, "");
+export const BASE_URL = (API_BASE_URL || '').replace(/\/+$/, "");
 
 // Helper regex to check for bare time strings like "01:15" or "01:15:00"
 const timeRegex = /^\d{2}:\d{2}(:\d{2})?$/;

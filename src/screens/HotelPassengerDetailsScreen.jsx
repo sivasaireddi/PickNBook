@@ -93,7 +93,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   // 1. Trigger Step 4: Block Room pre-checkout
   useEffect(() => {
     executeBlockRoom();
-    
+
     // Fetch active coupons
     fetchHotelCoupons().then(coupons => {
       if (Array.isArray(coupons)) {
@@ -219,21 +219,21 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       Alert.alert("Input Code", "Please enter a coupon code.");
       return;
     }
-    
+
     // We need the current base total.
     // Calculate it synchronously from authoritativeRoomList since fareBreakdown might not be ready in exact timing, 
     // or we can just rely on the existing fareBreakdown.base since it's memoized.
     const currentBaseTotal = fareBreakdown?.base || 0;
-    
+
     setValidatingCoupon(true);
     setCouponMessage("");
-    
+
     try {
       const result = await validateHotelCoupon({
         couponCode: code.trim(),
         totalAmount: currentBaseTotal,
       });
-      
+
       if (result?.isValid) {
         setPricingPreview({
           appliedCoupon: code.trim().toUpperCase(),
@@ -241,7 +241,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         });
         setCouponMessage(result.message || `Coupon ${code.trim().toUpperCase()} applied successfully.`);
         if (couponCodeInput !== code.trim().toUpperCase()) {
-           setCouponCodeInput(code.trim().toUpperCase());
+          setCouponCodeInput(code.trim().toUpperCase());
         }
       } else {
         setPricingPreview(null);
@@ -294,7 +294,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         if (!pax.firstName || !pax.firstName.trim()) paxErrors.firstName = "First name is required";
         if (!pax.lastName || !pax.lastName.trim()) paxErrors.lastName = "Last name is required";
         if (pax.isChild && (!pax.age || String(pax.age).trim() === "")) paxErrors.age = "Age is required";
-        
+
         if (pax.isLead) {
           if (!isValidEmail(pax.email)) paxErrors.email = "Valid email is required";
           if (!isValidPhone(pax.phone)) paxErrors.phone = "Valid 10-digit mobile is required";
@@ -328,14 +328,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
     const roomPriceVal = Number(
       priceObj.b2CBasePrice ??
-        priceObj.B2CBasePrice ??
-        priceObj.offeredPrice ??
-        priceObj.OfferedPrice ??
-        priceObj.publishedPrice ??
-        priceObj.PublishedPrice ??
-        priceObj.roomPrice ??
-        priceObj.RoomPrice ??
-        0
+      priceObj.B2CBasePrice ??
+      priceObj.offeredPrice ??
+      priceObj.OfferedPrice ??
+      priceObj.publishedPrice ??
+      priceObj.PublishedPrice ??
+      priceObj.roomPrice ??
+      priceObj.RoomPrice ??
+      0
     );
 
     const base =
@@ -345,14 +345,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           sum +
           Number(
             r.price?.b2CBasePrice ??
-              r.price?.B2CBasePrice ??
-              r.price?.offeredPrice ??
-              r.price?.OfferedPrice ??
-              r.price?.roomPrice ??
-              r.price?.RoomPrice ??
-              r.roomPrice ??
-              r.offeredPrice ??
-              0
+            r.price?.B2CBasePrice ??
+            r.price?.offeredPrice ??
+            r.price?.OfferedPrice ??
+            r.price?.roomPrice ??
+            r.price?.RoomPrice ??
+            r.roomPrice ??
+            r.offeredPrice ??
+            0
           ),
         0
       ) ||
@@ -361,14 +361,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           sum +
           Number(
             s.price?.b2CBasePrice ??
-              s.price?.B2CBasePrice ??
-              s.price?.offeredPrice ??
-              s.price?.OfferedPrice ??
-              s.price?.roomPrice ??
-              s.price?.RoomPrice ??
-              s.roomPrice ??
-              s.offeredPrice ??
-              0
+            s.price?.B2CBasePrice ??
+            s.price?.offeredPrice ??
+            s.price?.OfferedPrice ??
+            s.price?.roomPrice ??
+            s.price?.RoomPrice ??
+            s.roomPrice ??
+            s.offeredPrice ??
+            0
           ),
         0
       );
@@ -376,20 +376,20 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     const gst =
       Number(
         priceObj.totalGSTAmount ??
-          priceObj.TotalGSTAmount ??
-          priceObj.tax ??
-          priceObj.Tax ??
-          0
+        priceObj.TotalGSTAmount ??
+        priceObj.tax ??
+        priceObj.Tax ??
+        0
       ) ||
       authoritativeRoomList.reduce(
         (sum, r) =>
           sum +
           Number(
             r.price?.totalGSTAmount ??
-              r.price?.TotalGSTAmount ??
-              r.price?.tax ??
-              r.price?.Tax ??
-              0
+            r.price?.TotalGSTAmount ??
+            r.price?.tax ??
+            r.price?.Tax ??
+            0
           ),
         0
       ) ||
@@ -418,10 +418,10 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           sum +
           Number(
             r.price?.couponDiscount ??
-              r.price?.CouponDiscount ??
-              r.price?.discount ??
-              r.price?.Discount ??
-              0
+            r.price?.CouponDiscount ??
+            r.price?.discount ??
+            r.price?.Discount ??
+            0
           ),
         0
       ) ||
@@ -429,9 +429,9 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
     const b2cTotal = Number(
       priceObj.b2CTotalPrice ??
-        priceObj.b2cTotalPrice ??
-        priceObj.B2CTotalPrice ??
-        0
+      priceObj.b2cTotalPrice ??
+      priceObj.B2CTotalPrice ??
+      0
     );
 
     const calculatedTotal =
@@ -441,11 +441,11 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           sum +
           Number(
             r.price?.b2CTotalPrice ??
-              r.price?.b2cTotalPrice ??
-              r.price?.B2CTotalPrice ??
-              r.price?.offeredPrice ??
-              r.offeredPrice ??
-              0
+            r.price?.b2cTotalPrice ??
+            r.price?.B2CTotalPrice ??
+            r.price?.offeredPrice ??
+            r.offeredPrice ??
+            0
           ),
         0
       ) ||
@@ -454,17 +454,17 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           sum +
           Number(
             s.price?.b2CTotalPrice ??
-              s.price?.b2cTotalPrice ??
-              s.price?.B2CTotalPrice ??
-              s.price?.offeredPrice ??
-              s.offeredPrice ??
-              0
+            s.price?.b2cTotalPrice ??
+            s.price?.B2CTotalPrice ??
+            s.price?.offeredPrice ??
+            s.offeredPrice ??
+            0
           ),
         0
       );
 
     const total = Math.max(0, calculatedTotal - (pricingPreview?.couponDiscount || 0));
-    
+
     return { base, gst, convenienceFee, discount, total };
   }, [authoritativeRoomList, selectedRoomSlots, pricingPreview]);
 
@@ -536,6 +536,12 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       const leadPaxKey = "room-0-pax-0";
       const leadPax = paxState[leadPaxKey] || {};
 
+      if (!leadPax.firstName || !leadPax.lastName || !leadPax.email || !leadPax.phone) {
+        Alert.alert("Missing Details", "Please provide complete details for the Lead Guest (First Name, Last Name, Email, and Phone).");
+        setBookingLoading(false);
+        return;
+      }
+
       const totalAuthoritativePrice = authoritativeRoomList.reduce(
         (sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0),
         0
@@ -561,16 +567,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         NoOfRooms: authoritativeRoomList.length,
         ClientReferenceNo: Math.floor(Date.now() / 1000),
         IsVoucherBooking: true,
-        GuestName: `${leadPax.firstName || "Guest"} ${leadPax.lastName || "User"}`.trim(),
-        GuestEmail: String(leadPax.email || "guest@example.com").trim(),
-        GuestPhone: String(leadPax.phone || "9876543210").trim(),
+        GuestName: `${leadPax.firstName} ${leadPax.lastName}`.trim(),
+        GuestEmail: String(leadPax.email).trim(),
+        GuestPhone: String(leadPax.phone).trim(),
         Price: totalAuthoritativePrice,
         CouponCode: pricingPreview?.appliedCoupon ? String(pricingPreview.appliedCoupon) : "",
         HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
 
       console.log("[HotelPassengerDetails] navigating to CheckoutScreen with payload:", bookPayload);
-      
+
       const token = await SecureStore.getItemAsync("token");
 
       navigation.navigate("CheckoutScreen", {
@@ -579,9 +585,9 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         bookingType: "Hotel",
         bookingDetails: bookPayload,
         customerDetails: {
-          name: `${leadPax.firstName || "Guest"} ${leadPax.lastName || "User"}`.trim(),
-          phone: String(leadPax.phone || "").trim(),
-          email: String(leadPax.email || "").trim(),
+          name: `${leadPax.firstName} ${leadPax.lastName}`.trim(),
+          phone: String(leadPax.phone).trim(),
+          email: String(leadPax.email).trim(),
           couponCode: pricingPreview?.appliedCoupon ? String(pricingPreview.appliedCoupon) : null,
         }
       });
@@ -650,9 +656,9 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
               const errors = validationState.fieldErrors[key] || {};
 
               const isLead = pax.isLead;
-              
+
               paxForms.push(
-                <GuestAccordion 
+                <GuestAccordion
                   key={key}
                   title={`${(pIdx + 1).toString().padStart(2, '0')} ${isLead ? "Lead Guest" : `Guest ${pIdx + 1}`}`}
                   subtitle={`${roomTypeName}`}
@@ -706,13 +712,13 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           onViewAvailableCoupons={() => setShowCouponSheet(true)}
         />
 
-        <BookingPolicySection 
+        <BookingPolicySection
           agreedToTerms={agreedToTerms}
           setAgreedToTerms={setAgreedToTerms}
           onViewPolicies={() => setShowPolicySheet(true)}
         />
 
-        <FareSummary 
+        <FareSummary
           basePrice={fareBreakdown.base}
           gst={fareBreakdown.gst}
           convenienceFee={fareBreakdown.convenienceFee}
@@ -722,14 +728,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       </ScrollView>
 
       {/* Modals & Sheets */}
-      <CouponBottomSheet 
+      <CouponBottomSheet
         visible={showCouponSheet}
         onClose={() => setShowCouponSheet(false)}
         availableCoupons={availableCoupons}
         handleApplyCoupon={handleApplyCoupon}
         validatingCoupon={validatingCoupon}
       />
-      
+
       <CancellationPolicySheet
         visible={showPolicySheet}
         onClose={() => setShowPolicySheet(false)}

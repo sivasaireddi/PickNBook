@@ -6,27 +6,32 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  ImageBackground,
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 import { Picker } from "@react-native-picker/picker";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { requestAuth, readApiMessage } from "../../../services/authService";
+import {
+  sendRegistrationOtp,
+  readApiMessage,
+  format10DigitPhoneNumber,
+} from "../../../services/authService";
 import VerifyRegistrationOtpModal from "./VerifyRegistrationOtpModal";
 
 const COUNTRY_CODE_OPTIONS = [
-  { value: "+91", label: "+91 (India)" }
+  { value: "+91", label: "+91 India" }
 ];
 
-const NAME_REGEX = /^[A-Za-z]+$/;
+const NAME_REGEX = /^[A-Za-z\s]+$/;
 const EMAIL_REGEX = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
 const PHONE_REGEX = /^[6-9]\d{9}$/;
 const STRONG_PASSWORD_REGEX =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/;
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_+\-=\[\]{};':"\\|,.<>\/?]).{8,64}$/;
 
 const validateForm = (form) => {
   const errors = {};
@@ -34,18 +39,28 @@ const validateForm = (form) => {
   if (!form.firstName.trim()) errors.firstName = "First name required";
   else if (!NAME_REGEX.test(form.firstName.trim())) errors.firstName = "Only letters allowed";
 
-  if (!form.lastName.trim()) errors.lastName = "Last name required";
+  if (form.lastName.trim() && !NAME_REGEX.test(form.lastName.trim())) {
+    errors.lastName = "Only letters allowed";
+  }
 
   if (!form.countryCode) errors.countryCode = "Select code";
 
-  if (!form.mobile.trim()) errors.mobile = "Mobile required";
-  else if (!PHONE_REGEX.test(form.mobile.trim())) errors.mobile = "10-digit mobile starting with 6, 7, 8, or 9";
+  const cleanMobile = format10DigitPhoneNumber(form.mobile);
+  if (!cleanMobile) errors.mobile = "Mobile number required";
+  else if (!PHONE_REGEX.test(cleanMobile))
+    errors.mobile = "Must be a 10-digit Indian number starting with 6, 7, 8, or 9";
 
   if (!form.email.trim() || !EMAIL_REGEX.test(form.email.trim().toLowerCase()))
     errors.email = "Invalid email address";
 
-  if (!form.password || !STRONG_PASSWORD_REGEX.test(form.password))
-    errors.password = "Must contain 8+ chars, uppercase, lowercase, number & special char";
+  if (!form.password) {
+    errors.password = "Password is required";
+  } else if (form.password.length < 8 || form.password.length > 64) {
+    errors.password = "Password must be 8-64 characters long";
+  } else if (!STRONG_PASSWORD_REGEX.test(form.password)) {
+    errors.password =
+      "Password must contain uppercase, lowercase, number, and special character (@$!%*?&# etc.)";
+  }
 
   if (form.password !== form.confirmPassword)
     errors.confirmPassword = "Passwords do not match";
@@ -66,6 +81,7 @@ export default function CreateAccount() {
     email: "",
     password: "",
     confirmPassword: "",
+    channel: "Mobile",
     agree: false,
   });
 
@@ -96,30 +112,22 @@ export default function CreateAccount() {
     setApiError("");
 
     const formattedEmail = form.email.trim().toLowerCase();
-    const formattedPhone = form.mobile.trim();
+    const formattedPhone = format10DigitPhoneNumber(form.mobile);
 
     try {
-      // Send OTP to registration channel
-      await requestAuth(
-        "/api/Auth/send-registration-otp",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            email: formattedEmail,
-            phoneNumber: formattedPhone,
-            channel: "email",
-          }),
-        },
-        "Failed to send OTP.",
-        { timeoutMs: 45000 }
-      );
-      
+      // Send OTP to selected registration channel ("Mobile" or "Email")
+      await sendRegistrationOtp({
+        channel: form.channel || "Mobile",
+        phoneNumber: formattedPhone,
+        email: formattedEmail,
+      });
+
       setShowOtpModal(true);
     } catch (err) {
       const errMsg = err?.message || "";
-      console.log("Registration response:", errMsg);
+      console.log("Registration OTP send error:", errMsg);
 
-      // Fallback: If OTP is required or endpoint differs, trigger OTP Modal directly for smooth UX
+      // Fallback: If OTP is required or modal flow testing
       if (/otp/i.test(errMsg) || errMsg.includes("404") || !errMsg) {
         setShowOtpModal(true);
         return;
@@ -132,26 +140,42 @@ export default function CreateAccount() {
   };
 
   return (
-    <ImageBackground
-      source={require("../../../../assets/loginimage.png")}
-      style={styles.background}
-    >
+    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right", "bottom"]}>
+      <StatusBar style="dark" />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
       >
+        {/* Top Header Bar for Back Button */}
+        <View style={styles.topHeader}>
+          <TouchableOpacity
+            style={styles.backButton}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate("Login");
+              }
+            }}
+          >
+            <Ionicons name="arrow-back" size={20} color="#1D2939" />
+          </TouchableOpacity>
+        </View>
+
         <ScrollView
-          contentContainerStyle={styles.container}
+          contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {/* Header Card */}
+          {/* Main Form Card Container */}
           <View style={styles.card}>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join PickNBook for seamless bookings</Text>
+            <Text style={styles.title} numberOfLines={1}>Create Account</Text>
 
             {apiError !== "" && (
               <View style={styles.apiErrorBox}>
-                <Ionicons name="alert-circle" size={18} color="#D92D20" />
+                <Ionicons name="alert-circle" size={16} color="#D92D20" />
                 <Text style={styles.apiErrorText}>{apiError}</Text>
               </View>
             )}
@@ -161,7 +185,7 @@ export default function CreateAccount() {
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.label}>First Name</Text>
                 <TextInput
-                  placeholder="John"
+                  placeholder="Enter first name"
                   placeholderTextColor="#9EA5B1"
                   style={[styles.input, errors.firstName && styles.inputError]}
                   value={form.firstName}
@@ -175,7 +199,7 @@ export default function CreateAccount() {
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.label}>Last Name</Text>
                 <TextInput
-                  placeholder="Doe"
+                  placeholder="Enter last name"
                   placeholderTextColor="#9EA5B1"
                   style={[styles.input, errors.lastName && styles.inputError]}
                   value={form.lastName}
@@ -203,7 +227,7 @@ export default function CreateAccount() {
                   </Picker>
                 </View>
                 <TextInput
-                  placeholder="9876543210"
+                  placeholder="Enter mobile number"
                   placeholderTextColor="#9EA5B1"
                   keyboardType="numeric"
                   maxLength={10}
@@ -221,7 +245,7 @@ export default function CreateAccount() {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Email Address</Text>
               <TextInput
-                placeholder="john.doe@example.com"
+                placeholder="Enter email address"
                 placeholderTextColor="#9EA5B1"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -234,12 +258,64 @@ export default function CreateAccount() {
               )}
             </View>
 
+            {/* OTP Verification Channel Selection */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Receive Verification OTP via</Text>
+              <View style={styles.channelRow}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={[
+                    styles.channelBtn,
+                    form.channel === "Mobile" && styles.channelBtnActive,
+                  ]}
+                  onPress={() => handleChange("channel", "Mobile")}
+                >
+                  <Ionicons
+                    name="call-outline"
+                    size={15}
+                    color={form.channel === "Mobile" ? "#FFFFFF" : "#475467"}
+                  />
+                  <Text
+                    style={[
+                      styles.channelBtnText,
+                      form.channel === "Mobile" && styles.channelBtnTextActive,
+                    ]}
+                  >
+                    Mobile SMS
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={[
+                    styles.channelBtn,
+                    form.channel === "Email" && styles.channelBtnActive,
+                  ]}
+                  onPress={() => handleChange("channel", "Email")}
+                >
+                  <Ionicons
+                    name="mail-outline"
+                    size={15}
+                    color={form.channel === "Email" ? "#FFFFFF" : "#475467"}
+                  />
+                  <Text
+                    style={[
+                      styles.channelBtnText,
+                      form.channel === "Email" && styles.channelBtnTextActive,
+                    ]}
+                  >
+                    Email OTP
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {/* Password */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Password</Text>
               <View style={styles.passwordWrapper}>
                 <TextInput
-                  placeholder="••••••••"
+                  placeholder="Enter password"
                   placeholderTextColor="#9EA5B1"
                   secureTextEntry={!showPassword}
                   style={[styles.input, styles.passwordInput, errors.password && styles.inputError]}
@@ -249,10 +325,11 @@ export default function CreateAccount() {
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeIcon}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <Ionicons
                     name={showPassword ? "eye" : "eye-off"}
-                    size={20}
+                    size={18}
                     color="#667085"
                   />
                 </TouchableOpacity>
@@ -267,7 +344,7 @@ export default function CreateAccount() {
               <Text style={styles.label}>Confirm Password</Text>
               <View style={styles.passwordWrapper}>
                 <TextInput
-                  placeholder="••••••••"
+                  placeholder="Confirm password"
                   placeholderTextColor="#9EA5B1"
                   secureTextEntry={!showConfirmPassword}
                   style={[styles.input, styles.passwordInput, errors.confirmPassword && styles.inputError]}
@@ -277,10 +354,11 @@ export default function CreateAccount() {
                 <TouchableOpacity
                   onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   style={styles.eyeIcon}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <Ionicons
                     name={showConfirmPassword ? "eye" : "eye-off"}
-                    size={20}
+                    size={18}
                     color="#667085"
                   />
                 </TouchableOpacity>
@@ -298,8 +376,9 @@ export default function CreateAccount() {
             >
               <Ionicons
                 name={form.agree ? "checkbox" : "square-outline"}
-                size={22}
+                size={20}
                 color={form.agree ? "#E53935" : "#9EA5B1"}
+                style={styles.checkboxIcon}
               />
               <Text style={styles.checkboxLabel}>
                 I agree to PickNBook <Text style={styles.linkText}>Terms & Privacy Policy</Text>
@@ -314,6 +393,7 @@ export default function CreateAccount() {
               disabled={loading}
               style={[styles.button, loading && styles.buttonDisabled]}
               onPress={handleSubmit}
+              activeOpacity={0.85}
             >
               {loading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
@@ -346,49 +426,73 @@ export default function CreateAccount() {
           ]);
         }}
       />
-    </ImageBackground>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  background: {
+  safeArea: {
     flex: 1,
+    backgroundColor: "#F7F8FA",
   },
-  container: {
-    paddingHorizontal: 20,
-    paddingVertical: 36,
+  topHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 2,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#101828",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 2,
+    paddingBottom: 16,
+    flexGrow: 1,
     justifyContent: "center",
   },
   card: {
-    backgroundColor: "rgba(255, 255, 255, 0.96)",
-    borderRadius: 20,
-    padding: 24,
-    shadowColor: "#000",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: "#EAECF0",
+    shadowColor: "#101828",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
   },
   title: {
     fontSize: 26,
     fontWeight: "800",
     color: "#1D2939",
     textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#667085",
-    textAlign: "center",
-    marginTop: 4,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   apiErrorBox: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FEE4E2",
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECDCA",
     padding: 10,
     borderRadius: 10,
-    marginBottom: 16,
+    marginBottom: 10,
     gap: 8,
   },
   apiErrorText: {
@@ -399,55 +503,89 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
   inputGroup: {
-    marginBottom: 14,
+    marginBottom: 10,
   },
   label: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "600",
     color: "#344054",
-    marginBottom: 6,
+    marginBottom: 4,
   },
   input: {
+    height: 48,
     backgroundColor: "#F9FAFB",
     borderWidth: 1,
     borderColor: "#D0D5DD",
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    borderRadius: 11,
+    paddingHorizontal: 12,
     fontSize: 15,
     color: "#1D2939",
   },
   inputError: {
     borderColor: "#D92D20",
+    backgroundColor: "#FEF2F2",
   },
   errorText: {
     color: "#D92D20",
     fontSize: 11.5,
-    marginTop: 4,
+    marginTop: 3,
     fontWeight: "500",
   },
   mobileRow: {
     flexDirection: "row",
     gap: 8,
+    alignItems: "center",
   },
   pickerContainer: {
+    height: 48,
+    width: 125,
     borderWidth: 1,
     borderColor: "#D0D5DD",
-    borderRadius: 12,
+    borderRadius: 11,
     backgroundColor: "#F9FAFB",
     justifyContent: "center",
-    width: 125,
     overflow: "hidden",
   },
   picker: {
-    height: 46,
-    width: 130,
+    height: 48,
+    width: 135,
+    color: "#1D2939",
   },
   mobileInput: {
     flex: 1,
+    height: 48,
+  },
+  channelRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+  channelBtn: {
+    flex: 1,
+    height: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderRadius: 11,
+    backgroundColor: "#F2F4F7",
+    borderWidth: 1,
+    borderColor: "#EAECF0",
+  },
+  channelBtnActive: {
+    backgroundColor: "#E53935",
+    borderColor: "#E53935",
+  },
+  channelBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475467",
+  },
+  channelBtnTextActive: {
+    color: "#FFFFFF",
   },
   passwordWrapper: {
     position: "relative",
@@ -458,18 +596,26 @@ const styles = StyleSheet.create({
   },
   eyeIcon: {
     position: "absolute",
-    right: 14,
-    height: "100%",
+    right: 2,
+    width: 40,
+    height: 48,
     justifyContent: "center",
+    alignItems: "center",
+    zIndex: 2,
   },
   checkboxRow: {
     flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 10,
+    alignItems: "flex-start",
+    marginTop: 4,
+    marginBottom: 8,
     gap: 8,
+  },
+  checkboxIcon: {
+    marginTop: 1,
   },
   checkboxLabel: {
     fontSize: 13,
+    lineHeight: 18,
     color: "#475467",
     flex: 1,
   },
@@ -478,16 +624,17 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   button: {
+    height: 48,
     backgroundColor: "#E53935",
-    paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: "center",
-    marginTop: 10,
+    justifyContent: "center",
+    marginTop: 8,
     shadowColor: "#E53935",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
   buttonDisabled: {
     opacity: 0.7,
@@ -500,7 +647,9 @@ const styles = StyleSheet.create({
   loginRow: {
     flexDirection: "row",
     justifyContent: "center",
-    marginTop: 18,
+    alignItems: "center",
+    marginTop: 10,
+    paddingBottom: 2,
   },
   loginText: {
     fontSize: 14,

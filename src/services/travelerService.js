@@ -1,13 +1,10 @@
 import axios from "axios";
 import Constants from "expo-constants";
 import { getStoredAuthToken } from "../utils/authSession";
+import { API_BASE_URL } from "../constants/config";
 
 const runtimeEnv = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
-const BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ||
-  runtimeEnv.EXPO_PUBLIC_API_BASE_URL ||
-  runtimeEnv.apiBaseUrl ||
-  "https://paycheck-baton-overfull.ngrok-free.dev";
+const BASE_URL = API_BASE_URL;
 
 const client = axios.create({
   baseURL: BASE_URL,
@@ -74,11 +71,22 @@ export function normalizeTraveler(item) {
   ).trim();
 
   const genderRaw = String(item.gender || item.Gender || item.sex || item.Sex || "Male").trim();
-  const gender = genderRaw.toLowerCase().startsWith("f") ? "Female" : "Male";
+  const gender = genderRaw.toLowerCase().startsWith("f")
+    ? "Female"
+    : genderRaw.toLowerCase().startsWith("o")
+    ? "Other"
+    : "Male";
 
   const age = item.age || item.Age || (item.dateOfBirth ? calculateAgeFromDob(item.dateOfBirth) : 25);
-  const phoneNumber = String(item.phoneNumber || item.PhoneNumber || item.phone || item.Phone || item.mobileNumber || "").trim();
+  const phoneNumber = String(item.phoneNumber || item.PhoneNumber || item.phone || item.Phone || item.phoneNo || item.mobileNumber || "").trim();
   const email = String(item.email || item.Email || "").trim();
+
+  // Additional fields required by Saved Travelers feature
+  const type = item.type || item.Type || item.travelerType || "Adult";
+  const title = item.title || item.Title || "Mr";
+  const country = item.country || item.Country || "";
+  const passportNo = item.passportNo || item.PassportNo || item.passportNumber || null;
+  const phoneNo = phoneNumber; // Alias for API consistency
 
   return {
     id: String(id),
@@ -88,7 +96,12 @@ export function normalizeTraveler(item) {
     gender,
     age: Number(age) || 25,
     phoneNumber,
+    phoneNo,
     email,
+    type,
+    title,
+    country,
+    passportNo,
     raw: item,
   };
 }
@@ -110,9 +123,19 @@ function calculateAgeFromDob(dobString) {
 }
 
 /**
- * Fetches saved travelers from GET /api/travelers (with /api/Travelers & /api/user/travelers fallbacks)
+ * Fetches saved travelers from GET /api/travelers (with /api/Travelers & /api/user/travelers fallbacks).
+ * Supports optional filters object: { type, phoneNo, email, query, limit }
  */
-export async function getTravelers(customToken) {
+export async function getTravelers(filtersOrToken) {
+  // Backward compatible: if a string is passed, treat it as customToken
+  let customToken = null;
+  let filters = {};
+  if (typeof filtersOrToken === "string") {
+    customToken = filtersOrToken;
+  } else if (filtersOrToken && typeof filtersOrToken === "object") {
+    filters = filtersOrToken;
+  }
+
   const token = customToken || (await getStoredAuthToken());
   const headers = {};
 
@@ -120,12 +143,20 @@ export async function getTravelers(customToken) {
     headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
   }
 
+  // Build query params from filters
+  const params = {};
+  if (filters.type) params.type = filters.type;
+  if (filters.phoneNo) params.phoneNo = filters.phoneNo;
+  if (filters.email) params.email = filters.email;
+  if (filters.query) params.query = filters.query;
+  if (filters.limit) params.limit = filters.limit;
+
   const endpoints = ["/api/travelers", "/api/Travelers", "/api/user/travelers"];
 
   for (const ep of endpoints) {
     try {
       console.log(`[TravelerService] Trying GET ${ep} with headers:`, headers);
-      const response = await client.get(ep, { headers });
+      const response = await client.get(ep, { headers, params });
       console.log(`[TravelerService] GET ${ep} status:`, response.status);
 
       const rawList = Array.isArray(response.data)
@@ -148,6 +179,20 @@ export async function getTravelers(customToken) {
 }
 
 /**
+ * Normalizes optional fields to empty strings before sending to the API.
+ * The backend rejects null values for email, phoneNo, and passportNo.
+ */
+function normalizePayloadForApi(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  return {
+    ...payload,
+    email: (payload.email ?? "").toString().trim() || "",
+    phoneNo: (payload.phoneNo ?? "").toString().trim() || "",
+    passportNo: (payload.passportNo ?? "").toString().trim() || "",
+  };
+}
+
+/**
  * Creates a new traveler via POST /api/travelers (with /api/Travelers & /api/user/travelers fallbacks)
  */
 export async function createTraveler(travelerPayload, customToken) {
@@ -158,12 +203,15 @@ export async function createTraveler(travelerPayload, customToken) {
     headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
   }
 
+  // Normalize optional fields to "" (never null)
+  const normalizedPayload = normalizePayloadForApi(travelerPayload);
+
   const endpoints = ["/api/travelers", "/api/Travelers", "/api/user/travelers"];
 
   for (const ep of endpoints) {
     try {
-      console.log(`[TravelerService] Trying POST ${ep} payload:`, travelerPayload);
-      const response = await client.post(ep, travelerPayload, { headers });
+      console.log(`[TravelerService] Trying POST ${ep} payload:`, normalizedPayload);
+      const response = await client.post(ep, normalizedPayload, { headers });
       console.log(`[TravelerService] POST ${ep} response:`, response.data);
 
       return normalizeTraveler(response.data?.data || response.data || travelerPayload);
@@ -173,5 +221,78 @@ export async function createTraveler(travelerPayload, customToken) {
   }
 
   return normalizeTraveler(travelerPayload);
+}
+
+/**
+ * Fetches a single traveler by ID via GET /api/travelers/{id}
+ */
+export async function getTravelerById(id, customToken) {
+  const token = customToken || (await getStoredAuthToken());
+  const headers = {};
+
+  if (token) {
+    headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+  }
+
+  try {
+    console.log(`[TravelerService] GET /api/travelers/${id}`);
+    const response = await client.get(`/api/travelers/${id}`, { headers });
+    return normalizeTraveler(response.data?.data || response.data);
+  } catch (error) {
+    console.error(`[TravelerService] GET /api/travelers/${id} failed:`, error?.message);
+    throw error;
+  }
+}
+
+/**
+ * Updates an existing traveler via PUT /api/travelers/{id}
+ */
+export async function updateTraveler(id, travelerPayload, customToken) {
+  const token = customToken || (await getStoredAuthToken());
+  const headers = {};
+
+  if (token) {
+    headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+  }
+
+  // Normalize optional fields to "" (never null)
+  const normalizedPayload = normalizePayloadForApi(travelerPayload);
+
+  try {
+    console.log(`[TravelerService] PUT /api/travelers/${id} payload:`, normalizedPayload);
+    const response = await client.put(`/api/travelers/${id}`, normalizedPayload, { headers });
+    return normalizeTraveler(response.data?.data || response.data);
+  } catch (error) {
+    console.error(`[TravelerService] PUT /api/travelers/${id} failed:`, error?.message);
+    throw error;
+  }
+}
+
+/**
+ * Deletes a traveler via DELETE /api/travelers/{id}
+ */
+export async function deleteTraveler(id, customToken) {
+  const token = customToken || (await getStoredAuthToken());
+  const headers = {};
+
+  if (token) {
+    headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+  }
+
+  try {
+    console.log(`[TravelerService] DELETE /api/travelers/${id}`);
+    const response = await client.delete(`/api/travelers/${id}`, { headers });
+    return response.data;
+  } catch (error) {
+    console.error(`[TravelerService] DELETE /api/travelers/${id} failed:`, error?.message);
+    throw error;
+  }
+}
+
+/**
+ * Searches travelers via GET /api/travelers?query={searchText}
+ */
+export async function searchTravelers(query, customToken) {
+  return getTravelers({ query });
 }
 

@@ -14,7 +14,7 @@ export const BUS_SEAT_COLORS = {
   
   // Available Seat
   availableBg: "#FFFFFF",
-  availableBorder: "#D1D5DB",
+  availableBorder: "#1F2937",
   availableStrip: "#D1D5DB",
   availablePriceBg: "#FFFFFF",
   availablePriceText: "#1F2937",
@@ -37,16 +37,17 @@ export const BUS_SEAT_COLORS = {
   maleText: "#1D4ED8",
 
   // Booked Seat
-  bookedBg: "#E5E7EB",
-  bookedBorder: "#D1D5DB",
-  bookedStrip: "#D1D5DB",
-  bookedText: "#9CA3AF",
+  bookedBg: "#B0B5BD",
+  bookedBorder: "#6B7280",
+  bookedStrip: "#6B7280",
+  bookedText: "#4B5563",
 
   // Female Booked Seat
-  femaleBookedBg: "#F3E5EB",
-  femaleBookedBorder: "#D1D5DB",
+  femaleBookedBg: "#B0B5BD",
+  femaleBookedBorder: "#6B7280",
   femaleBookedStrip: "#DB2777",
-  femaleBookedText: "#9CA3AF",
+  femaleBookedText: "#4B5563",
+  femaleBookedLegendBorder: "#6B7280",
 
   // Selected Seat
   selectedBg: "#FFFFFF",

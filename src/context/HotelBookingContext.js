@@ -4,8 +4,8 @@ const HotelBookingContext = createContext(null);
 
 const initialSessionState = {
   searchParams: {
-    cityId: "725862",
-    cityCode: "DEL",
+    cityId: "",
+    cityCode: "",
     checkInDate: "",
     checkOutDate: "",
     rooms: 1,

@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
+import { API_BASE_URL } from '../constants/config';
 
-const BASE_URL = 'https://paycheck-baton-overfull.ngrok-free.dev';
+const BASE_URL = API_BASE_URL;
 
 const getObjectValue = (value) =>
   value && typeof value === 'object' ? value : null;
@@ -10,7 +11,7 @@ import { fetchSeatLayoutByBusId, getSeatLayout } from '../services/busService';
 export const getSeatLayoutApiUrl = (busId) => {
   // Provided for backward compatibility if needed, but the application
   // now calls POST /api/BusBookings/seat-layout instead.
-  return `https://paycheck-baton-overfull.ngrok-free.dev/api/BusBookings/${encodeURIComponent(String(busId))}/seats`;
+  return `${API_BASE_URL}/api/BusBookings/${encodeURIComponent(String(busId))}/seats`;
 };
 
 export const normalizeSeatLayoutPayload = (payload) => {

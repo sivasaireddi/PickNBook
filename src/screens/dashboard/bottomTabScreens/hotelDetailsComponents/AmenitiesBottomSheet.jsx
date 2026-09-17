@@ -1,5 +1,6 @@
 import React from "react";
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, SafeAreaView } from "react-native";
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 const getAmenityIcon = (name) => {
@@ -39,8 +40,10 @@ export default function AmenitiesBottomSheet({ visible, onClose, facilities }) {
           
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {validFacilities.map((fac, idx) => (
-              <View key={idx} style={styles.listItem}>
-                <Ionicons name={getAmenityIcon(fac)} size={20} color="#475569" style={styles.listIcon} />
+              <View key={`${fac}-${idx}`} style={styles.listItem}>
+                <View style={styles.listIconBox}>
+                  <Ionicons name={getAmenityIcon(fac)} size={18} color="#B4232C" />
+                </View>
                 <Text style={styles.listText}>{fac}</Text>
               </View>
             ))}
@@ -74,29 +77,42 @@ const styles = StyleSheet.create({
     borderColor: "#E2E8F0",
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 21,
     fontWeight: "800",
     color: "#0F172A",
   },
   closeBtn: {
-    padding: 4,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F8FAFC",
   },
   scrollContent: {
     padding: 20,
+    paddingBottom: 32,
   },
   listItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderColor: "#F1F5F9",
+    gap: 12,
   },
-  listIcon: {
-    width: 28,
+  listIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "#FFF5F5",
+    alignItems: "center",
+    justifyContent: "center",
   },
   listText: {
-    fontSize: 15,
-    color: "#334155",
+    fontSize: 16,
+    color: "#1F2937",
+    fontWeight: "600",
     flex: 1,
   },
 });

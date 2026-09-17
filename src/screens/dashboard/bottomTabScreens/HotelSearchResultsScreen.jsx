@@ -201,6 +201,20 @@ const HotelNativeMarker = React.memo(({ hotel, isSelected, onPress, onCalloutPre
   );
 });
 
+const HotelClusterMarker = React.memo(({ cluster, onPress }) => {
+  return (
+    <Marker
+      coordinate={cluster.coordinate}
+      onPress={onPress}
+      tracksViewChanges={false}
+    >
+      <View style={styles.clusterMarker}>
+        <Text style={styles.clusterMarkerText}>{cluster.count}</Text>
+      </View>
+    </Marker>
+  );
+});
+
 const HotelSearchResultsScreen = ({ navigation, route }) => {
   const { setSelectedHotel, session, searchParams: contextSearchParams } = useHotelBooking();
   const rawHotels = Array.isArray(route?.params?.hotels) ? route.params.hotels : [];
@@ -338,7 +352,29 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   }, [selectedHotelId]);
 
   const region = useMemo(() => getMapRegion(filteredHotels), [filteredHotels]);
-  const mapHotels = useMemo(() => (Array.isArray(filteredHotels) ? filteredHotels : []).slice(0, 100), [filteredHotels]);
+  const mapClusters = useMemo(() => {
+    const clusters = new Map();
+    (Array.isArray(filteredHotels) ? filteredHotels : []).forEach((hotel, index) => {
+      const latitude = Number(hotel?.latitude);
+      const longitude = Number(hotel?.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+      // Group nearby hotels into visual clusters so dense destinations stay readable.
+      const key = `${latitude.toFixed(2)}:${longitude.toFixed(2)}`;
+      const existing = clusters.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        clusters.set(key, {
+          count: 1,
+          coordinate: { latitude, longitude },
+          hotel,
+          index,
+        });
+      }
+    });
+    return Array.from(clusters.values());
+  }, [filteredHotels]);
   const selectedHotel =
     filteredHotels.find((hotel) => String(hotel?.hotelCode ?? hotel?.hotelId) === String(selectedHotelId)) ||
     filteredHotels[0] ||
@@ -548,15 +584,26 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
 
       <View style={styles.mapWrap}>
         <MapView ref={mapRef} style={styles.map} initialRegion={region}>
-          {mapHotels.map((hotel, index) => {
+          {mapClusters.map((cluster) => {
+            const hotel = cluster.hotel;
             const hId = String(hotel?.hotelCode ?? hotel?.hotelId);
+            if (cluster.count > 1) {
+              return (
+                <HotelClusterMarker
+                  key={`cluster-${hId}-${cluster.count}`}
+                  cluster={cluster}
+                  onPress={() => handleMarkerPress(hotel, cluster.index)}
+                />
+              );
+            }
+
             const isSelected = hId === String(selectedHotelId);
             return (
               <HotelNativeMarker
                 key={hId}
                 hotel={hotel}
                 isSelected={isSelected}
-                onPress={() => handleMarkerPress(hotel, index)}
+                onPress={() => handleMarkerPress(hotel, cluster.index)}
                 onCalloutPress={() =>
                   handleSelectHotel(
                     hotel,
@@ -775,7 +822,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 8,
     gap: 10,
     backgroundColor: "#FFFFFF",
     zIndex: 2,
@@ -793,8 +840,8 @@ const styles = StyleSheet.create({
   searchPill: {
     flex: 1,
     backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    paddingVertical: 8,
+    borderRadius: 16,
+    paddingVertical: 7,
     paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: "#E2E8F0",
@@ -862,6 +909,22 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
   },
+  clusterMarker: {
+    minWidth: 38,
+    height: 38,
+    paddingHorizontal: 8,
+    borderRadius: 19,
+    backgroundColor: "#0F172A",
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  clusterMarkerText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+  },
   mapChipText: {
     color: "#FFFFFF",
     fontSize: 12,
@@ -915,7 +978,7 @@ const styles = StyleSheet.create({
   },
   sheetHeader: {
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
   sheetHeaderTopRow: {
     flexDirection: "row",
@@ -976,7 +1039,8 @@ const styles = StyleSheet.create({
   quickFilterBar: {
     flexDirection: "row",
     gap: 8,
-    paddingTop: 10,
+    paddingTop: 8,
+    paddingRight: 24,
   },
   quickChip: {
     flexDirection: "row",
@@ -1004,7 +1068,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 44,
+    paddingBottom: 96,
   },
   card: {
     borderRadius: 16,
@@ -1012,24 +1076,29 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    marginBottom: 14,
+    marginBottom: 12,
     elevation: 1,
   },
   cardSelected: {
-    borderColor: "#EF4444",
-    borderWidth: 2,
+    borderColor: "#FCA5A5",
+    borderWidth: 1.5,
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
   },
   cardPressed: {
     opacity: 0.9,
   },
   cardImage: {
     width: "100%",
-    height: 160,
+    height: 136,
     backgroundColor: "#F1F5F9",
   },
   noImageCardBox: {
     width: "100%",
-    height: 120,
+    height: 110,
     backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",

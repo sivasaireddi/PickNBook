@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
   ActivityIndicator,
+  ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,20 +9,17 @@ import {
   TextInput,
   View,
   useWindowDimensions,
-  Platform,
   Animated,
   Easing,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Rect, Circle } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Building2,
   CalendarDays,
   Search,
   ArrowRight,
-  Headphones,
-  Bell,
+  ArrowLeft,
   ShieldCheck,
   Ticket,
   Clock,
@@ -33,9 +31,12 @@ import {
 } from "lucide-react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
+import * as SecureStore from "expo-secure-store";
 import { searchHotelOffers, resolveCityId, searchCities } from "../../../services/hotelService";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
 import { scale } from "../../../utils/responsive";
+
+const LAST_HOTEL_SEARCH_KEY = "LAST_HOTEL_SEARCH";
 
 const CITY_HINTS = [
   { label: "New Delhi", value: "725862" },
@@ -44,12 +45,14 @@ const CITY_HINTS = [
   { label: "Bengaluru", value: "111124" },
 ];
 
-const formatDisplayDate = (date) =>
-  date.toLocaleDateString("en-IN", {
+const formatDisplayDate = (date) => {
+  if (!date) return "";
+  return date.toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
+};
 
 const formatApiDate = (date) => {
   const year = date.getFullYear();
@@ -57,22 +60,6 @@ const formatApiDate = (date) => {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
-
-const SkylineSVG = () => (
-  <Svg width="120%" height={scale(56)} viewBox="0 0 380 56" preserveAspectRatio="none" style={{ left: '-10%' }}>
-    <Circle cx="320" cy="16" r="8" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="20" y="26" width="16" height="30" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="40" y="16" width="22" height="40" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="66" y="32" width="14" height="24" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="120" y="20" width="20" height="36" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="145" y="12" width="16" height="44" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="165" y="28" width="18" height="28" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="220" y="24" width="22" height="32" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="246" y="14" width="18" height="42" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="268" y="30" width="16" height="26" fill="#FFFFFF" opacity="0.13" />
-    <Rect x="340" y="22" width="20" height="34" fill="#FFFFFF" opacity="0.13" />
-  </Svg>
-);
 
 const AnimatedPressable = ({ children, style, onPress, disabled, activeScale = 0.95, wrapperStyle }) => {
   const scale = useRef(new Animated.Value(1)).current;
@@ -101,10 +88,11 @@ const AnimatedPressable = ({ children, style, onPress, disabled, activeScale = 0
 const HotelsScreen = () => {
   const navigation = useNavigation();
   const { setSearchSession } = useHotelBooking();
-  const { width } = useWindowDimensions();
+  const { width, height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
-  const [destinationInput, setDestinationInput] = useState("New Delhi");
-  const [selectedCityId, setSelectedCityId] = useState("725862");
+  const [destinationInput, setDestinationInput] = useState("");
+  const [selectedCityId, setSelectedCityId] = useState("");
   
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -113,13 +101,6 @@ const HotelsScreen = () => {
   const suggestionTimer = useRef(null);
 
   // Animation values
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.85)).current;
-  const titleTranslateX = useRef(new Animated.Value(-15)).current;
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const subtitleOpacity = useRef(new Animated.Value(0)).current;
-  const actionsOpacity = useRef(new Animated.Value(0)).current;
-  const actionsScale = useRef(new Animated.Value(0.9)).current;
   const cardTranslateY = useRef(new Animated.Value(35)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.98)).current;
@@ -135,19 +116,10 @@ const HotelsScreen = () => {
     useRef(new Animated.Value(15)).current,
   ];
   
-  const skylineTranslateX = useRef(new Animated.Value(0)).current;
   const ctaArrowTranslateX = useRef(new Animated.Value(0)).current;
   const destinationIconScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Skyline slow loop
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(skylineTranslateX, { toValue: -20, duration: 25000, easing: Easing.linear, useNativeDriver: true }),
-        Animated.timing(skylineTranslateX, { toValue: 0, duration: 25000, easing: Easing.linear, useNativeDriver: true }),
-      ])
-    ).start();
-
     // CTA Arrow idle loop
     Animated.loop(
       Animated.sequence([
@@ -158,15 +130,6 @@ const HotelsScreen = () => {
 
     // Entrance Animation Sequence
     Animated.stagger(150, [
-      Animated.parallel([
-        Animated.timing(logoOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.spring(logoScale, { toValue: 1, friction: 6, tension: 50, useNativeDriver: true }),
-        Animated.timing(titleOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.spring(titleTranslateX, { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
-        Animated.timing(actionsOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.spring(actionsScale, { toValue: 1, friction: 6, tension: 50, useNativeDriver: true }),
-      ]),
-      Animated.timing(subtitleOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
       Animated.parallel([
         Animated.timing(cardOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
         Animated.spring(cardTranslateY, { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
@@ -183,6 +146,36 @@ const HotelsScreen = () => {
     return () => {
       if (suggestionTimer.current) clearTimeout(suggestionTimer.current);
     };
+  }, []);
+
+  useEffect(() => {
+    const restoreLastSearch = async () => {
+      try {
+        const raw = await SecureStore.getItemAsync(LAST_HOTEL_SEARCH_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (saved?.destinationInput && saved?.selectedCityId) {
+          setDestinationInput(saved.destinationInput);
+          setSelectedCityId(saved.selectedCityId);
+        }
+        if (saved?.checkInDate && saved?.checkOutDate) {
+          const savedIn = new Date(saved.checkInDate);
+          const savedOut = new Date(saved.checkOutDate);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          if (!isNaN(savedIn.getTime()) && !isNaN(savedOut.getTime()) && savedIn >= today) {
+            setCheckInDate(savedIn);
+            setCheckOutDate(savedOut);
+          }
+        }
+        if (Array.isArray(saved?.roomGuests) && saved.roomGuests.length > 0) {
+          setRoomGuests(saved.roomGuests);
+        }
+      } catch (e) {
+        console.log("[HotelsScreen] Error restoring last search:", e?.message);
+      }
+    };
+    restoreLastSearch();
   }, []);
 
   const handleCityInput = (text) => {
@@ -210,12 +203,8 @@ const HotelsScreen = () => {
     }, 400);
   };
 
-  const [checkInDate, setCheckInDate] = useState(
-    new Date(Date.now() + 24 * 60 * 60 * 1000)
-  );
-  const [checkOutDate, setCheckOutDate] = useState(
-    new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
-  );
+  const [checkInDate, setCheckInDate] = useState(null);
+  const [checkOutDate, setCheckOutDate] = useState(null);
 
   // Multi-room guests state
   const [roomGuests, setRoomGuests] = useState([
@@ -283,6 +272,21 @@ const HotelsScreen = () => {
   const handleSearch = async () => {
     setError("");
 
+    if (!destinationInput.trim() || !selectedCityId) {
+      setError("Please select a destination city.");
+      return;
+    }
+
+    if (!checkInDate) {
+      setError("Please select a check-in date.");
+      return;
+    }
+
+    if (!checkOutDate) {
+      setError("Please select a check-out date.");
+      return;
+    }
+
     // Validate dates
     if (!(checkOutDate > checkInDate)) {
       setError("Check-out date must be after check-in date.");
@@ -323,6 +327,22 @@ const HotelsScreen = () => {
       // Save to context
       setSearchSession(searchParams, sessionData);
 
+      // Save search params to SecureStore for future search restoration
+      try {
+        await SecureStore.setItemAsync(
+          LAST_HOTEL_SEARCH_KEY,
+          JSON.stringify({
+            destinationInput,
+            selectedCityId,
+            checkInDate: checkInDate.toISOString(),
+            checkOutDate: checkOutDate.toISOString(),
+            roomGuests,
+          })
+        );
+      } catch (saveErr) {
+        console.log("[HotelsScreen] Error saving last search:", saveErr?.message);
+      }
+
       navigation.navigate("HotelSearchResultsScreen", {
         hotels,
         searchParams: {
@@ -345,39 +365,33 @@ const HotelsScreen = () => {
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" bounces={false}>
         {/* Header Banner */}
         <View style={styles.headerBannerContainer}>
-          <LinearGradient
-            colors={["#C42B31", "#B0242A"]}
-            style={styles.headerGradient}
+          <ImageBackground
+            source={require("../../../../assets/HotelBanner.jpg")}
+            style={[styles.headerBackground, { height: Math.min(Math.max(screenHeight * 0.34, 200), 300) }]}
+            imageStyle={styles.headerBackgroundImage}
+            resizeMode="cover"
           >
-            <SafeAreaView edges={["top"]} style={styles.safeArea}>
-              <View style={styles.headerRow}>
-                <View style={styles.logoTitleGroup}>
-                  <Animated.View style={[styles.logoBox, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
-                    <Building2 size={scale(20)} color="#C0272D" />
-                  </Animated.View>
-                  <View>
-                    <Animated.Text style={[styles.appName, { opacity: titleOpacity, transform: [{ translateX: titleTranslateX }] }]}>PickNBook</Animated.Text>
-                    <Animated.Text style={[styles.appSubtitle, { opacity: subtitleOpacity }]}>Smart travel. Easy booking.</Animated.Text>
-                  </View>
-                </View>
-                <Animated.View style={[styles.headerActions, { opacity: actionsOpacity, transform: [{ scale: actionsScale }] }]}>
-                  <AnimatedPressable style={styles.helpButton} activeScale={0.92}>
-                    <Headphones size={scale(14)} color="#FFFFFF" />
-                    <Text style={styles.helpText}>Help</Text>
+            <LinearGradient
+              colors={["rgba(15,23,42,0.18)", "rgba(15,23,42,0.42)"]}
+              style={styles.headerGradient}
+            >
+              <View style={[styles.headerRow, { paddingTop: Math.max(scale(12), insets.top + scale(8)) }]}>
+                  <AnimatedPressable
+                    style={styles.backButton}
+                    activeScale={0.9}
+                    onPress={() => {
+                      if (navigation.canGoBack()) {
+                        navigation.goBack();
+                      } else {
+                        navigation.navigate("DashBoard");
+                      }
+                    }}
+                  >
+                    <ArrowLeft size={scale(28)} color="#1F2937" strokeWidth={3} />
                   </AnimatedPressable>
-                  <AnimatedPressable style={styles.notificationButton} activeScale={0.92}>
-                    <Bell size={scale(16)} color="#FFFFFF" />
-                    <View style={styles.notificationDot} />
-                  </AnimatedPressable>
-                </Animated.View>
               </View>
-              <View style={styles.skylineContainer}>
-                <Animated.View style={{ transform: [{ translateX: skylineTranslateX }] }}>
-                  <SkylineSVG />
-                </Animated.View>
-              </View>
-            </SafeAreaView>
-          </LinearGradient>
+            </LinearGradient>
+          </ImageBackground>
         </View>
 
         {/* Search Card */}
@@ -386,11 +400,11 @@ const HotelsScreen = () => {
             <Text style={styles.label}>DESTINATION CITY</Text>
             <View style={[styles.inputContainer, showSuggestions && styles.inputContainerActive]}>
               <Animated.View style={[styles.inputIconChip, { transform: [{ scale: destinationIconScale }] }]}>
-                <Building2 size={scale(14)} color="#C0272D" />
+                <Building2 size={scale(16)} color="#C0272D" />
               </Animated.View>
               <TextInput
-                placeholder="Search City (e.g. Delhi)"
-                placeholderTextColor="#A5A29B"
+                placeholder="Select destination"
+                placeholderTextColor="#6B7280"
                 value={destinationInput}
                 onChangeText={(text) => {
                   Animated.sequence([
@@ -405,9 +419,13 @@ const HotelsScreen = () => {
                 }}
               />
               {destinationInput.length > 0 && (
-                <Pressable onPress={() => { setDestinationInput(""); setCitySuggestions([]); setShowSuggestions(false); }} style={styles.clearButton}>
-                  <X size={scale(16)} color="#A5A29B" />
-                </Pressable>
+                <AnimatedPressable
+                  onPress={() => { setDestinationInput(""); setSelectedCityId(""); setCitySuggestions([]); setShowSuggestions(false); }}
+                  style={styles.clearButton}
+                  activeScale={0.82}
+                >
+                  <X size={scale(22)} color="#6B7280" strokeWidth={2.75} />
+                </AnimatedPressable>
               )}
             </View>
             
@@ -423,23 +441,30 @@ const HotelsScreen = () => {
                     <Text style={styles.dropdownStatusText}>No cities found</Text>
                   </View>
                 ) : (
-                  citySuggestions.map((item, index) => (
-                    <Pressable
-                      key={index}
-                      style={styles.dropdownItem}
-                      onPress={() => {
-                        setDestinationInput(item.cityName);
-                        setSelectedCityId(item.cityId);
-                        setShowSuggestions(false);
-                      }}
-                    >
-                      <MapPin size={scale(16)} color="#C0272D" />
-                      <View style={styles.dropdownItemTextContainer}>
-                        <Text style={styles.dropdownText}>{item.cityName}</Text>
-                        {item.countryName ? <Text style={styles.dropdownSubtext}>{item.countryName}</Text> : null}
-                      </View>
-                    </Pressable>
-                  ))
+                  <ScrollView
+                    style={styles.dropdownScroll}
+                    nestedScrollEnabled={true}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={true}
+                  >
+                    {citySuggestions.map((item, index) => (
+                      <Pressable
+                        key={index}
+                        style={styles.dropdownItem}
+                        onPress={() => {
+                          setDestinationInput(item.cityName);
+                          setSelectedCityId(item.cityId);
+                          setShowSuggestions(false);
+                        }}
+                      >
+                        <MapPin size={scale(16)} color="#C0272D" />
+                        <View style={styles.dropdownItemTextContainer}>
+                          <Text style={styles.dropdownText}>{item.cityName}</Text>
+                          {item.countryName ? <Text style={styles.dropdownSubtext}>{item.countryName}</Text> : null}
+                        </View>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
                 )}
               </View>
             )}
@@ -452,9 +477,9 @@ const HotelsScreen = () => {
                   activeScale={0.96}
                   onPress={() => setShowCheckInPicker(true)}
                 >
-                  <CalendarDays size={scale(16)} color="#C0272D" />
-                  <Text style={styles.dateText}>
-                    {formatDisplayDate(checkInDate)}
+                  <CalendarDays size={scale(18)} color="#C0272D" />
+                  <Text style={[styles.dateText, !checkInDate && styles.datePlaceholderText]}>
+                    {checkInDate ? formatDisplayDate(checkInDate) : "Select Check-in"}
                   </Text>
                 </AnimatedPressable>
               </View>
@@ -466,9 +491,9 @@ const HotelsScreen = () => {
                   activeScale={0.96}
                   onPress={() => setShowCheckOutPicker(true)}
                 >
-                  <CalendarDays size={scale(16)} color="#C0272D" />
-                  <Text style={styles.dateText}>
-                    {formatDisplayDate(checkOutDate)}
+                  <CalendarDays size={scale(18)} color="#C0272D" />
+                  <Text style={[styles.dateText, !checkOutDate && styles.datePlaceholderText]}>
+                    {checkOutDate ? formatDisplayDate(checkOutDate) : "Select Check-out"}
                   </Text>
                 </AnimatedPressable>
               </View>
@@ -493,7 +518,7 @@ const HotelsScreen = () => {
                     <Text style={styles.roomTitle}>Room {rIdx + 1}</Text>
                     {roomGuests.length > 1 && (
                       <Pressable onPress={() => handleRemoveRoom(rIdx)} style={styles.removeRoomBtn}>
-                        <Trash2 size={scale(14)} color="#A5A29B" />
+                        <Trash2 size={scale(16)} color="#6B7280" strokeWidth={2.25} />
                       </Pressable>
                     )}
                   </View>
@@ -507,7 +532,7 @@ const HotelsScreen = () => {
                           activeScale={0.8}
                           onPress={() => handleUpdateAdults(rIdx, -1)}
                         >
-                          <Minus size={scale(14)} color="#C0272D" />
+                          <Minus size={scale(16)} color="#C0272D" strokeWidth={2.5} />
                         </AnimatedPressable>
                         <Text style={styles.stepperValue}>{room.NoOfAdults}</Text>
                         <AnimatedPressable
@@ -515,7 +540,7 @@ const HotelsScreen = () => {
                           activeScale={0.8}
                           onPress={() => handleUpdateAdults(rIdx, 1)}
                         >
-                          <Plus size={scale(14)} color="#C0272D" />
+                          <Plus size={scale(16)} color="#C0272D" strokeWidth={2.5} />
                         </AnimatedPressable>
                       </View>
                     </View>
@@ -528,7 +553,7 @@ const HotelsScreen = () => {
                           activeScale={0.8}
                           onPress={() => handleUpdateChildren(rIdx, -1)}
                         >
-                          <Minus size={scale(14)} color="#C0272D" />
+                          <Minus size={scale(16)} color="#C0272D" strokeWidth={2.5} />
                         </AnimatedPressable>
                         <Text style={styles.stepperValue}>{room.NoOfChild}</Text>
                         <AnimatedPressable
@@ -536,7 +561,7 @@ const HotelsScreen = () => {
                           activeScale={0.8}
                           onPress={() => handleUpdateChildren(rIdx, 1)}
                         >
-                          <Plus size={scale(14)} color="#C0272D" />
+                          <Plus size={scale(16)} color="#C0272D" strokeWidth={2.5} />
                         </AnimatedPressable>
                       </View>
                     </View>
@@ -607,14 +632,14 @@ const HotelsScreen = () => {
 
       {showCheckInPicker && (
         <DateTimePicker
-          value={checkInDate}
+          value={checkInDate || new Date()}
           mode="date"
           minimumDate={new Date()}
           onChange={(event, selectedDate) => {
             setShowCheckInPicker(false);
             if (selectedDate) {
               setCheckInDate(selectedDate);
-              if (checkOutDate <= selectedDate) {
+              if (!checkOutDate || checkOutDate <= selectedDate) {
                 setCheckOutDate(new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000));
               }
             }
@@ -624,9 +649,9 @@ const HotelsScreen = () => {
 
       {showCheckOutPicker && (
         <DateTimePicker
-          value={checkOutDate}
+          value={checkOutDate || (checkInDate ? new Date(checkInDate.getTime() + 24 * 60 * 60 * 1000) : new Date(Date.now() + 24 * 60 * 60 * 1000))}
           mode="date"
-          minimumDate={new Date(checkInDate.getTime() + 24 * 60 * 60 * 1000)}
+          minimumDate={checkInDate ? new Date(checkInDate.getTime() + 24 * 60 * 60 * 1000) : new Date()}
           onChange={(event, selectedDate) => {
             setShowCheckOutPicker(false);
             if (selectedDate) setCheckOutDate(selectedDate);
@@ -652,153 +677,118 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: scale(20),
     borderBottomRightRadius: scale(20),
   },
-  headerGradient: {
-    paddingHorizontal: scale(18),
-    paddingTop: scale(18),
-    paddingBottom: scale(22) + scale(58), // Accommodate the overlap margin
+  headerBackground: {
+    width: "100%",
   },
-  safeArea: {
-    paddingTop: Platform.OS === 'android' ? 24 : 0,
+  headerBackgroundImage: {
+    resizeMode: "cover",
+  },
+  headerGradient: {
+    flex: 1,
+    paddingBottom: scale(24),
   },
   headerRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: scale(16),
+    paddingHorizontal: scale(16),
   },
-  logoTitleGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: scale(10),
-  },
-  logoBox: {
-    width: scale(38),
-    height: scale(38),
-    backgroundColor: "#FFFFFF",
-    borderRadius: scale(11),
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  appName: {
-    color: "#FFFFFF",
-    fontSize: scale(17),
-    fontWeight: "500",
-  },
-  appSubtitle: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: scale(11.5),
-    marginTop: scale(2),
-  },
-  headerActions: {
-    flexDirection: "row",
-    gap: scale(8),
-    alignItems: "center",
-  },
-  helpButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.16)",
-    borderRadius: scale(16),
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(6),
-    gap: scale(4),
-  },
-  helpText: {
-    color: "#FFFFFF",
-    fontSize: scale(12),
-    fontWeight: "500",
-  },
-  notificationButton: {
-    width: scale(32),
-    height: scale(32),
-    borderRadius: scale(16),
-    backgroundColor: "rgba(255,255,255,0.16)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  notificationDot: {
-    position: "absolute",
-    top: scale(6),
-    right: scale(6),
-    width: scale(6),
-    height: scale(6),
-    borderRadius: scale(3),
-    backgroundColor: "#FFC107",
+  backButton: {
+    width: scale(46),
+    height: scale(46),
+    borderRadius: scale(23),
+    backgroundColor: "rgba(255,255,255,0.88)",
     borderWidth: 1,
-    borderColor: "#C42B31",
-  },
-  skylineContainer: {
-    marginTop: scale(4),
+    borderColor: "rgba(255,255,255,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: scale(3) },
+    shadowOpacity: 0.16,
+    shadowRadius: scale(8),
+    elevation: 4,
   },
   cardContainer: {
     marginHorizontal: scale(16),
-    marginTop: -scale(58), // Floating overlap
+    marginTop: -scale(24),
   },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: scale(20),
-    paddingTop: scale(24),
-    paddingHorizontal: scale(20),
-    paddingBottom: scale(22),
-    shadowColor: "rgba(30,20,20,0.08)",
-    shadowOffset: { width: 0, height: scale(16) },
+    paddingHorizontal: scale(12),
+    paddingTop: scale(12),
+    paddingBottom: scale(12),
+    shadowColor: "rgba(0, 0, 0, 0.04)",
+    shadowOffset: { width: 0, height: scale(6) },
     shadowOpacity: 1,
-    shadowRadius: scale(36),
-    elevation: 12,
+    shadowRadius: scale(16),
+    elevation: 2,
   },
   label: {
-    fontSize: scale(12),
-    fontWeight: "600",
-    color: "#A5A29B",
-    letterSpacing: 0.6,
+    fontSize: scale(11),
+    fontWeight: "800",
+    color: "#6B7280",
+    letterSpacing: 0.8,
     marginBottom: scale(6),
     textTransform: "uppercase",
   },
   inputContainer: {
-    height: scale(48),
-    backgroundColor: "#FBF7F6",
+    minHeight: scale(52),
+    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: "#F0E4E2",
-    borderRadius: scale(12),
+    borderColor: "#D9DEE7",
+    borderRadius: scale(16),
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: scale(14),
+    marginBottom: scale(12),
   },
   inputContainerActive: {
     borderColor: "#C0272D",
+    backgroundColor: "#FFFFFF",
   },
   inputIconChip: {
-    width: scale(26),
-    height: scale(26),
-    backgroundColor: "#FAECE7",
-    borderRadius: scale(8),
+    width: scale(32),
+    height: scale(32),
+    backgroundColor: "#FEE2E2",
+    borderRadius: scale(10),
     justifyContent: "center",
     alignItems: "center",
   },
   input: {
     flex: 1,
+    minWidth: 0,
     marginLeft: scale(10),
-    fontSize: scale(15),
-    color: "#231F1F",
-    fontWeight: "500",
+    fontSize: scale(16),
+    color: "#1F2937",
+    fontWeight: "600",
   },
   clearButton: {
-    padding: scale(4),
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: -scale(6),
   },
   dropdown: {
     backgroundColor: "#FFFFFF",
-    borderRadius: scale(12),
+    borderRadius: scale(14),
     borderWidth: 1,
-    borderColor: "#EDEAE6",
-    marginTop: scale(4),
-    marginBottom: scale(8),
-    maxHeight: scale(200),
-    shadowColor: "rgba(30,20,20,0.06)",
+    borderColor: "#E5E7EB",
+    marginTop: -scale(10),
+    marginBottom: scale(16),
+    maxHeight: scale(230),
+    overflow: "hidden",
+    shadowColor: "rgba(0, 0, 0, 0.08)",
     shadowOpacity: 1,
-    shadowRadius: scale(8),
-    shadowOffset: { width: 0, height: scale(2) },
+    shadowRadius: scale(12),
+    shadowOffset: { width: 0, height: scale(4) },
     elevation: 4,
     zIndex: 10,
+  },
+  dropdownScroll: {
+    maxHeight: scale(230),
+    backgroundColor: "#FFFFFF",
   },
   dropdownStatus: {
     padding: scale(16),
@@ -809,7 +799,7 @@ const styles = StyleSheet.create({
   },
   dropdownStatusText: {
     fontSize: scale(13),
-    color: "#6B675F",
+    color: "#6B7280",
     fontWeight: "500",
   },
   dropdownItem: {
@@ -817,20 +807,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: scale(12),
     borderBottomWidth: 1,
-    borderBottomColor: "#F7F6F4",
+    borderBottomColor: "#F3F4F6",
     gap: scale(12),
   },
   dropdownItemTextContainer: {
     flex: 1,
   },
   dropdownText: {
-    fontSize: scale(14),
-    fontWeight: "500",
-    color: "#231F1F",
+    fontSize: scale(15),
+    fontWeight: "600",
+    color: "#1F2937",
   },
   dropdownSubtext: {
-    fontSize: scale(11),
-    color: "#A5A29B",
+    fontSize: scale(12),
+    color: "#6B7280",
     marginTop: scale(2),
   },
   hintsRow: {
@@ -863,7 +853,7 @@ const styles = StyleSheet.create({
   dateRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: scale(10),
+    gap: scale(12),
     marginBottom: scale(16),
   },
   dateRowStacked: {
@@ -874,19 +864,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dateInput: {
-    height: scale(48),
+    minHeight: scale(52),
     borderWidth: 1,
-    borderColor: "#EDEAE6",
-    borderRadius: scale(12),
+    borderColor: "#D9DEE7",
+    borderRadius: scale(16),
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: scale(12),
-    backgroundColor: "#FFFFFF",
+    paddingHorizontal: scale(14),
+    backgroundColor: "#F9FAFB",
   },
   dateText: {
-    marginLeft: scale(8),
-    fontSize: scale(13.5),
-    color: "#231F1F",
+    flexShrink: 1,
+    marginLeft: scale(10),
+    fontSize: scale(15),
+    color: "#1F2937",
+    fontWeight: "600",
+  },
+  datePlaceholderText: {
+    color: "#9CA3AF",
     fontWeight: "500",
   },
   roomsHeader: {
@@ -896,28 +891,35 @@ const styles = StyleSheet.create({
     marginBottom: scale(10),
   },
   roomsTitle: {
-    fontSize: scale(13.5),
-    fontWeight: "500",
-    color: "#231F1F",
+    flexShrink: 1,
+    fontSize: scale(17),
+    fontWeight: "700",
+    color: "#1F2937",
   },
   roomsTitleCount: {
-    color: "#A5A29B",
+    color: "#6B7280",
+    fontWeight: "500",
   },
   addRoomBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: scale(4),
+    flexShrink: 0,
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(10),
+    backgroundColor: "#FEE2E2",
+    borderRadius: scale(12),
   },
   addRoomText: {
     color: "#C0272D",
-    fontWeight: "500",
-    fontSize: scale(12.5),
+    fontWeight: "600",
+    fontSize: scale(13),
   },
   roomCard: {
-    backgroundColor: "#FBFAF9",
-    borderRadius: scale(14),
+    backgroundColor: "#F9FAFB",
+    borderRadius: scale(16),
     borderWidth: 1,
-    borderColor: "#EDEAE6",
+    borderColor: "#E5E7EB",
     padding: scale(14),
     marginBottom: scale(12),
   },
@@ -925,12 +927,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: scale(12),
+    marginBottom: scale(10),
   },
   roomTitle: {
-    fontSize: scale(12.5),
-    fontWeight: "500",
-    color: "#231F1F",
+    fontSize: scale(14),
+    fontWeight: "600",
+    color: "#1F2937",
   },
   removeRoomBtn: {
     padding: scale(4),
@@ -938,40 +940,40 @@ const styles = StyleSheet.create({
   guestRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: scale(10),
+    gap: scale(12),
   },
   guestControlBox: {
     flex: 1,
   },
   guestSubLabel: {
-    fontSize: scale(11),
-    fontWeight: "500",
-    color: "#A5A29B",
+    fontSize: scale(13),
+    fontWeight: "600",
+    color: "#6B7280",
     marginBottom: scale(6),
   },
   stepper: {
     height: scale(44),
     borderWidth: 1,
-    borderColor: "#EDEAE6",
-    borderRadius: scale(10),
+    borderColor: "#E5E7EB",
+    borderRadius: scale(12),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: scale(6),
+    paddingHorizontal: scale(8),
     backgroundColor: "#FFFFFF",
   },
   stepperBtn: {
-    width: scale(24),
-    height: scale(24),
-    borderRadius: scale(7),
-    backgroundColor: "#FDF0EE",
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(10),
+    backgroundColor: "#FEE2E2",
     alignItems: "center",
     justifyContent: "center",
   },
   stepperValue: {
-    fontSize: scale(14),
-    fontWeight: "500",
-    color: "#231F1F",
+    fontSize: scale(17),
+    fontWeight: "600",
+    color: "#1F2937",
   },
   childAgesContainer: {
     marginTop: scale(12),
@@ -986,54 +988,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: "#EDEAE6",
-    borderRadius: scale(10),
-    paddingHorizontal: scale(8),
-    paddingVertical: scale(4),
+    borderColor: "#E5E7EB",
+    borderRadius: scale(12),
+    paddingHorizontal: scale(10),
     gap: scale(6),
     height: scale(44),
   },
   childAgeTag: {
     fontSize: scale(12),
-    color: "#6B675F",
+    color: "#6B7280",
     fontWeight: "500",
   },
   childAgeInput: {
     width: scale(32),
     height: scale(32),
     textAlign: "center",
-    fontWeight: "500",
-    fontSize: scale(14),
-    color: "#231F1F",
+    fontWeight: "600",
+    fontSize: scale(15),
+    color: "#1F2937",
   },
   errorText: {
     color: "#C0272D",
     fontWeight: "500",
     marginVertical: scale(8),
-    fontSize: scale(12),
+    fontSize: scale(13),
   },
   searchButtonWrapper: {
-    marginTop: scale(4),
-    shadowColor: "rgba(176,36,42,0.28)",
-    shadowOffset: { width: 0, height: scale(8) },
+    marginTop: scale(2),
+    shadowColor: "rgba(192, 39, 45, 0.25)",
+    shadowOffset: { width: 0, height: scale(6) },
     shadowOpacity: 1,
-    shadowRadius: scale(16),
+    shadowRadius: scale(12),
     elevation: 4,
   },
   searchButtonGradient: {
-    borderRadius: scale(14),
-    paddingVertical: scale(15),
+    borderRadius: scale(22),
+    height: scale(44),
+    justifyContent: "center",
+    alignItems: "center",
   },
   searchButtonContent: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: scale(8),
+    gap: scale(6),
   },
   searchButtonText: {
     color: "#FFFFFF",
-    fontSize: scale(16),
-    fontWeight: "600",
+    fontSize: scale(15),
+    fontWeight: "700",
   },
   trustBadgesRow: {
     flexDirection: "row",

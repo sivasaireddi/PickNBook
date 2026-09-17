@@ -5,8 +5,8 @@ import BusBookingSection from "./BusBookingSection";
 
 export default function BusScreen({ navigation }) {
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <StatusBar barStyle="light-content" backgroundColor="#D11A2A" />
+    <SafeAreaView style={styles.safeArea} edges={["left", "right"]}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <View style={styles.screen}>
         <BusBookingSection navigation={navigation} />
       </View>
@@ -15,6 +15,6 @@ export default function BusScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#D11A2A" },
+  safeArea: { flex: 1, backgroundColor: "#000" },
   screen: { flex: 1, backgroundColor: "#F8F9FC" },
 });

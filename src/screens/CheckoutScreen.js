@@ -1,33 +1,80 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useCashfreePayment } from '../hooks/useCashfreePayment';
+import { getStoredAuthToken } from '../utils/authSession';
 import BookingConfirmationScreen from './BookingConfirmationScreen';
 import BookingFailureScreen from './BookingFailureScreen';
 
 const CheckoutScreen = ({ route, navigation }) => {
   // Extract token and booking details from navigation route or context
-  // Fallbacks provided for demonstration
-  const { userToken, bookingDetails, customerDetails, amount, bookingType } = route?.params || { 
-    userToken: 'dummy_token', 
-    amount: 100,
-    bookingDetails: {},
-    customerDetails: {},
-    bookingType: 'Bus'
-  };
+  const { userToken, bookingDetails, customerDetails, amount, bookingType } = route?.params || {};
 
-  const { status, error, orderId, startPayment, reset } = useCashfreePayment(userToken);
+  const [authToken, setAuthToken] = useState(userToken || "");
 
-  const handlePayPress = () => {
+  useEffect(() => {
+    if (!authToken) {
+      getStoredAuthToken()
+        .then((tok) => {
+          if (tok) setAuthToken(tok);
+        })
+        .catch((err) => console.log("[CheckoutScreen] Error loading token:", err));
+    }
+  }, [authToken]);
+
+  const { status, error, orderId, startPayment, reset } = useCashfreePayment(authToken);
+
+  const handlePayPress = async () => {
+    let tokenToUse = authToken;
+    if (!tokenToUse) {
+      tokenToUse = await getStoredAuthToken().catch(() => "");
+      if (tokenToUse) setAuthToken(tokenToUse);
+    }
+
+    if (!tokenToUse) {
+      Alert.alert("Authentication Required", "Session expired or auth token is missing. Please log in again.");
+      return;
+    }
+
+    if (!amount || Number(amount) <= 0) {
+      Alert.alert("Invalid Amount", "Missing or invalid checkout amount.");
+      return;
+    }
+
+    if (!bookingDetails) {
+      Alert.alert("Missing Details", "Missing booking details for checkout.");
+      return;
+    }
+
+    if (!customerDetails) {
+      Alert.alert("Missing Customer Details", "Customer information is missing.");
+      return;
+    }
+
+    if (!customerDetails.phone || !customerDetails.name || !customerDetails.email) {
+      Alert.alert("Missing Customer Info", "Please ensure customer name, phone number, and email address are all provided.");
+      return;
+    }
+
+    const effectiveBookingType = bookingType || (
+      bookingDetails?.HotelName || bookingDetails?.HotelRoomsDetails ? "Hotel" : "Bus"
+    );
+
+    const custId = customerDetails.id || customerDetails.phone;
+    if (!custId) {
+      Alert.alert("Missing Customer ID", "Customer phone or ID is missing.");
+      return;
+    }
+
     // Construct the payload as required by the backend
     const payload = {
       orderAmount: amount,
       orderCurrency: "INR",
-      customerId: (customerDetails?.id || customerDetails?.phone || "cust_123").replace(/[^a-zA-Z0-9_-]/g, ''), // Strip '+' and other non-alphanumeric chars for Cashfree
-      customerPhone: customerDetails?.phone || "9999999999",
-      customerName: customerDetails?.name || "Guest User",
-      customerEmail: customerDetails?.email || "guest@example.com",
-      bookingType: bookingType || "Bus",
-      couponCode: customerDetails?.couponCode || null,
+      customerId: custId.replace(/[^a-zA-Z0-9_-]/g, ''), // Strip '+' and other non-alphanumeric chars for Cashfree
+      customerPhone: customerDetails.phone,
+      customerName: customerDetails.name,
+      customerEmail: customerDetails.email,
+      bookingType: effectiveBookingType,
+      couponCode: customerDetails.couponCode || null,
       promotionId: null, // As specified in guide
       returnUrl: "https://api.picknbook.com/return", 
       bookingPayloadJson: JSON.stringify(bookingDetails),
@@ -47,7 +94,7 @@ const CheckoutScreen = ({ route, navigation }) => {
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Checkout</Text>
-      
+
       <View style={styles.summaryCard}>
         <Text style={styles.summaryText}>Total Amount: ₹{amount}</Text>
       </View>

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -449,9 +450,15 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
     [droppingPointsList, toCity],
   );
 
-  const [activeTab, setActiveTab] = useState('dropping');
+  const [activeTab, setActiveTab] = useState('boarding');
   const [selectedBoardingId, setSelectedBoardingId] = useState(null);
   const [selectedDroppingId, setSelectedDroppingId] = useState(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      setActiveTab('boarding');
+    }, []),
+  );
 
   useEffect(() => {
     setSelectedBoardingId((currentId) => {

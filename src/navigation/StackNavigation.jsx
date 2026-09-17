@@ -6,6 +6,8 @@ import CreateAccount from "../screens/auth/user/CreateAccount";
 import ChangePassword from "../screens/auth/user/ChangePassword";
 import ForgotPassword from "../screens/auth/user/ForgotPassword";
 import UserLoginScreen from "../screens/auth/user/UserLoginScreen";
+import MobileLoginScreen from "../screens/auth/user/MobileLoginScreen";
+import VerifyMobileOtpScreen from "../screens/auth/user/VerifyMobileOtpScreen";
 import VerifyOtp from "../screens/auth/user/VerifyOtp";
 import SearchScreen from "../screens/dashboard/bottomTabScreens/SearchScreen";
 import BusListScreen from "../screens/dashboard/bottomTabScreens/BusListScreen";
@@ -36,6 +38,8 @@ import PostBusBookingScreen from "../practice/PostBusBookingScreen";
 import BookingDetailsScreen from "../screens/booking/BookingDetailsScreen";
 import Seater from "../practice/Seater";
 import BusLocationSearchScreen from "../screens/dashboard/bottomTabScreens/BusLocationSearchScreen";
+import NotificationsScreen from "../screens/dashboard/bottomTabScreens/NotificationsScreen";
+import TravelersScreen from "../screens/TravelersScreen";
 
 // Cashfree Payment Screens
 import CheckoutScreen from "../screens/CheckoutScreen";
@@ -52,6 +56,8 @@ const StackNavigation = () => {
     >
       <Stack.Screen name="SplashScreen" component={SplashScreen} />
       <Stack.Screen name="Login" component={UserLoginScreen} />
+      <Stack.Screen name="MobileLoginScreen" component={MobileLoginScreen} />
+      <Stack.Screen name="VerifyMobileOtpScreen" component={VerifyMobileOtpScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPassword} />
       <Stack.Screen name="VerifyOtp" component={VerifyOtp} />
       <Stack.Screen name="ChangePassword" component={ChangePassword} />
@@ -122,6 +128,8 @@ const StackNavigation = () => {
         component={BusLocationSearchScreen}
         options={{ animation: 'slide_from_bottom' }}
       />
+      <Stack.Screen name="NotificationsScreen" component={NotificationsScreen} />
+      <Stack.Screen name="TravelersScreen" component={TravelersScreen} />
       
       {/* Cashfree Payment Screens */}
       <Stack.Screen name="CheckoutScreen" component={CheckoutScreen} />

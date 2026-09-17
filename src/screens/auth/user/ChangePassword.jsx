@@ -13,6 +13,7 @@ import {
   ImageBackground,
   ActivityIndicator,
   ScrollView,
+  Platform,
 } from "react-native";
 import {
   Ionicons,
@@ -187,6 +188,19 @@ function ChangePassword({ navigation }) {
       source={flightCarImage}
       style={styles.background}
     >
+      <TouchableOpacity
+        style={styles.topBackButton}
+        onPress={() => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            navigation.navigate("DashBoard");
+          }
+        }}
+      >
+        <Ionicons name="arrow-back" size={24} color="#1E293B" />
+      </TouchableOpacity>
+
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.card}>
           <View style={styles.brandSection}>
@@ -410,7 +424,21 @@ export default ChangePassword;
 const styles = StyleSheet.create({
   background: {
     flex: 1,
-    resizeMode: "cover",
+  },
+
+  topBackButton: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 20,
+    left: 20,
+    zIndex: 10,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
 
   container: {

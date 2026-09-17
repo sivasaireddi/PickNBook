@@ -149,8 +149,10 @@ export default function VerifyOtp() {
                 onPress={() => {
                   if (step === 2) {
                     setStep(1); // Go back to OTP if in step 2
-                  } else {
+                  } else if (navigation.canGoBack()) {
                     navigation.goBack(); // Go back to Forgot Password
+                  } else {
+                    navigation.navigate("ForgotPassword");
                   }
                 }}
               >

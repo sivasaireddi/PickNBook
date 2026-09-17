@@ -31,8 +31,9 @@ import {
   MaterialIcons,
 } from "@expo/vector-icons";
 
-const BASE_URL =
-  "https://paycheck-baton-overfull.ngrok-free.dev";
+import { API_BASE_URL } from "../constants/config";
+
+const BASE_URL = API_BASE_URL;
 
 const PRICING_PREVIEW_API_URL = `${BASE_URL}/api/BusBookings/pricing-preview`;
 
@@ -66,6 +67,9 @@ const normalizeIdValue = (value) => {
 
   return Number.isFinite(numericValue) ? numericValue : trimmedValue;
 };
+
+const isIdProofRequiredValue = (value) =>
+  value === true || String(value ?? "").trim().toLowerCase() === "true";
 
 const normalizeAmount = (value) => {
   const numericValue = Number(value);
@@ -553,15 +557,14 @@ const SectionCard = ({ title, subtitle, icon, children, style }) => (
 
 const PostBusBookingScreen = ({ route, navigation }) => {
   const busId = normalizeIdValue(route?.params?.busId) ?? 11;
-
-  const idProofRequired = Boolean(
-    route?.params?.bus?.isIdProofRequired ??
-      route?.params?.bus?.idProofRequired ??
-      route?.params?.bus?.IdProofRequired ??
-      route?.params?.isIdProofRequired ??
-      route?.params?.idProofRequired ??
+  const selectedBus = route?.params?.bus || {};
+  const idProofRequired = isIdProofRequiredValue(
+    selectedBus.IdProofRequired ??
+      selectedBus.isIdProofRequired ??
+      selectedBus.idProofRequired ??
       route?.params?.IdProofRequired ??
-      false
+      route?.params?.isIdProofRequired ??
+      route?.params?.idProofRequired
   );
 
   const selectedSeatsParam = route?.params?.selectedSeats;
@@ -604,6 +607,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   const [passengerName, setPassengerName] = useState("");
   const [passengerPhone, setPassengerPhone] = useState("");
   const [passengerEmail, setPassengerEmail] = useState("");
+  const [idProofErrors, setIdProofErrors] = useState({});
 
   const [couponCode, setCouponCode] = useState("");
   const [couponInputText, setCouponInputText] = useState("");
@@ -615,6 +619,10 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   
   const [pricing, setPricing] = useState(null);
   const [selectedSeatDetails, setSelectedSeatDetails] = useState(routeSeatDetails);
+
+  // Cache block response to prevent double /block calls
+  const [cachedBlockKey, setCachedBlockKey] = useState(null);
+  const [cachedBlockResponse, setCachedBlockResponse] = useState(null);
 
   const [passengers, setPassengers] = useState(
     selectedSeats.map((seat) => ({
@@ -820,7 +828,6 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const departureTime = String(busObj.departureTimeUtc ?? busObj.departureTime ?? busObj.DepartureTime ?? route?.params?.departureTime ?? route?.params?.dateValue ?? "");
       const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
       const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
-      const totalFare = Number(busObj.priceInr ?? busObj.price ?? busObj.b2cDisplayFare ?? 0);
       const traceId = String(route?.params?.traceId ?? busObj.traceId ?? "");
 
       const seatsPayload = finalSeats.map((s) => ({
@@ -830,8 +837,15 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         externalGst: Number(s.externalGst || 0),
       }));
 
+      // totalFare = sum of per-seat (baseFare + externalGst) — provider-level fares only
+      const totalFare = seatsPayload.reduce(
+        (sum, s) => sum + s.baseFare + s.externalGst, 0
+      );
+
       const requestPayload = {
         traceId,
+        resultIndex: String(route?.params?.resultIndex ?? busObj.resultIndex ?? route?.params?.ResultIndex ?? busObj.ResultIndex ?? ""),
+        srdvIndex: Number(route?.params?.srdvIndex ?? busObj.srdvIndex ?? route?.params?.SrdvIndex ?? busObj.SrdvIndex ?? 0) || undefined,
         couponCode: couponCode || null,
         selectedFeaturedOfferId: selectedFeaturedOfferId || null,
         fromCity,
@@ -884,11 +898,21 @@ const PostBusBookingScreen = ({ route, navigation }) => {
     const updated = [...passengers];
     updated[index][field] = value;
     setPassengers(updated);
+
+    if (field === "idNumber" && idProofErrors[index]) {
+      setIdProofErrors((currentErrors) => {
+        const nextErrors = { ...currentErrors };
+        delete nextErrors[index];
+        return nextErrors;
+      });
+    }
   };
 
   const fetchLatestSeatStatus = async () => fetchSeatCollection();
 
   const validateForm = () => {
+    setIdProofErrors({});
+
     if (sessionLoading) {
       Alert.alert("Please Wait", "Loading your booking session.");
       return false;
@@ -924,10 +948,18 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       if (idProofRequired) {
         const cleanId = String(passenger.idNumber || "").trim();
         if (!cleanId) {
-          Alert.alert("Validation", `Please enter Aadhaar Number for Passenger ${i + 1}`);
+          setIdProofErrors((currentErrors) => ({
+            ...currentErrors,
+            [i]: "Aadhaar/ID Proof is required",
+          }));
+          Alert.alert("Validation", "Aadhaar/ID Proof is required");
           return false;
         }
         if (!/^\d{12}$/.test(cleanId)) {
+          setIdProofErrors((currentErrors) => ({
+            ...currentErrors,
+            [i]: "Aadhaar/ID Proof must contain exactly 12 digits",
+          }));
           Alert.alert("Validation", `Aadhaar Number for Passenger ${i + 1} must contain exactly 12 digits`);
           return false;
         }
@@ -1112,6 +1144,10 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         );
       })
     );
+
+    // Reset block cache when seat selection changes
+    setCachedBlockKey(null);
+    setCachedBlockResponse(null);
   }, [selectedSeats]);
 
   useEffect(() => {
@@ -1227,7 +1263,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         const genderStr = genderInt === 2 ? "Female" : "Male";
         const title = genderInt === 2 ? "Ms" : "Mr";
 
-        return {
+        const normalizedPassenger = {
           title,
           firstName,
           lastName,
@@ -1246,9 +1282,14 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           state: "Default State",
           genderInt,
           genderStr,
-          idType: idProofRequired ? "Aadhar Card" : "",
-          idNumber: idProofRequired ? String(passenger.idNumber || "").trim() : "",
         };
+
+        if (idProofRequired) {
+          normalizedPassenger.idType = "Aadhar Card";
+          normalizedPassenger.idNumber = String(passenger.idNumber || "").trim();
+        }
+
+        return normalizedPassenger;
       });
 
       const selectedSeatCodes = normalizedPassengers.map((passenger) => passenger.seatNumber);
@@ -1385,51 +1426,63 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         request: blockRequestBody,
       };
 
-      // 1. Block Seats
+      // 1. Block Seats — reuse cached block if available to prevent double /block calls
       let blockResponse;
-      try {
-        console.log("[PostBusBookingScreen] Blocking seats with payload:", JSON.stringify(finalBlockRequestBody, null, 2));
-        blockResponse = await blockSeats(finalBlockRequestBody);
-        console.log("[PostBusBookingScreen] Seat block success:", blockResponse);
-      } catch (blockError) {
-        console.log("[PostBusBookingScreen] Seat block failed:", blockError);
-        const apiErrorMessage = extractApiErrorMessage(blockError?.response?.data);
-        Alert.alert(
-          "Seat Block Failed",
-          apiErrorMessage || "Seat is no longer available. Please choose another seat."
-        );
-        setLoading(false);
-        return;
+      let srdvBlockKey;
+
+      if (cachedBlockKey && cachedBlockResponse) {
+        console.log("[PostBusBookingScreen] Reusing cached blockKey:", cachedBlockKey);
+        blockResponse = cachedBlockResponse;
+        srdvBlockKey = cachedBlockKey;
+      } else {
+        try {
+          console.log("[PostBusBookingScreen] Blocking seats with payload:", JSON.stringify(finalBlockRequestBody, null, 2));
+          blockResponse = await blockSeats(finalBlockRequestBody);
+          console.log("[PostBusBookingScreen] Seat block success:", blockResponse);
+        } catch (blockError) {
+          console.log("[PostBusBookingScreen] Seat block failed:", blockError);
+          const apiErrorMessage = extractApiErrorMessage(blockError?.response?.data);
+          Alert.alert(
+            "Seat Block Failed",
+            apiErrorMessage || "Seat is no longer available. Please choose another seat."
+          );
+          setLoading(false);
+          return;
+        }
+
+        // Check if blocking succeeded on SRDV side
+        const errCode = blockResponse?.Error?.ErrorCode ?? blockResponse?.Error?.errorCode ?? blockResponse?.errorCode ?? blockResponse?.ErrorCode;
+        const errMsg = blockResponse?.Error?.ErrorMessage ?? blockResponse?.Error?.errorMessage ?? blockResponse?.errorMessage ?? blockResponse?.ErrorMessage ?? "Seat blocking failed.";
+
+        if (errCode !== undefined && errCode !== null && String(errCode).trim() !== "0") {
+          console.log("[PostBusBookingScreen] Seat block reported Error:", errCode, errMsg);
+          Alert.alert(
+            "Seat Block Failed",
+            errMsg
+          );
+          setLoading(false);
+          return;
+        }
+
+        // Extract resolved BlockKey from block response
+        const blockKey = blockResponse?.BlockKey ?? 
+                         blockResponse?.blockKey ?? 
+                         blockResponse?.Result?.BlockKey ?? 
+                         blockResponse?.Result?.blockKey ?? 
+                         blockResponse?.BlockTicket?.BlockKey ??
+                         blockResponse?.BlockTicket?.blockKey ??
+                         blockResponse?.Result?.BlockTicket?.BlockKey ??
+                         blockResponse?.Result?.BlockTicket?.blockKey ??
+                         blockResponse?.SrdvBookingId ?? 
+                         blockResponse?.srdvBookingId ?? 
+                         blockResponse?.Result?.SrdvBookingId ?? "";
+
+        srdvBlockKey = String(blockKey || "");
+
+        // Cache the block response to prevent re-blocking
+        setCachedBlockKey(srdvBlockKey);
+        setCachedBlockResponse(blockResponse);
       }
-
-      // Check if blocking succeeded on SRDV side
-      const errCode = blockResponse?.Error?.ErrorCode ?? blockResponse?.Error?.errorCode ?? blockResponse?.errorCode ?? blockResponse?.ErrorCode;
-      const errMsg = blockResponse?.Error?.ErrorMessage ?? blockResponse?.Error?.errorMessage ?? blockResponse?.errorMessage ?? blockResponse?.ErrorMessage ?? "Seat blocking failed.";
-
-      if (errCode !== undefined && errCode !== null && String(errCode).trim() !== "0") {
-        console.log("[PostBusBookingScreen] Seat block reported Error:", errCode, errMsg);
-        Alert.alert(
-          "Seat Block Failed",
-          errMsg
-        );
-        setLoading(false);
-        return;
-      }
-
-      // Extract resolved BlockKey from block response
-      const blockKey = blockResponse?.BlockKey ?? 
-                       blockResponse?.blockKey ?? 
-                       blockResponse?.Result?.BlockKey ?? 
-                       blockResponse?.Result?.blockKey ?? 
-                       blockResponse?.BlockTicket?.BlockKey ??
-                       blockResponse?.BlockTicket?.blockKey ??
-                       blockResponse?.Result?.BlockTicket?.BlockKey ??
-                       blockResponse?.Result?.BlockTicket?.blockKey ??
-                       blockResponse?.SrdvBookingId ?? 
-                       blockResponse?.srdvBookingId ?? 
-                       blockResponse?.Result?.SrdvBookingId ?? "";
-
-      const srdvBlockKey = String(blockKey || "");
 
       // 2. Extract Exact Seat Info from Block Response
       const blockTicketPassengers = 
@@ -1464,6 +1517,8 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       try {
         const pricingPayload = {
           traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
+          resultIndex: String(route?.params?.resultIndex ?? busObj.resultIndex ?? route?.params?.ResultIndex ?? busObj.ResultIndex ?? ""),
+          srdvIndex: Number(route?.params?.srdvIndex ?? busObj.srdvIndex ?? route?.params?.SrdvIndex ?? busObj.SrdvIndex ?? 0) || undefined,
           couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : null,
           promotionId: null,
           seats: previewSeats,
@@ -1471,7 +1526,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           toCity,
           departureTime,
           busType,
-          totalFare: Number(totalFare) || 0
+          totalFare: (Number(totalFare) || 0) + previewSeats.reduce((sum, s) => sum + (Number(s.externalGst) || 0), 0)
         };
         console.log("[PostBusBookingScreen] Calling Pricing Preview:", JSON.stringify(pricingPayload, null, 2));
         const pricingResponse = await getPricingPreview(pricingPayload);
@@ -1542,6 +1597,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       navigation.navigate("CheckoutScreen", {
         userToken: authToken,
         amount: grandTotalToPay,
+        bookingType: "Bus",
         bookingDetails: bookingPayloadWithBlock,
         customerDetails: {
           name: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
@@ -1701,20 +1757,22 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                           }
                         }
                       }}
-                      style={styles.pickerControl}
+                      style={[styles.pickerControl, { backgroundColor: "#FFFFFF" }]}
                       accessibilityLabel="Saved Travelers Selection"
                       dropdownIconColor="#D11A2A"
+                      mode="dropdown"
                     >
-                      <Picker.Item label="Select Saved Traveler" value="" color="#0F172A" />
+                      <Picker.Item label="Select Saved Traveler" value="" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
                       {savedTravelers.map((traveler) => (
                         <Picker.Item
                           key={traveler.id}
                           label={`${traveler.fullName} (${traveler.gender}, ${traveler.age} yrs${traveler.phoneNumber ? ` • 📞 ${traveler.phoneNumber}` : ""})`}
                           value={String(traveler.id)}
                           color="#0F172A"
+                          style={{ backgroundColor: "#FFFFFF" }}
                         />
                       ))}
-                      <Picker.Item label="+ Add New Traveler" value="NEW_TRAVELER" color="#0F172A" />
+                      <Picker.Item label="+ Add New Traveler" value="NEW_TRAVELER" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
                     </Picker>
                   </View>
                 )}
@@ -1936,13 +1994,14 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                             onValueChange={(value) =>
                               handlePassengerChange(index, "gender", value)
                             }
-                            style={styles.pickerControl}
+                            style={[styles.pickerControl, { backgroundColor: "#FFFFFF" }]}
                             accessibilityLabel={`Passenger ${index + 1} gender`}
                             dropdownIconColor="#D11A2A"
+                            mode="dropdown"
                           >
-                            <Picker.Item label="Select Gender" value="" color="#0F172A" />
-                            <Picker.Item label="Male" value="Male" color="#0F172A" />
-                            <Picker.Item label="Female" value="Female" color="#0F172A" />
+                            <Picker.Item label="Select Gender" value="" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
+                            <Picker.Item label="Male" value="Male" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
+                            <Picker.Item label="Female" value="Female" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
                           </Picker>
                         </View>
                       </View>
@@ -1968,9 +2027,13 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
                     {idProofRequired && (
                       <View style={{ marginTop: 12 }}>
+                        <View style={styles.idProofLabelRow}>
+                          <Ionicons name="card-outline" size={16} color="#64748B" />
+                          <Text style={styles.idProofLabel}>Aadhaar/ID Proof <Text style={styles.requiredIndicator}>*</Text></Text>
+                        </View>
                         <IconInput
                           icon={<Ionicons name="card-outline" size={18} color="#D11A2A" />}
-                          placeholder="Enter 12-digit Aadhaar Number"
+                          placeholder="Enter Aadhaar/ID Proof"
                           value={passenger.idNumber}
                           onChangeText={(text) =>
                             handlePassengerChange(
@@ -1983,6 +2046,9 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                           maxLength={12}
                           accessibilityLabel={`Passenger ${index + 1} Aadhaar number`}
                         />
+                        {idProofErrors[index] ? (
+                          <Text style={styles.idProofError}>{idProofErrors[index]}</Text>
+                        ) : null}
                       </View>
                     )}
                   </View>
@@ -2278,6 +2344,26 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#991B1B",
     lineHeight: 18,
+  },
+  idProofLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+    gap: 5,
+  },
+  idProofLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  requiredIndicator: {
+    color: "#DC2626",
+  },
+  idProofError: {
+    marginTop: 5,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#DC2626",
   },
   sectionCard: {
     marginTop: 8,

@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
+  Easing,
   FlatList,
   Image,
   Platform,
@@ -16,7 +18,7 @@ import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, Easing, runOnJS } from "react-native-reanimated";
+import Reanimated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { searchBuses, getSeatLayout } from "../../../services/busService";
 
@@ -25,9 +27,11 @@ import {
   matchesBusFilters,
 } from "../../../utils/busFilters";
 import BusPoliciesModal from "./BusPoliciesModal";
+import { API_BASE_URL } from "../../../constants/config";
 
-const BUS_BOOKINGS_API_BASE_URL =
-  "https://paycheck-baton-overfull.ngrok-free.dev/api/BusBookings";
+const BusListDataLoaderAsset = require("../../../../assets/BusListDataLoader.jpg");
+
+const BUS_BOOKINGS_API_BASE_URL = `${API_BASE_URL}/api/BusBookings`;
 const PRIMARY_RED = "#D11A2A";
 const BORDER_COLOR = "#F4A3A3";
 const SURFACE_BG = "#F8F9FB";
@@ -429,145 +433,49 @@ const BusCardItemComponent = ({
 
 const BusCardItem = React.memo(BusCardItemComponent, areBusCardPropsEqual);
 
-// Animated Skeleton Loader Component
-const BusLoadingState = React.memo(({ loading }) => {
-  const busMotion = useRef(new Animated.Value(0)).current;
-  const wheelSpin = useRef(new Animated.Value(0)).current;
-  const dotValues = useRef(
-    [new Animated.Value(0.2), new Animated.Value(0.2), new Animated.Value(0.2)],
-  ).current;
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const BUS_LOADER_WIDTH = 250;
+
+// Bus List Loader Component using project's BusListDataLoader asset with forward motion
+const BusLoadingState = React.memo(() => {
+  const busTranslateXAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!loading) return undefined;
-
-    const busLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(busMotion, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-        Animated.timing(busMotion, {
-          toValue: 0,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    const wheelLoop = Animated.loop(
-      Animated.timing(wheelSpin, {
+    const driveLoop = Animated.loop(
+      Animated.timing(busTranslateXAnim, {
         toValue: 1,
-        duration: 1100,
+        duration: 3200,
+        easing: Easing.linear,
         useNativeDriver: true,
       }),
     );
 
-    const dotsLoop = Animated.loop(
-      Animated.stagger(
-        180,
-        dotValues.map((dot) =>
-          Animated.sequence([
-            Animated.timing(dot, {
-              toValue: 1,
-              duration: 240,
-              useNativeDriver: true,
-            }),
-            Animated.timing(dot, {
-              toValue: 0.2,
-              duration: 240,
-              useNativeDriver: true,
-            }),
-          ]),
-        ),
-      ),
-    );
-
-    busLoop.start();
-    wheelLoop.start();
-    dotsLoop.start();
+    driveLoop.start();
 
     return () => {
-      busLoop.stop();
-      wheelLoop.stop();
-      dotsLoop.stop();
+      driveLoop.stop();
     };
-  }, [busMotion, wheelSpin, dotValues, loading]);
+  }, [busTranslateXAnim]);
 
-  const busTranslateX = busMotion.interpolate({
+  const busTranslateX = busTranslateXAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [-8, 8],
-  });
-
-  const wheelRotate = wheelSpin.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
+    outputRange: [-BUS_LOADER_WIDTH, SCREEN_WIDTH],
   });
 
   return (
     <View style={styles.loadingWrap}>
-      <View style={styles.loadingCard}>
-        <View style={styles.loadingScene}>
-          <View style={styles.skylineRow}>
-            <View style={[styles.skyScraper, styles.skyScraperSm]} />
-            <View style={[styles.skyScraper, styles.skyScraperMd]} />
-            <View style={[styles.skyScraper, styles.skyScraperLg]} />
-            <View style={[styles.skyScraper, styles.skyScraperSm]} />
-            <View style={[styles.skyScraper, styles.skyScraperMd]} />
-          </View>
-
-          <Animated.View
-            style={[
-              styles.busIllustration,
-              { transform: [{ translateX: busTranslateX }] },
-            ]}
-          >
-            <View style={styles.busOutline}>
-              <View style={styles.busTopBar} />
-              <View style={styles.busWindowsRow}>
-                <View style={styles.busWindow} />
-                <View style={styles.busWindow} />
-                <View style={styles.busWindow} />
-                <View style={styles.busWindow} />
-              </View>
-              <View style={styles.busDoor} />
-              <View style={styles.busBaseLine} />
-              <View style={styles.busWheelsRow}>
-                <View style={styles.busWheel}>
-                  <Animated.View
-                    style={[
-                      styles.busWheelInner,
-                      { transform: [{ rotate: wheelRotate }] },
-                    ]}
-                  />
-                </View>
-                <View style={styles.busWheel}>
-                  <Animated.View
-                    style={[
-                      styles.busWheelInner,
-                      { transform: [{ rotate: wheelRotate }] },
-                    ]}
-                  />
-                </View>
-              </View>
-            </View>
-          </Animated.View>
-
-          <View style={styles.loadingDotsRow}>
-            {dotValues.map((dot, index) => (
-              <Animated.View
-                key={`loading-dot-${index}`}
-                style={[styles.loadingDot, { opacity: dot }]}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.loadingTitle}>Finding buses</Text>
-          <Text style={styles.loadingSubtitle}>
-            India has over 1.7 million buses!
-          </Text>
-        </View>
-      </View>
+      <Animated.View
+        style={[
+          styles.busAnimContainer,
+          { transform: [{ translateX: busTranslateX }] },
+        ]}
+      >
+        <Image
+          source={BusListDataLoaderAsset}
+          style={styles.loaderImage}
+          resizeMode="contain"
+        />
+      </Animated.View>
     </View>
   );
 });
@@ -983,43 +891,43 @@ const BusCards = ({
       <View style={{ flex: 1 }}>
         <FlatList
           style={styles.list}
-        data={sortedData}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        getItemLayout={getItemLayout}
-        initialNumToRender={6}
-        maxToRenderPerBatch={8}
-        windowSize={5}
-        removeClippedSubviews={Platform.OS === "android"}
-        updateCellsBatchingPeriod={50}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.listContent,
-          sortedData.length === 0 && styles.emptyList,
-        ]}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            {loading ? (
-              <BusLoadingState loading={loading} />
-            ) : (
-              <>
-                <Text style={styles.emptyText}>
-                  No buses found for this route.
-                </Text>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.retryBtn,
-                    pressed && styles.btnPrimaryPressed,
-                  ]}
-                  onPress={handleRetry}
-                >
-                  <Text style={styles.retryText}>Retry</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
-        }
-      />
+          data={sortedData}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          getItemLayout={getItemLayout}
+          initialNumToRender={6}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === "android"}
+          updateCellsBatchingPeriod={50}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.listContent,
+            sortedData.length === 0 && styles.emptyList,
+          ]}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              {loading ? (
+                <BusLoadingState loading={loading} />
+              ) : (
+                <>
+                  <Text style={styles.emptyText}>
+                    No buses found for this route.
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.retryBtn,
+                      pressed && styles.btnPrimaryPressed,
+                    ]}
+                    onPress={handleRetry}
+                  >
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          }
+        />
       </View>
 
       <BusPoliciesModal
@@ -1052,141 +960,21 @@ const styles = StyleSheet.create({
   loadingWrap: {
     width: "100%",
     flex: 1,
+    minHeight: 360,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 0,
-  },
-  loadingScene: {
-    width: "100%",
-    alignItems: "center",
-  },
-  skylineRow: {
-    width: "100%",
-    height: 86,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  skyScraperSm: {
-    height: 34,
-  },
-  skyScraperMd: {
-    height: 52,
-  },
-  skyScraperLg: {
-    height: 64,
-  },
-  busIllustration: {
-    width: 220,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 2,
-  },
-  busOutline: {
-    width: 220,
-    height: 82,
-    borderWidth: 1.8,
-    borderColor: "#111111",
-    borderRadius: 9,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 8,
+    overflow: "hidden",
   },
-  busTopBar: {
-    width: 72,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: "#111111",
-    alignSelf: "center",
-    marginBottom: 6,
-  },
-  busWindowsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  busWindow: {
-    width: 32,
-    height: 18,
-    borderRadius: 4,
-    backgroundColor: "#F8F8F8",
-    borderWidth: 1,
-    borderColor: "#111111",
-  },
-  busDoor: {
-    position: "absolute",
-    left: 14,
-    bottom: 14,
-    width: 14,
-    height: 30,
-    borderWidth: 1.6,
-    borderColor: "#111111",
-    borderTopLeftRadius: 6,
-    borderTopRightRadius: 6,
-    borderBottomLeftRadius: 4,
-    borderBottomRightRadius: 4,
-    backgroundColor: "#FFFFFF",
-  },
-  busBaseLine: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 22,
-    height: 2,
-    backgroundColor: "#111111",
-  },
-  busWheelsRow: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: -13,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 34,
-  },
-  busWheel: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#111111",
+  busAnimContainer: {
+    width: BUS_LOADER_WIDTH,
+    height: 180,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
   },
-  busWheelInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-  },
-  loadingDotsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  loadingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: PRIMARY_RED,
-    marginHorizontal: 4,
-  },
-  loadingTitle: {
-    color: "#111827",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  loadingSubtitle: {
-    marginTop: 4,
-    color: "#667085",
-    fontSize: 11,
-    textAlign: "center",
+  loaderImage: {
+    width: "100%",
+    height: "100%",
   },
   outerGlowContainer: {
     marginHorizontal: 6,

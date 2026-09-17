@@ -388,8 +388,9 @@ export default function LoginScreen() {
     try {
       setLoading(true);
 
+      const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
       const res = await fetch(
-        "https://paycheck-baton-overfull.ngrok-free.dev/api/Auth/admin/login/request-otp",
+        `${API_BASE_URL}/api/Auth/admin/login/request-otp`,
         {
           method: "POST",
           headers: {

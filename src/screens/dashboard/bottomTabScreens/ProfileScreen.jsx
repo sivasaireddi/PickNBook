@@ -20,9 +20,9 @@ import * as ImagePicker from 'expo-image-picker'
 import AuthContext from '../../../context/AuthContext'
 import { requireAuthToken, clearAuthSession } from '../../../utils/authSession'
 import { useNavigation } from '@react-navigation/native'
+import { API_BASE_URL } from '../../../constants/config'
 
-const BASE_URL = 'https://paycheck-baton-overfull.ngrok-free.dev'
-const PROFILE_API_URL = `${BASE_URL}/api/profile`
+const PROFILE_API_URL = `${API_BASE_URL}/api/profile`
 
 const DEFAULT_AVATAR =
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'
@@ -361,6 +361,24 @@ const ProfileScreen = () => {
             <View style={styles.menuTextContainer}>
               <Text style={styles.menuTitle}>My Bookings</Text>
               <Text style={styles.menuSubtitle}>View and manage your bookings</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
+          {/* Saved Travelers */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('TravelersScreen')}
+          >
+            <View style={[styles.iconBox, { backgroundColor: '#FFF7ED' }]}>
+              <Ionicons name="people-outline" size={22} color="#EA580C" />
+            </View>
+            <View style={styles.menuTextContainer}>
+              <Text style={styles.menuTitle}>Saved Travelers</Text>
+              <Text style={styles.menuSubtitle}>Manage your saved passengers for faster booking</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
           </TouchableOpacity>

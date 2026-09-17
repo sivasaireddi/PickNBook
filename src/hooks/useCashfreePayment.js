@@ -57,15 +57,28 @@ export const useCashfreePayment = (userToken) => {
       
       if (!isMounted.current) return;
       
-      const returnedOrderId = response.order_id;
-      const paymentSessionId = response.payment_session_id;
+      // Look for both snake_case and camelCase!
+      const returnedOrderId = response.order_id || response.orderId;
+      const paymentSessionId = response.payment_session_id || response.paymentSessionId;
+      
+      // Check if we actually got the token before calling Cashfree
+      if (!paymentSessionId) {
+        throw new Error("Failed to receive payment session token from backend: " + JSON.stringify(response));
+      }
+
+      if (!returnedOrderId) {
+        throw new Error("Cashfree order_id is missing");
+      }
+
+      console.log("[Cashfree] Environment:", "PRODUCTION");
+      console.log("[Cashfree] Order ID:", returnedOrderId);
+      console.log("[Cashfree] Payment Session ID present:", !!paymentSessionId);
       
       setOrderId(returnedOrderId);
       setStatus('awaiting_payment');
 
       // Step 2: Initialize Cashfree SDK with the session
-      const environment = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
-      const session = new CFSession(paymentSessionId, returnedOrderId, environment);
+      const session = new CFSession(paymentSessionId, returnedOrderId, CFEnvironment.PRODUCTION);
       
       // Open the Cashfree payment gateway UI using web checkout
       CFPaymentGatewayService.doWebPayment(session);

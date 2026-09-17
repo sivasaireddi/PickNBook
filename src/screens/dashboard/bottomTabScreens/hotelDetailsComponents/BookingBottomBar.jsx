@@ -11,14 +11,18 @@ const formatCurrency = (value, currency = "INR") => {
   }).format(num);
 };
 
-export default function BookingBottomBar({ totalPrice, roomCount, displayCurrency, onContinue, disabled }) {
+export default function BookingBottomBar({ totalPrice, roomCount, requiredRoomCount = roomCount, displayCurrency, onContinue, disabled }) {
   return (
     <View style={styles.container}>
       <View style={styles.priceContainer}>
         <Text style={styles.priceLabel}>TOTAL</Text>
-        <Text style={styles.priceValue}>{formatCurrency(totalPrice, displayCurrency)}</Text>
+        <Text style={styles.priceValue}>
+          {disabled ? "—" : formatCurrency(totalPrice, displayCurrency)}
+        </Text>
         <Text style={styles.roomCountText}>
-          {roomCount} Room{roomCount > 1 ? "s" : ""} Selected
+          {disabled
+            ? `Select ${requiredRoomCount} rate plan${requiredRoomCount > 1 ? "s" : ""} to continue`
+            : `${roomCount} Room${roomCount > 1 ? "s" : ""} Selected`}
         </Text>
       </View>
       

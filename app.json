@@ -5,10 +5,10 @@
     "scheme": "picknbook",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/App-Icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon - Copy.png",
+      "image": "./assets/Splash-Icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -22,15 +22,15 @@
       }
     },
     "android": {
-      "package": "com.sainimmakayala.picknbook",
+      "package": "com.picknbook.com",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyB9xc0jsXjB47ClikNaJ4Po0cQRLYaONio"
         }
       },
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/icon.png"
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/App-Icon.png"
       },
       "permissions": [
         "INTERNET",
@@ -59,7 +59,6 @@
       ]
     ],
     "extra": {
-      "EXPO_PUBLIC_API_BASE_URL": "https://www.picknbook.in",
       "eas": {
         "projectId": "a33e12df-a948-4dd8-8da8-015371c078bf"
       }

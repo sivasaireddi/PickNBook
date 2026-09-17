@@ -1,12 +1,12 @@
 import React, { useState, useCallback } from "react";
-import { 
-  Alert, 
-  TouchableOpacity, 
-  ScrollView, 
-  StyleSheet, 
-  Text, 
-  TextInput, 
-  useWindowDimensions, 
+import {
+  Alert,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
   View,
   ActivityIndicator
 } from "react-native";
@@ -46,7 +46,7 @@ const TEXT_MUTED = "#6B7280";
 export default function FlightPaymentScreen({ route, navigation }) {
   const { width } = useWindowDimensions();
   const flowState = route?.params || {};
-  
+
   React.useEffect(() => {
     console.log("================================================================================");
     console.log("✈️ [FLIGHT_BOOKING_STARTED] Starting flight booking review without payment gateway");
@@ -96,25 +96,25 @@ export default function FlightPaymentScreen({ route, navigation }) {
     flowState.fareSummary?.convenienceFee ||
     0
   );
-  
+
   const originCode = String(flowState.flight?.fromCityCode || flowState.flight?.fromCity || flowState.searchContext?.from || "DEL").toUpperCase();
   const destinationCode = String(flowState.flight?.toCityCode || flowState.flight?.toCity || flowState.searchContext?.to || "BOM").toUpperCase();
 
   const journeyTypeNum = Number(flowState.journeyType || flowState.searchContext?.journeyType || 1);
   const isRoundTripFallback = Boolean(flowState.isRoundTrip || journeyTypeNum === 2);
 
-  const multiCityFlightsList = flowState.isMultiCity 
-    ? (Array.isArray(flowState.multiCityFlights) && flowState.multiCityFlights.length > 0 
-        ? flowState.multiCityFlights 
-        : (Array.isArray(flowState.searchContext?.multiCitySegments) && flowState.searchContext.multiCitySegments.length > 0 
-            ? flowState.searchContext.multiCitySegments 
-            : []))
-    : isRoundTripFallback 
-        ? [
-            { fromCity: originCode, toCity: destinationCode },
-            { fromCity: destinationCode, toCity: originCode }
-          ]
-        : [{ fromCity: originCode, toCity: destinationCode }];
+  const multiCityFlightsList = flowState.isMultiCity
+    ? (Array.isArray(flowState.multiCityFlights) && flowState.multiCityFlights.length > 0
+      ? flowState.multiCityFlights
+      : (Array.isArray(flowState.searchContext?.multiCitySegments) && flowState.searchContext.multiCitySegments.length > 0
+        ? flowState.searchContext.multiCitySegments
+        : []))
+    : isRoundTripFallback
+      ? [
+        { fromCity: originCode, toCity: destinationCode },
+        { fromCity: destinationCode, toCity: originCode }
+      ]
+      : [{ fromCity: originCode, toCity: destinationCode }];
 
   const legCount = flowState.legCount || multiCityFlightsList.length || 1;
 
@@ -264,9 +264,15 @@ export default function FlightPaymentScreen({ route, navigation }) {
       return;
     }
 
+    const contactMobile = flowState.contact?.mobile || flowState.passengers?.[0]?.mobile;
+    if (!contactMobile || contactMobile.trim() === "") {
+      Alert.alert("Missing Information", "Please provide a valid mobile number before proceeding.");
+      return;
+    }
+
     const mapPassengersForApi = (pList, seatLabels) => {
       let supplierFareObj = flowState.fareQuote?.Fare || (flowState.fareQuote?.Results && !Array.isArray(flowState.fareQuote.Results) ? flowState.fareQuote.Results.Fare : null);
-      
+
       if (!supplierFareObj && Array.isArray(flowState.fareQuote?.Results)) {
         const fares = flowState.fareQuote.Results.map(r => r.Fare).filter(Boolean);
         if (fares.length > 0) {
@@ -289,7 +295,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
       supplierFareObj = supplierFareObj || flowState.flight?.Fare || flowState.flight?.fareData?.Fare || {};
 
       const paxCount = Math.max(1, (Array.isArray(pList) ? pList.length : 1));
-      
+
       const baseFareValue = Number(supplierFareObj.BaseFare || flowState.flight?.baseFare || Math.round(totalFare / paxCount));
       const taxValue = Number(supplierFareObj.Tax || flowState.flight?.tax || 0);
       const yqTaxValue = Number(supplierFareObj.YQTax || 0);
@@ -316,95 +322,95 @@ export default function FlightPaymentScreen({ route, navigation }) {
         const selectedSeatObj = flowState.selectedSeats?.[idx];
         const rawSeatObj = selectedSeatObj?.rawSeat || (selectedSeatObj?.rawCode ? { Code: selectedSeatObj.rawCode, SeatNo: selectedSeatObj.seatNumber } : null);
 
-          // Seat Processing per Leg
-          const seatObjectsForPassenger = [];
-          const seatNoList = [];
+        // Seat Processing per Leg
+        const seatObjectsForPassenger = [];
+        const seatNoList = [];
 
-          for (let i = 0; i < legCount; i++) {
-             const legSeatObjList = flowState.legSeatObjectsMap?.[i];
-             
-             if (legSeatObjList && legSeatObjList[idx] && legSeatObjList[idx].label) {
-                 const seatObj = legSeatObjList[idx];
-                 if (seatObj.rawSeat) {
-                     const legFlight = multiCityFlightsList[i] || {};
-                     const fNum = legFlight.flightNumber || legFlight.flightNo || flowState.flight?.flightNumber || "";
-                     const fOrg = String(legFlight.fromCity || legFlight.origin?.airportCode || legFlight.origin || legFlight.from || "").substring(0, 3).toUpperCase();
-                     const fDest = String(legFlight.toCity || legFlight.destination?.airportCode || legFlight.destination || legFlight.to || "").substring(0, 3).toUpperCase();
-                     
-                     seatObjectsForPassenger.push({
-                         ...seatObj.rawSeat,
-                         FlightNumber: seatObj.rawSeat.FlightNumber || fNum,
-                         Origin: seatObj.rawSeat.Origin || fOrg,
-                         Destination: seatObj.rawSeat.Destination || fDest
-                     });
-                 } else if (seatObj.label) {
-                   seatNoList.push(seatObj.label);
-                 }
-             }
+        for (let i = 0; i < legCount; i++) {
+          const legSeatObjList = flowState.legSeatObjectsMap?.[i];
+
+          if (legSeatObjList && legSeatObjList[idx] && legSeatObjList[idx].label) {
+            const seatObj = legSeatObjList[idx];
+            if (seatObj.rawSeat) {
+              const legFlight = multiCityFlightsList[i] || {};
+              const fNum = legFlight.flightNumber || legFlight.flightNo || flowState.flight?.flightNumber || "";
+              const fOrg = String(legFlight.fromCity || legFlight.origin?.airportCode || legFlight.origin || legFlight.from || "").substring(0, 3).toUpperCase();
+              const fDest = String(legFlight.toCity || legFlight.destination?.airportCode || legFlight.destination || legFlight.to || "").substring(0, 3).toUpperCase();
+
+              seatObjectsForPassenger.push({
+                ...seatObj.rawSeat,
+                FlightNumber: seatObj.rawSeat.FlightNumber || fNum,
+                Origin: seatObj.rawSeat.Origin || fOrg,
+                Destination: seatObj.rawSeat.Destination || fDest
+              });
+            } else if (seatObj.label) {
+              seatNoList.push(seatObj.label);
+            }
           }
-
-          // Fallback if legacy state is used
-          if (seatObjectsForPassenger.length === 0 && rawSeatObj) {
-            const firstLeg = multiCityFlightsList[0] || {};
-            const fNum = firstLeg.flightNumber || firstLeg.flightNo || flowState.flight?.flightNumber || "";
-            const fOrg = String(firstLeg.fromCity || firstLeg.origin?.airportCode || firstLeg.origin || firstLeg.from || "").substring(0, 3).toUpperCase();
-            const fDest = String(firstLeg.toCity || firstLeg.destination?.airportCode || firstLeg.destination || firstLeg.to || "").substring(0, 3).toUpperCase();
-
-            seatObjectsForPassenger.push({
-                ...rawSeatObj,
-                FlightNumber: rawSeatObj.FlightNumber || fNum,
-                Origin: rawSeatObj.Origin || fOrg,
-                Destination: rawSeatObj.Destination || fDest
-            });
-          }
-          if (seatNoList.length === 0) {
-            if (rawSeatObj?.Code) seatNoList.push(rawSeatObj.Code);
-            else if (seat) seatNoList.push(seat);
-          }
-
-      const resolveSsrWayType = (ssrItem, fallbackWayType) => {
-        if (!ssrItem) return null;
-        
-        const outCode = String(flowState.flight?.airlineCode || flowState.outboundFlight?.airlineCode || "").trim().toUpperCase();
-        const outNum = String(flowState.flight?.flightNumber || flowState.outboundFlight?.flightNumber || "").trim().toUpperCase();
-        
-        const retCode = String(flowState.returnFlight?.airlineCode || "").trim().toUpperCase();
-        const retNum = String(flowState.returnFlight?.flightNumber || "").trim().toUpperCase();
-        
-        const itemAirline = String(ssrItem.AirlineCode || "").trim().toUpperCase();
-        const itemFlight = String(ssrItem.FlightNumber || "").trim().toUpperCase();
-        
-        let resolvedWayType = fallbackWayType;
-        
-        // If it perfectly matches the return flight, it is definitely WayType 2
-        if (retCode && retNum && itemAirline === retCode && itemFlight === retNum) {
-          resolvedWayType = 2;
-        } 
-        // If it perfectly matches the outbound flight, it is definitely WayType 1
-        else if (outCode && outNum && itemAirline === outCode && itemFlight === outNum) {
-          resolvedWayType = 1;
         }
-        
-        return {
-          ...ssrItem,
-          Code: ssrItem.Code || "",
-          WayType: resolvedWayType
+
+        // Fallback if legacy state is used
+        if (seatObjectsForPassenger.length === 0 && rawSeatObj) {
+          const firstLeg = multiCityFlightsList[0] || {};
+          const fNum = firstLeg.flightNumber || firstLeg.flightNo || flowState.flight?.flightNumber || "";
+          const fOrg = String(firstLeg.fromCity || firstLeg.origin?.airportCode || firstLeg.origin || firstLeg.from || "").substring(0, 3).toUpperCase();
+          const fDest = String(firstLeg.toCity || firstLeg.destination?.airportCode || firstLeg.destination || firstLeg.to || "").substring(0, 3).toUpperCase();
+
+          seatObjectsForPassenger.push({
+            ...rawSeatObj,
+            FlightNumber: rawSeatObj.FlightNumber || fNum,
+            Origin: rawSeatObj.Origin || fOrg,
+            Destination: rawSeatObj.Destination || fDest
+          });
+        }
+        if (seatNoList.length === 0) {
+          if (rawSeatObj?.Code) seatNoList.push(rawSeatObj.Code);
+          else if (seat) seatNoList.push(seat);
+        }
+
+        const resolveSsrWayType = (ssrItem, fallbackWayType) => {
+          if (!ssrItem) return null;
+
+          const outCode = String(flowState.flight?.airlineCode || flowState.outboundFlight?.airlineCode || "").trim().toUpperCase();
+          const outNum = String(flowState.flight?.flightNumber || flowState.outboundFlight?.flightNumber || "").trim().toUpperCase();
+
+          const retCode = String(flowState.returnFlight?.airlineCode || "").trim().toUpperCase();
+          const retNum = String(flowState.returnFlight?.flightNumber || "").trim().toUpperCase();
+
+          const itemAirline = String(ssrItem.AirlineCode || "").trim().toUpperCase();
+          const itemFlight = String(ssrItem.FlightNumber || "").trim().toUpperCase();
+
+          let resolvedWayType = fallbackWayType;
+
+          // If it perfectly matches the return flight, it is definitely WayType 2
+          if (retCode && retNum && itemAirline === retCode && itemFlight === retNum) {
+            resolvedWayType = 2;
+          }
+          // If it perfectly matches the outbound flight, it is definitely WayType 1
+          else if (outCode && outNum && itemAirline === outCode && itemFlight === outNum) {
+            resolvedWayType = 1;
+          }
+
+          return {
+            ...ssrItem,
+            Code: ssrItem.Code || "",
+            WayType: resolvedWayType
+          };
         };
-      };
 
-      const outBag = resolveSsrWayType(flowState.ssrDetails?.outboundBaggage || flowState.ssrDetails?.baggage, 1);
-      const retBag = resolveSsrWayType(flowState.ssrDetails?.returnBaggage, 2);
-      const outMeal = resolveSsrWayType(flowState.ssrDetails?.outboundMeal || flowState.ssrDetails?.meal, 1);
-      const retMeal = resolveSsrWayType(flowState.ssrDetails?.returnMeal, 2);
+        const outBag = resolveSsrWayType(flowState.ssrDetails?.outboundBaggage || flowState.ssrDetails?.baggage, 1);
+        const retBag = resolveSsrWayType(flowState.ssrDetails?.returnBaggage, 2);
+        const outMeal = resolveSsrWayType(flowState.ssrDetails?.outboundMeal || flowState.ssrDetails?.meal, 1);
+        const retMeal = resolveSsrWayType(flowState.ssrDetails?.returnMeal, 2);
 
-      const paxBagTotal = idx === 0 ? (Number(outBag?.Price || 0) + Number(retBag?.Price || 0)) : 0;
-      const paxMealTotal = idx === 0 ? (Number(outMeal?.Price || 0) + Number(retMeal?.Price || 0)) : 0;
-      const paxSeatTotal = seatObjectsForPassenger.reduce((sum, seat) => sum + Number(seat.Amount || seat.Price || 0), 0);
-      const paxSsrTotal = paxBagTotal + paxMealTotal + paxSeatTotal;
+        const paxBagTotal = idx === 0 ? (Number(outBag?.Price || 0) + Number(retBag?.Price || 0)) : 0;
+        const paxMealTotal = idx === 0 ? (Number(outMeal?.Price || 0) + Number(retMeal?.Price || 0)) : 0;
+        const paxSeatTotal = seatObjectsForPassenger.reduce((sum, seat) => sum + Number(seat.Amount || seat.Price || 0), 0);
+        const paxSsrTotal = paxBagTotal + paxMealTotal + paxSeatTotal;
 
-      const paxPublishedFare = basePublishedFare;
-      const paxOfferedFare = baseOfferedFare;
-      const paxOtherCharges = baseOtherCharges;
+        const paxPublishedFare = basePublishedFare;
+        const paxOfferedFare = baseOfferedFare;
+        const paxOtherCharges = baseOtherCharges;
 
         return {
           Title: String(p.title || "Mr"),
@@ -427,7 +433,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
           CountryCode: "IN",
           CountryName: "India",
           CellCountryCode: "+91",
-          ContactNo: String(flowState.contact?.mobile || p.mobile || "9999999999").trim() || "9999999999",
+          ContactNo: String(flowState.contact?.mobile || p.mobile || "").trim(),
           Email: String(flowState.contact?.email || p.email || "").trim(),
           IsLeadPax: idx === 0,
           GSTCompanyAddress: "",
@@ -449,7 +455,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
             PublishedFare: paxPublishedFare,
             OfferedFare: paxOfferedFare,
           },
-          Baggage: idx === 0 ? [ outBag, retBag ].filter(Boolean) : [],
+          Baggage: idx === 0 ? [outBag, retBag].filter(Boolean) : [],
           MealDynamic: idx === 0 ? [
             outMeal ? { ...outMeal } : null,
             retMeal ? { ...retMeal } : null
@@ -468,20 +474,20 @@ export default function FlightPaymentScreen({ route, navigation }) {
     console.log("✈️ [FLIGHT_BOOKING_STARTED] Executing direct supplier ticketing without payment gateway");
     console.log(`⚡ Carrier Mode: ${isLCC ? "TicketLCC (Low-Cost Carrier)" : "HoldGDS + TicketGDS (GDS Carrier)"}`);
     console.log(`💰 Grand Total Amount: ₹${totalFare}`);
-    
+
     // Log the exact SSR items to verify dynamic WayType matching
     const leadPax = apiPassengers[0] || {};
-    
+
     console.log(`🎒 Final Baggage Items Payload:`);
     (leadPax.Baggage || []).forEach((b, i) => {
       console.log(`  [Bag ${i + 1}] Code: ${b.Code} | Airline: ${b.AirlineCode} | Flight: ${b.FlightNumber} | Final WayType: ${b.WayType}`);
     });
-    
+
     console.log(`🍔 Final MealDynamic Items Payload:`);
     (leadPax.MealDynamic || []).forEach((m, i) => {
       console.log(`  [Meal ${i + 1}] Code: ${m.Code} | Airline: ${m.AirlineCode} | Flight: ${m.FlightNumber} | Final WayType: ${m.WayType}`);
     });
-    
+
     console.log(`🏷️ Applied Coupon: ${appliedCoupon ? JSON.stringify(appliedCoupon) : "None"}`);
     console.log("================================================================================");
 
@@ -643,7 +649,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
 
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={[styles.container, width >= 768 && styles.containerWide]}>
-          
+
           {/* Flight Summary Card */}
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -678,9 +684,9 @@ export default function FlightPaymentScreen({ route, navigation }) {
               const seatFromPax = passenger.seatNumber || passenger.seat;
               const fallbackRawSeat = seatFromLabels || seatFromObj || seatFromPax;
 
-              const isLegacySeat = Boolean(fallbackRawSeat) && 
-                String(fallbackRawSeat).toLowerCase() !== "auto assigned" && 
-                String(fallbackRawSeat).toLowerCase() !== "auto-assigned" && 
+              const isLegacySeat = Boolean(fallbackRawSeat) &&
+                String(fallbackRawSeat).toLowerCase() !== "auto assigned" &&
+                String(fallbackRawSeat).toLowerCase() !== "auto-assigned" &&
                 !String(fallbackRawSeat).toLowerCase().includes("none");
 
               return (
@@ -688,7 +694,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
                   <Text style={styles.passengerName}>
                     {passenger.title ? `${passenger.title}. ` : ""}{passenger.firstName} {passenger.lastName}
                   </Text>
-                  
+
                   {flowState.legSeatObjectsMap ? (
                     <View style={styles.legsContainer}>
                       {multiCityFlightsList.map((legItem, legIdx) => {
@@ -803,7 +809,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
               <View style={styles.offersSection}>
                 <Text style={styles.offersSectionTitle}>AVAILABLE OFFERS</Text>
                 {availableOffers.map((offer, idx) => {
-                  const offerCode = offer.code || offer.Code || offer.title || offer.Title || `OFFER${idx+1}`;
+                  const offerCode = offer.code || offer.Code || offer.title || offer.Title || `OFFER${idx + 1}`;
                   const isApplied = appliedCoupon?.code?.toUpperCase() === offerCode.toUpperCase();
                   const discountVal = offer.discountValue ?? offer.DiscountValue ?? offer.discountAmount ?? 500;
                   const descText =
@@ -826,7 +832,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
                         </View>
                         <Text style={styles.offerDescText}>{descText}</Text>
                       </View>
-                      
+
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={[styles.offerApplyActionText, isApplied && { color: "#10B981" }]}>
                           {isApplied ? "APPLIED" : "APPLY"}

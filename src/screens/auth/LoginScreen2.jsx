@@ -13,6 +13,7 @@ import * as SecureStore from "expo-secure-store";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
  import axios from "axios";
+ import { API_BASE_URL } from "../../constants/config";
 
 export default function LoginScreen2() {
   const navigation = useNavigation();
@@ -84,7 +85,7 @@ export default function LoginScreen2() {
   //     setLoading(true);
 
   //     const res = await fetch(
-  //       "https://paycheck-baton-overfull.ngrok-free.dev/api/Auth/admin/login/request-otp",
+  //       `${API_BASE_URL}/api/Auth/admin/login/request-otp`,
   //       {
   //         method: "POST",
   //         headers: {
@@ -133,7 +134,7 @@ const handleSubmit = async () => {
 
     
     const res = await axios.post(
-   "https://paycheck-baton-overfull.ngrok-free.dev/api/Auth/admin/login/request-otp",
+      `${API_BASE_URL}/api/Auth/admin/login/request-otp`,
       {
         email: form.username,
         password: form.password,

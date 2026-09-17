@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { getRatePlanKey } from "./RoomRateOption";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -12,7 +13,7 @@ const formatCurrency = (value, currency = "INR") => {
   }).format(num);
 };
 
-export default function RoomCategoryCard({ categoryName, rooms, displayCurrency, onViewOptions, selectedRoomId }) {
+export default function RoomCategoryCard({ categoryName, rooms, displayCurrency, onViewOptions, selectedRatePlanKey }) {
   if (!rooms || rooms.length === 0) return null;
 
   // Find the lowest price among all rate plans in this category
@@ -20,11 +21,25 @@ export default function RoomCategoryCard({ categoryName, rooms, displayCurrency,
   
   // Use the first room's data for basic info like image (if any) or bed type
   const firstRoom = rooms[0];
-  const bedType = firstRoom?.bedTypeCode || firstRoom?.bedType || "Standard Bed";
-  const roomImage = firstRoom?.images?.[0] || null;
+  const bedType =
+    firstRoom?.bedTypes ||
+    firstRoom?.bedType ||
+    firstRoom?.bedTypeCode ||
+    firstRoom?.servicesStatus?.find(s => s.name?.toLowerCase().includes("bed"))?.value ||
+    "Standard Bed";
+
+  const roomImage =
+    firstRoom?.roomImages?.[0]?.image ||
+    firstRoom?.roomImages?.[0]?.url ||
+    (typeof firstRoom?.roomImages?.[0] === "string" ? firstRoom.roomImages[0] : null) ||
+    firstRoom?.images?.[0] ||
+    firstRoom?.image ||
+    null;
+
+  const mealSupplement = firstRoom?.hotelSupplements || "";
 
   // Check if any room in this category is currently selected
-  const isCategorySelected = rooms.some(rm => rm.roomId === selectedRoomId);
+  const isCategorySelected = rooms.some(rm => getRatePlanKey(rm) === selectedRatePlanKey);
 
   return (
     <View style={[styles.card, isCategorySelected && styles.cardSelected]}>
@@ -36,13 +51,21 @@ export default function RoomCategoryCard({ categoryName, rooms, displayCurrency,
             <Ionicons name="bed-outline" size={24} color="#94A3B8" />
           </View>
         )}
-        
+
         <View style={styles.cardInfo}>
           <Text style={styles.categoryName} numberOfLines={2}>{categoryName}</Text>
+
           <View style={styles.bedRow}>
             <Ionicons name="bed-outline" size={14} color="#64748B" />
-            <Text style={styles.bedText}>{bedType}</Text>
+            <Text style={styles.bedText} numberOfLines={1}>{bedType}</Text>
           </View>
+
+          {mealSupplement ? (
+            <View style={styles.mealBadge}>
+              <Ionicons name="restaurant-outline" size={11} color="#15803D" />
+              <Text style={styles.mealBadgeText}>{mealSupplement}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -121,6 +144,25 @@ const styles = StyleSheet.create({
   bedText: {
     fontSize: 13,
     color: "#64748B",
+    flex: 1,
+  },
+  mealBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 4,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "#DCFCE7",
+  },
+  mealBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#15803D",
   },
   cardFooter: {
     flexDirection: "row",

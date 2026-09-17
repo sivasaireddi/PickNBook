@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { AUTH_API_BASE_URL } from './authService';
+import { API_BASE_URL } from '../constants/config';
 
 export const BACKGROUND_LOCATION_TASK_NAME = 'BACKGROUND_LOCATION_TRACKING';
 const LAST_SENT_TIME_KEY = 'attendance_last_sent_time';
@@ -12,7 +13,7 @@ const LAST_SENT_LNG_KEY = 'attendance_last_sent_lng';
 const API_CALL_MIN_INTERVAL = 14 * 60 * 1000; 
 
 // Resolve Base URL: Prefer AUTH_API_BASE_URL, fallback to the RideScreen hardcoded url
-const BASE_URL = AUTH_API_BASE_URL || 'https://marian-undeported-shanon.ngrok-free.dev';
+const BASE_URL = AUTH_API_BASE_URL || API_BASE_URL;
 
 // In-memory cache in case SecureStore is slow or not writing properly (double safety)
 let inMemoryLastSentTime = 0;
@@ -197,7 +198,7 @@ export async function saveLocationApi(latitude, longitude, source = 'foreground'
       console.log("Address:", address);
       console.log("JWT:", token);
 
-      const url = 'https://marian-undeported-shanon.ngrok-free.dev/api/Attendance/checkin';
+      const url = `${API_BASE_URL}/api/Attendance/checkin`;
       const requestBody = {
         latitude,
         longitude,

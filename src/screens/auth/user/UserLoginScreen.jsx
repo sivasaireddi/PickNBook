@@ -462,21 +462,8 @@ const UserLoginScreen = ({ navigation }) => {
                 }
               ]}
             >
-              {/* Brand Logo & Header */}
+              {/* Header */}
               <View style={styles.headerContainer}>
-                <Animated.View style={[
-                  styles.logoOuterContainer,
-                  {
-                    opacity: logoFade,
-                    transform: [{ scale: logoScale }]
-                  }
-                ]}>
-                  <Image 
-                    source={require("../../../../assets/icon.png")} 
-                    style={styles.logoImage} 
-                    resizeMode="cover"
-                  />
-                </Animated.View>
                 <Text style={styles.title}>Sign In</Text>
                 <Text style={styles.subtitle}>
                   Welcome back! Continue your journey with PickNBook.
@@ -693,6 +680,15 @@ const UserLoginScreen = ({ navigation }) => {
                   <Text style={styles.authLinkTextBold}>Create Account</Text>
                 </TouchableOpacity>
               </View>
+
+              <View style={{ marginTop: 24, alignItems: "center" }}>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate("MobileLoginScreen")}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.authLinkTextBold}>Login with Mobile OTP</Text>
+                </TouchableOpacity>
+              </View>
             </Animated.View>
           </ScrollView>
         </TouchableWithoutFeedback>
@@ -788,28 +784,18 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     elevation: 8,
   },
+  backButton: {
+    position: "absolute",
+    top: 50,
+    left: 20,
+    zIndex: 10,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
+  },
   headerContainer: {
     alignItems: "center",
     marginBottom: 20,
-  },
-  logoOuterContainer: {
-    backgroundColor: "#FFFFFF",
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  logoImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 16,
   },
   title: {
     fontSize: 26,

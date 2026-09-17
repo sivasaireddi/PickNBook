@@ -29,7 +29,7 @@ export default function AppHeader({ title = "Travel", rightComponent = null }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Animated.View 
+      <Animated.View
         style={[
           styles.headerContainer,
           {
@@ -44,13 +44,13 @@ export default function AppHeader({ title = "Travel", rightComponent = null }) {
             styles.logoContainer,
             { transform: [{ scale: scaleAnim }] }
           ]}>
-            <Image 
-              source={require("../../assets/icon.png")} 
+            <Image
+              source={require("../../assets/App-Icon.png")}
               style={styles.logoImage}
               resizeMode="cover"
             />
           </Animated.View>
-          
+
           {/* Brand Info */}
           <View style={styles.brandInfo}>
             <View style={styles.row}>

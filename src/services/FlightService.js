@@ -1,12 +1,10 @@
 import axios from "axios";
 import Constants from "expo-constants";
 import { getStoredAuthToken } from "../utils/authSession";
+import { API_BASE_URL } from "../constants/config";
 
 const runtimeEnv = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
-export const FLIGHT_API_BASE_URL =
-  process.env.EXPO_PUBLIC_FLIGHT_API_BASE_URL ||
-  runtimeEnv.FLIGHT_API_BASE_URL ||
-  "https://paycheck-baton-overfull.ngrok-free.dev";
+export const FLIGHT_API_BASE_URL = API_BASE_URL;
 
 const client = axios.create({
   baseURL: FLIGHT_API_BASE_URL,

@@ -23,6 +23,7 @@
     "axios": "^1.18.1",
     "cashfree-pg-api-contract": "^2.1.1",
     "expo": "~54.0.37",
+    "expo-av": "^16.0.8",
     "expo-constants": "~18.0.14",
     "expo-dev-client": "~6.0.21",
     "expo-file-system": "~19.0.24",

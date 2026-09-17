@@ -2,6 +2,9 @@ import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
+export const getRatePlanKey = (room) =>
+  String(room?.optionId || room?.ratePlanCode || room?.ratePlan || room?.roomId || "");
+
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
   return new Intl.NumberFormat("en-IN", {
@@ -54,6 +57,11 @@ export default function RoomRateOption({ room, displayCurrency, isSelected, onSe
 
       <View style={styles.bottomRow}>
         <View style={styles.flagsContainer}>
+          {room.hotelSupplements ? (
+            <Text style={[styles.flagBadge, styles.flagBadgeGreen]}>
+              <Ionicons name="restaurant-outline" size={10} color="#15803D" /> {room.hotelSupplements}
+            </Text>
+          ) : null}
           {room.isPANMandatory ? <Text style={styles.flagBadge}>PAN Req</Text> : null}
           {room.isPassportMandatory ? <Text style={styles.flagBadge}>Passport Req</Text> : null}
           {room.cancellationPolicies && room.cancellationPolicies.length > 0 ? (

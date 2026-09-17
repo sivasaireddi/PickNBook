@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { API_BASE_URL } from "../../../constants/config";
 import {
   ActivityIndicator,
   Animated,
@@ -214,7 +215,7 @@ const FeaturedOffers = ({ onViewAll, onViewOffer }) => {
   const getFeaturedOffers = async () => {
     try {
       const response = await axios.get(
-        "https://paycheck-baton-overfull.ngrok-free.dev/api/FeaturedOffers"
+        `${API_BASE_URL}/api/FeaturedOffers`
       );
       const apiOffers = response.data?.offers;
       if (Array.isArray(apiOffers) && apiOffers.length > 0) {

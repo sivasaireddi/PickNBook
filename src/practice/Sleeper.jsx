@@ -135,7 +135,10 @@ const DeckCard = memo(
 
       if (aisleRow !== -1 && aisleRow < mr) {
         aisleDetected = true;
-      } else if (mr >= 2) {
+      } else if (mr === 2) {
+        aisleDetected = true;
+        aisleRow = 0;
+      } else if (mr >= 3) {
         aisleDetected = true;
         aisleRow = 1;
       }
@@ -182,14 +185,22 @@ const DeckCard = memo(
 
             const rawGridRow = seat.gridRow ?? 0;
             const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
-            const aisleOff = hasAisle && mappedCol > 1 ? AISLE_W : 0;
+            const seatWidthMult = Number(seat.width ?? seat.Width ?? 1);
+            const numCols = columnMap.size > 0 ? columnMap.size : 3;
+            const effectiveCol = seatWidthMult > 1
+              ? Math.max(0, Math.min(mappedCol, numCols - seatWidthMult))
+              : mappedCol;
+            const aisleOff = hasAisle && effectiveCol > aisleAfterRow ? AISLE_W : 0;
 
-            const left = CARD_PADDING + mappedCol * cellW + aisleOff;
+            const left = CARD_PADDING + effectiveCol * cellW + aisleOff;
             const gridC = Number(seat.column ?? seat.gridCol ?? seat.ColumnNo ?? 0);
             const top = CARD_PADDING + gridC * cellH;
 
             const isH = isHorizontalSleeper(seat);
             const renderedHeight = isH ? SLEEPER_H : SEATER_H;
+            const seatW = seatWidthMult > 1
+              ? SLEEPER_W * seatWidthMult + CELL_GAP * (seatWidthMult - 1)
+              : SLEEPER_W;
 
             return (
               <SeatItem
@@ -199,7 +210,7 @@ const DeckCard = memo(
                 isFilteredOut={isFilteredOut}
                 onPressSeat={onPressSeat}
                 layoutPrice={layoutPrice}
-                width={SLEEPER_W}
+                width={seatW}
                 height={renderedHeight}
                 left={left}
                 top={top}

@@ -13,20 +13,22 @@ import {
   Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { requestAuth, readApiMessage } from "../../../services/authService";
+import {
+  verifyRegistrationOtp,
+  registerUser,
+  sendRegistrationOtp,
+  readApiMessage,
+  format10DigitPhoneNumber,
+} from "../../../services/authService";
 
 /**
  * VerifyRegistrationOtpModal Component
- * 
- * Styled exact to the provided design screenshot:
- * - Clean white card with rounded top/edges
- * - Close (X) button at top-right
- * - Light green "OTP sent successfully" success badge banner
- * - Bold dynamic email highlight
- * - Input field with shield icon
- * - Red expiration timer badge (e.g. 04:44)
- * - Primary Berry/Magenta "Verify & Register" button
- * - Secondary outlined "Back to Edit Details" button
+ *
+ * Implements Step 2 & 3 of the User Registration Flow:
+ * - Accepts channel ("Mobile" or "Email")
+ * - 5-minute validity expiration timer (300s)
+ * - 30-second resend cooldown timer
+ * - Calls POST /api/Auth/verify-registration-otp then POST /api/Auth/register
  */
 export default function VerifyRegistrationOtpModal({
   visible = true,
@@ -40,20 +42,24 @@ export default function VerifyRegistrationOtpModal({
   const [resending, setResending] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("OTP sent successfully");
-  const [timeLeft, setTimeLeft] = useState(284); // 04:44 in seconds
+  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes
+  const [resendCooldown, setResendCooldown] = useState(30); // 30s cooldown
 
+  const channel = formData.channel === "Email" || formData.channel === "email" ? "Email" : "Mobile";
   const email = formData.email ? formData.email.trim().toLowerCase() : "";
-  const phoneNumber = formData.mobile ? formData.mobile.trim() : "";
+  const rawMobile = formData.mobile ? formData.mobile.trim() : "";
+  const phoneNumber = format10DigitPhoneNumber(rawMobile);
 
-  // Countdown timer logic
+  // Countdown timers logic
   useEffect(() => {
     if (!visible) return;
-    
+
     // Reset state on open
     setOtp("");
     setErrorMsg("");
     setSuccessMsg("OTP sent successfully");
-    setTimeLeft(284);
+    setTimeLeft(300);
+    setResendCooldown(30);
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -65,7 +71,20 @@ export default function VerifyRegistrationOtpModal({
       });
     }, 1000);
 
-    return () => clearInterval(timer);
+    const cooldownTimer = setInterval(() => {
+      setResendCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(cooldownTimer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      clearInterval(timer);
+      clearInterval(cooldownTimer);
+    };
   }, [visible]);
 
   // Format seconds to MM:SS
@@ -78,8 +97,8 @@ export default function VerifyRegistrationOtpModal({
   };
 
   const handleVerify = async () => {
-    if (!otp || otp.length < 4) {
-      setErrorMsg("Please enter a valid OTP");
+    if (!otp || otp.length !== 6) {
+      setErrorMsg("Please enter the 6-digit OTP code");
       return;
     }
 
@@ -87,44 +106,29 @@ export default function VerifyRegistrationOtpModal({
     setErrorMsg("");
 
     try {
-      // 1. Verify OTP
-      await requestAuth(
-        "/api/Auth/verify-registration-otp",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            email,
-            phoneNumber,
-            otp: otp.trim(),
-            channel: "email"
-          }),
-        },
-        "Verification failed. Please check the OTP."
-      );
+      // Step 2: Verify OTP
+      await verifyRegistrationOtp({
+        channel,
+        phoneNumber,
+        email,
+        otp: otp.trim(),
+      });
 
-      // 2. If OTP is verified, register the user
-      const registerPayload = await requestAuth(
-        "/api/Auth/register",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            firstName: formData.firstName?.trim() || "",
-            lastName: formData.lastName?.trim() || "",
-            phoneNumber,
-            email,
-            password: formData.password || "",
-          }),
-        },
-        "Account creation failed after OTP verification."
-      );
+      // Step 3: Complete User Registration
+      const registerPayload = await registerUser({
+        firstName: formData.firstName?.trim() || "",
+        lastName: formData.lastName?.trim() || "",
+        phoneNumber,
+        email,
+        password: formData.password || "",
+      });
 
-      const msg = readApiMessage(registerPayload, "Registration verified successfully!");
+      const msg = readApiMessage(registerPayload, "User registered successfully");
       if (onSuccess) {
         onSuccess(msg, registerPayload);
       }
     } catch (err) {
-      // Fallback for demo/testing if backend endpoint differs
-      const errMsg = err?.message || "Invalid OTP. Please try again.";
+      const errMsg = err?.message || "Invalid or expired OTP. Please try again.";
       setErrorMsg(errMsg);
     } finally {
       setLoading(false);
@@ -132,27 +136,20 @@ export default function VerifyRegistrationOtpModal({
   };
 
   const handleResend = async () => {
-    if (resending) return;
+    if (resending || resendCooldown > 0) return;
     setResending(true);
     setErrorMsg("");
 
     try {
-      const payload = await requestAuth(
-        "/api/Auth/send-registration-otp",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            email,
-            phoneNumber,
-            channel: "email",
-          }),
-        },
-        "Failed to resend OTP",
-        { timeoutMs: 45000 }
-      );
+      const payload = await sendRegistrationOtp({
+        channel,
+        phoneNumber,
+        email,
+      });
 
       setSuccessMsg(readApiMessage(payload, "OTP sent successfully"));
-      setTimeLeft(300); // 5 minutes reset
+      setTimeLeft(300); // Reset 5 min timer
+      setResendCooldown(30); // Reset 30s resend cooldown
     } catch (err) {
       setErrorMsg(err?.message || "Failed to resend OTP.");
     } finally {
@@ -186,23 +183,27 @@ export default function VerifyRegistrationOtpModal({
               {/* Main Title */}
               <Text style={styles.title}>Verify OTP</Text>
               <Text style={styles.subtitle}>
-                Please enter the OTP sent to your registration channel.
+                Step 2 of 3: Verify the 6-digit code sent to your {channel.toLowerCase()}.
               </Text>
 
               {/* Success Alert Banner */}
               {!!successMsg && (
                 <View style={styles.successBanner}>
-                  <Text style={styles.successBannerIcon}>|</Text>
+                  <Ionicons name="checkmark-circle" size={18} color="#16A34A" style={{ marginRight: 6 }} />
                   <Text style={styles.successBannerText}>{successMsg}</Text>
                 </View>
               )}
 
               {/* Section Header */}
-              <Text style={styles.sectionTitle}>Verify OTP</Text>
+              <Text style={styles.sectionTitle}>Verification Details</Text>
               <Text style={styles.emailPrompt}>
-                An OTP has been sent to your email address:
+                {channel === "Mobile"
+                  ? "An OTP has been sent via SMS to your mobile number:"
+                  : "An OTP has been sent to your email address:"}
               </Text>
-              <Text style={styles.emailAddress}>{email}</Text>
+              <Text style={styles.emailAddress}>
+                {channel === "Mobile" ? `+91 ${phoneNumber}` : email}
+              </Text>
 
               {/* Error Message if any */}
               {!!errorMsg && (
@@ -214,7 +215,7 @@ export default function VerifyRegistrationOtpModal({
 
               {/* OTP Input Field */}
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Enter OTP</Text>
+                <Text style={styles.inputLabel}>Enter 6-Digit OTP</Text>
                 <View style={styles.inputContainer}>
                   <Ionicons
                     name="shield-checkmark-outline"
@@ -239,13 +240,17 @@ export default function VerifyRegistrationOtpModal({
 
               {/* Timer Row */}
               <View style={styles.timerRow}>
-                <Text style={styles.timerLabel}>OTP will expire in </Text>
+                <Text style={styles.timerLabel}>OTP valid for </Text>
                 <View style={styles.timerBadge}>
                   <Text style={styles.timerBadgeText}>
                     {formatTime(timeLeft)}
                   </Text>
                 </View>
-                {timeLeft === 0 && (
+                {resendCooldown > 0 ? (
+                  <Text style={styles.cooldownText}>
+                    Resend in {resendCooldown}s
+                  </Text>
+                ) : (
                   <TouchableOpacity
                     onPress={handleResend}
                     disabled={resending}
@@ -265,16 +270,16 @@ export default function VerifyRegistrationOtpModal({
                 <TouchableOpacity
                   style={[
                     styles.primaryBtn,
-                    (loading || !otp) && styles.disabledBtn,
+                    (loading || otp.length !== 6) && styles.disabledBtn,
                   ]}
                   onPress={handleVerify}
-                  disabled={loading}
+                  disabled={loading || otp.length !== 6}
                   activeOpacity={0.85}
                 >
                   {loading ? (
                     <ActivityIndicator color="#FFFFFF" size="small" />
                   ) : (
-                    <Text style={styles.primaryBtnText}>Verify & Register</Text>
+                    <Text style={styles.primaryBtnText}>Verify & Complete Registration</Text>
                   )}
                 </TouchableOpacity>
 
@@ -295,6 +300,7 @@ export default function VerifyRegistrationOtpModal({
     </Modal>
   );
 }
+
 
 const styles = StyleSheet.create({
   backdrop: {
@@ -471,6 +477,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0284C7",
   },
+  cooldownText: {
+    marginLeft: 10,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#94A3B8",
+  },
+
 
   /* Action Section */
   actionSection: {

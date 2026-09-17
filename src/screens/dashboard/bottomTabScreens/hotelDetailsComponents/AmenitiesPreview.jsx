@@ -36,13 +36,21 @@ export default function AmenitiesPreview({ facilities, onViewAllPress }) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>HOTEL AMENITIES</Text>
+      <View style={styles.titleRow}>
+        <View>
+          <Text style={styles.sectionTitle}>HOTEL AMENITIES</Text>
+          <Text style={styles.subtitle}>Everything you need for a comfortable stay</Text>
+        </View>
+        <View style={styles.countBadge}>
+          <Text style={styles.countText}>{validFacilities.length}</Text>
+        </View>
+      </View>
       
       <View style={styles.grid}>
         {previewFacilities.map((fac, idx) => (
-          <View key={idx} style={styles.amenityItem}>
+          <View key={`${fac}-${idx}`} style={styles.amenityItem}>
             <View style={styles.iconBox}>
-              <Ionicons name={getAmenityIcon(fac)} size={16} color="#475569" />
+              <Ionicons name={getAmenityIcon(fac)} size={19} color="#B4232C" />
             </View>
             <Text style={styles.amenityText} numberOfLines={2}>{fac}</Text>
           </View>
@@ -50,9 +58,14 @@ export default function AmenitiesPreview({ facilities, onViewAllPress }) {
       </View>
 
       {hasMore && (
-        <Pressable style={styles.viewAllBtn} onPress={onViewAllPress}>
-          <Text style={styles.viewAllText}>View All {validFacilities.length} Amenities</Text>
-          <Ionicons name="chevron-forward" size={14} color="#EF4444" />
+        <Pressable
+          style={({ pressed }) => [styles.viewAllBtn, pressed && styles.pressed]}
+          onPress={onViewAllPress}
+          accessibilityRole="button"
+          accessibilityLabel={`View all ${validFacilities.length} hotel amenities`}
+        >
+          <Text style={styles.viewAllText}>View all {validFacilities.length} amenities</Text>
+          <Ionicons name="arrow-forward" size={17} color="#B4232C" />
         </Pressable>
       )}
     </View>
@@ -62,16 +75,42 @@ export default function AmenitiesPreview({ facilities, onViewAllPress }) {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: "#FFFFFF",
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
     borderColor: "#E2E8F0",
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: "800",
-    color: "#64748B",
-    letterSpacing: 0.5,
-    marginBottom: 12,
+    color: "#334155",
+    letterSpacing: 0.3,
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#94A3B8",
+    marginTop: 4,
+  },
+  countBadge: {
+    minWidth: 32,
+    height: 28,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countText: {
+    color: "#B4232C",
+    fontSize: 13,
+    fontWeight: "800",
   },
   grid: {
     flexDirection: "row",
@@ -82,36 +121,43 @@ const styles = StyleSheet.create({
     width: "48%",
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
-    gap: 8,
+    minHeight: 50,
+    marginBottom: 10,
+    paddingRight: 4,
+    gap: 10,
   },
   iconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#F1F5F9",
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#FFF5F5",
     alignItems: "center",
     justifyContent: "center",
   },
   amenityText: {
-    fontSize: 13,
-    color: "#334155",
+    fontSize: 14,
+    lineHeight: 19,
+    color: "#1F2937",
     flex: 1,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   viewAllBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    marginTop: 4,
+    minHeight: 48,
+    paddingVertical: 12,
+    marginTop: 6,
     borderTopWidth: 1,
-    borderColor: "#F1F5F9",
-    gap: 4,
+    borderColor: "#E2E8F0",
+    gap: 8,
   },
   viewAllText: {
-    fontSize: 13,
-    color: "#EF4444",
+    fontSize: 14,
+    color: "#B4232C",
     fontWeight: "700",
+  },
+  pressed: {
+    opacity: 0.65,
   },
 });

@@ -86,7 +86,13 @@ export default function ForgotPassword() {
             <View style={styles.header}>
               <TouchableOpacity
                 style={styles.backButton}
-                onPress={() => navigation.goBack()}
+                onPress={() => {
+                  if (navigation.canGoBack()) {
+                    navigation.goBack();
+                  } else {
+                    navigation.navigate("Login");
+                  }
+                }}
               >
                 <Ionicons name="arrow-back" size={16} color="#C61136" />
                 <Text style={styles.backButtonText}>Back</Text>

@@ -1,9 +1,10 @@
 import React from "react";
-import { View, Text, StyleSheet, Modal, Pressable, ScrollView, SafeAreaView } from "react-native";
+import { View, Text, StyleSheet, Modal, Pressable, ScrollView } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import RoomRateOption from "./RoomRateOption";
+import RoomRateOption, { getRatePlanKey } from "./RoomRateOption";
 
-export default function RoomSelectionSheet({ visible, onClose, categoryName, rooms, selectedRoomId, onSelectRoom, displayCurrency }) {
+export default function RoomSelectionSheet({ visible, onClose, categoryName, rooms, selectedRatePlanKey, onSelectRoom, displayCurrency }) {
   if (!rooms) return null;
 
   return (
@@ -22,11 +23,11 @@ export default function RoomSelectionSheet({ visible, onClose, categoryName, roo
           
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {rooms.map((rm, idx) => {
-              const isSelected = selectedRoomId === rm.roomId;
+              const isSelected = selectedRatePlanKey === getRatePlanKey(rm);
               
               return (
                 <RoomRateOption
-                  key={idx}
+              key={getRatePlanKey(rm) || idx}
                   room={rm}
                   displayCurrency={displayCurrency}
                   isSelected={isSelected}
