@@ -22,8 +22,18 @@ const SeatBottomSheet = ({
   disabled,
   insets = { bottom: 0 },
   operatorName = "Bus Operator",
-  rating = "4.8",
+  rating = null,
 }) => {
+  const ratingStr = rating !== undefined && rating !== null ? String(rating).trim() : "";
+  const numRating = Number(ratingStr);
+  const showRating = Boolean(
+    ratingStr !== "" &&
+    ratingStr !== "0" &&
+    ratingStr !== "0.0" &&
+    !Number.isNaN(numRating) &&
+    numRating > 0
+  );
+
   return (
     <View
       style={[
@@ -43,10 +53,12 @@ const SeatBottomSheet = ({
           <Text numberOfLines={1} style={styles.travelName}>
             {operatorName}
           </Text>
-          <View style={styles.ratingChip}>
-            <Ionicons name="star" size={12} color={BUS_SEAT_COLORS.ratingText} />
-            <Text style={styles.ratingText}>{rating}</Text>
-          </View>
+          {showRating && (
+            <View style={styles.ratingChip}>
+              <Ionicons name="star" size={12} color={BUS_SEAT_COLORS.ratingText} />
+              <Text style={styles.ratingText}>{ratingStr}</Text>
+            </View>
+          )}
         </View>
 
         {/* Selected Seats Count Badge */}

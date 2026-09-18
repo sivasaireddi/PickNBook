@@ -171,6 +171,7 @@ const DeckCardContainer = memo(
     layoutPrice,
     availableCanvasHeight,
     availableCanvasWidth,
+    showDeckHeader = false,
   }) => {
     const seats = deck.definitions;
 
@@ -179,42 +180,24 @@ const DeckCardContainer = memo(
       let mc = 0;
       seats.forEach((s) => {
         const gr = s.gridRow ?? 0;
-        if (gr > mr) mr = gr;
-        const gc = Number(s.column ?? s.gridCol ?? s.ColumnNo ?? 0);
+        if (!s.isRearRow && gr > mr) mr = gr;
+        const gc = Number(s.gridCol ?? s.row ?? s.column ?? 0);
         const span = isHorizontalSleeper(s) ? 2 : 1;
         if (gc + span - 1 > mc) mc = gc + span - 1;
       });
 
-      const uniqueGridRows = [...new Set(seats.map((s) => s.gridRow ?? 0))].sort((a, b) => a - b);
+      const uniqueGridRows = [...new Set(seats.filter(s => !s.isRearRow).map((s) => s.gridRow ?? 0))].sort((a, b) => a - b);
       const cMap = new Map();
       uniqueGridRows.forEach((rawRow, idx) => cMap.set(rawRow, idx));
 
-      let aisleDetected = false;
-      let aisleRow = deck.aisleAfterGridRow ?? -1;
-
-      if (aisleRow !== -1 && aisleRow < mr) {
-        aisleDetected = true;
-      } else {
-        if (mr === 1) { // 1+1 layout (2 lanes)
-          aisleDetected = true;
-          aisleRow = 0;
-        } else if (mr === 2) { // 2+1 layout (3 lanes): 1 on left, 2 on steering (right) side
-          aisleDetected = true;
-          aisleRow = 0;
-        } else if (mr === 3) { // 2+2 layout (4 lanes): 2 on left, 2 on right
-          aisleDetected = true;
-          aisleRow = 1;
-        } else if (mr >= 4) {
-          aisleDetected = true;
-          aisleRow = 1;
-        }
-      }
+      let aisleDetected = true;
+      let aisleRow = deck.aisleAfterGridRow ?? 1;
 
       return {
-        maxGridRow: mr,
+        maxGridRow: Math.max(3, mr),
         maxGridCol: mc,
         hasAisle: aisleDetected,
-        aisleAfterRow: aisleRow,
+        aisleAfterRow: aisleRow < 0 ? 1 : aisleRow,
         columnMap: cMap,
       };
     }, [seats, deck.aisleAfterGridRow]);
@@ -222,35 +205,39 @@ const DeckCardContainer = memo(
     const maxMappedCol = useMemo(() => {
       let m = 0;
       seats.forEach((s) => {
-        const rawGridRow = s.gridRow ?? 0;
-        const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
-        if (mappedCol > m) m = mappedCol;
+        if (!s.isRearRow) {
+          const rawGridRow = s.gridRow ?? 0;
+          const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
+          if (mappedCol > m) m = mappedCol;
+        }
       });
-      return m;
+      return Math.max(3, m);
     }, [seats, columnMap]);
 
     const totalCols = maxMappedCol + 1;
     const totalRows = maxGridCol + 1;
 
-    // Responsive Dimension Calculations based on parent layout
-    const deckHeaderHeight = 32;
-    const availableGridHeight = availableCanvasHeight - deckHeaderHeight - CARD_PADDING * 2 - 12; // 12 for cabinDivider and extra safe padding
+    // Responsive Dimension Calculations
+    const CARD_PADDING = 8;
+    const AISLE_W = 16;
+    const CELL_GAP = 4;
+    const ROW_GAP = 6;
 
     const maxCellW = 42;
     const rawCellW = (availableCanvasWidth - CARD_PADDING * 2 - (hasAisle && totalCols > 1 ? AISLE_W : 0)) / totalCols;
-    const cellW = Math.min(maxCellW, Math.max(24, rawCellW));
+    const cellW = Math.min(maxCellW, Math.max(28, rawCellW));
 
     const gridTotalW = cellW * totalCols + (hasAisle && totalCols > 1 ? AISLE_W : 0);
     const offsetX = Math.max(0, (availableCanvasWidth - CARD_PADDING * 2 - gridTotalW) / 2);
 
-    const cellH = Math.max(32, availableGridHeight / totalRows); // Guarantee a minimum height so it scrolls if too tall
-
-    const actualCanvasHeight = cellH * totalRows;
-
+    // Content-driven cell height to ensure compact wrapping without stretching
+    const cellH = 38;
     const SEATER_W_DYN = cellW - CELL_GAP;
     const SEATER_H_DYN = cellH - ROW_GAP;
     const SLEEPER_W_DYN = SEATER_W_DYN;
     const SLEEPER_H_DYN = SEATER_H_DYN * 2 + ROW_GAP;
+
+    const actualCanvasHeight = cellH * totalRows;
 
     const deckOpacity = useSharedValue(0);
     const deckTranslateY = useSharedValue(8);
@@ -273,12 +260,17 @@ const DeckCardContainer = memo(
 
     return (
       <Animated.View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, deckAnimatedStyle]}>
-        <CompactDeckHeader title={deck.title} />
-        {deck.isLower && <DriverIndicator />}
+        {showDeckHeader && <CompactDeckHeader title={deck.title} />}
+        {deck.isLower && (
+          <View style={styles.driverRow}>
+            <DriverIndicator />
+          </View>
+        )}
         <View style={styles.cabinDivider} />
-
         <Animated.View style={[styles.deckCanvasWrapper, { height: actualCanvasHeight }, seatsAnimatedStyle]}>
           {seats.map((seat) => {
+            if (seat.isExit) return null;
+
             const isSelected = selectedSeatSet.has(seat.seatCode);
             const seatPrice = getSeatPrice(seat, layoutPrice);
             const isFilteredOut =
@@ -287,19 +279,11 @@ const DeckCardContainer = memo(
               !seat.isBooked &&
               !isSelected;
 
-            const rawGridRow = seat.gridRow ?? 0;
-            const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
+            const gridC = Number(seat.gridCol ?? seat.row ?? 0);
+            const isRear = Boolean(seat.isRearRow || (gridC === totalRows - 1 && seat.gridRow === 4));
 
             const isH = isHorizontalSleeper(seat);
             const seatWidthMult = Number(seat.width ?? seat.Width ?? 1);
-
-            // When a seat has width > 1 (e.g. 2-lane wide vertical sleeper L6, L7, U16, U17),
-            // clamp starting column so it fits inside the bus deck container and spans lanes 1 & 2
-            const effectiveCol = seatWidthMult > 1
-              ? Math.max(0, Math.min(mappedCol, totalCols - seatWidthMult))
-              : mappedCol;
-
-            const aisleOff = hasAisle && effectiveCol > aisleAfterRow ? AISLE_W : 0;
 
             const baseW = isH ? SLEEPER_W_DYN : SEATER_W_DYN;
             const seatW = seatWidthMult > 1
@@ -307,9 +291,23 @@ const DeckCardContainer = memo(
               : baseW;
             const renderedHeight = isH ? SLEEPER_H_DYN : SEATER_H_DYN;
 
-            const gridC = Number(seat.column ?? seat.gridCol ?? seat.ColumnNo ?? 0);
+            let left = 0;
 
-            const left = offsetX + effectiveCol * cellW + aisleOff;
+            if (isRear) {
+              const rearStep = (gridTotalW - seatW) / 4;
+              const rearColIndex = Math.min(4, Math.max(0, seat.gridRow ?? seat.normalizedColumn ?? 0));
+              left = offsetX + rearColIndex * rearStep;
+            } else {
+              const rawGridRow = seat.gridRow ?? 0;
+              const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
+              const effectiveCol = seatWidthMult > 1
+                ? Math.max(0, Math.min(mappedCol, totalCols - seatWidthMult))
+                : Math.min(3, Math.max(0, mappedCol));
+
+              const aisleOff = hasAisle && effectiveCol > aisleAfterRow ? AISLE_W : 0;
+              left = offsetX + effectiveCol * cellW + aisleOff;
+            }
+
             const top = gridC * cellH;
 
             return (
@@ -352,8 +350,6 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   const layoutRef = useRef(layout);
 
   const [seatAreaSize, setSeatAreaSize] = useState({ width: 0, height: 0 });
-
-
 
   useEffect(() => {
     layoutRef.current = layout;
@@ -414,6 +410,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
     const seatPrices = Array.from(
       new Set(
         (layout?.seats ?? [])
+          .filter((seat) => !seat?.isExit)
           .map((seat) => getSeatPrice(seat, layout?.priceInr))
           .filter((price) => price > 0),
       ),
@@ -440,6 +437,16 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   const subtitle = useMemo(() => buildSubtitleFromRoute(route), [route]);
   const operatorName = useMemo(
     () => route?.params?.operatorName || route?.params?.bus?.operatorName || "CMR Express",
+    [route],
+  );
+  const busRating = useMemo(
+    () =>
+      route?.params?.bus?.rating ??
+      route?.params?.bus?.Rating ??
+      route?.params?.bus?.starRating ??
+      route?.params?.bus?.StarRating ??
+      route?.params?.rating ??
+      null,
     [route],
   );
 
@@ -487,7 +494,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   const deckHorizontalPadding = 12 * 2;
   const availableDeckWidth = numDecks === 2
     ? (seatAreaSize.width - deckHorizontalPadding - deckGap) / 2
-    : seatAreaSize.width - deckHorizontalPadding;
+    : Math.min(360, seatAreaSize.width - deckHorizontalPadding);
 
   /* ── Render States ── */
   if (loading && !layout) {
@@ -541,7 +548,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
           {seatAreaSize.height > 0 && (
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingBottom: 40 }}
+              contentContainerStyle={{ paddingVertical: 8, alignItems: "center" }}
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.decksRowContainer}>
@@ -555,6 +562,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
                     layoutPrice={layout?.priceInr}
                     availableCanvasHeight={seatAreaSize.height}
                     availableCanvasWidth={availableDeckWidth}
+                    showDeckHeader={numDecks > 1}
                   />
                 )}
 
@@ -568,6 +576,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
                     layoutPrice={layout?.priceInr}
                     availableCanvasHeight={seatAreaSize.height}
                     availableCanvasWidth={availableDeckWidth}
+                    showDeckHeader={numDecks > 1}
                   />
                 )}
               </View>
@@ -584,6 +593,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
             disabled={selectedSeats.length === 0}
             insets={insets}
             operatorName={operatorName}
+            rating={busRating}
           />
         </View>
       </View>
@@ -650,23 +660,25 @@ const styles = StyleSheet.create({
   /* ── Responsive Decks Row Container ── */
   decksRowContainer: {
     flexDirection: "row",
+    justifyContent: "center",
     paddingHorizontal: 12,
-    paddingBottom: 8,
-    gap: 10,
+    paddingTop: 4,
+    paddingBottom: 16,
     width: "100%",
   },
 
   /* ── Deck Card Base Style ── */
   deckCard: {
-    flex: 1,
-    minWidth: 0,
+    width: "100%",
+    maxWidth: 350,
     backgroundColor: "#FFFFFF",
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(240, 77, 77, 0.22)",
-    paddingHorizontal: CARD_PADDING,
-    paddingBottom: CARD_PADDING,
-    paddingTop: 8,
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+    paddingTop: 6,
+    alignSelf: "center",
   },
   deckHeader: {
     height: 24,
@@ -678,10 +690,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: BUS_SEAT_COLORS.textPrimary,
   },
+  driverRow: {
+    height: 22,
+    width: "100%",
+    position: "relative",
+    justifyContent: "center",
+  },
   cabinDivider: {
     height: 1,
     backgroundColor: "#F3F4F6",
-    marginTop: 0,
+    marginTop: 2,
     marginBottom: 6,
     width: "100%",
   },

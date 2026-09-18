@@ -17,6 +17,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import RedDatePickerModal from "../../../components/RedDatePickerModal";
+import { getBannerHeight } from "../../../utils/responsive";
 
 const COLORS = {
   background: "#F8F9FC",
@@ -302,7 +303,7 @@ export default function BusBookingSection({ navigation }) {
           source={require("../../../../assets/busBanner.jpg")}
           style={[
             styles.heroContainer,
-            { height: Math.min(Math.max(screenHeight * 0.34, 200), 300) },
+            { height: getBannerHeight(screenHeight) },
           ]}
           resizeMode="cover"
         >

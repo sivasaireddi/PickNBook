@@ -335,22 +335,7 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     const upperSeats = rawUpper ? flattenSeats(rawUpper).map((s) => ({ ...s, IsUpper: true, isUpper: true, deck: "UPPER" })) : [];
     const rawSeats = [...lowerSeats, ...upperSeats];
 
-    // Auto-detect coordinate index base (0-indexed vs 1-indexed)
-    let minRow = Infinity;
-    let minCol = Infinity;
-
-    rawSeats.forEach((seat) => {
-      // row maps to RowNo (width), column maps to ColumnNo (length)
-      const r = Number(seat.RowNo ?? seat.rowNo ?? seat.Row ?? seat.row ?? 0);
-      const c = Number(seat.ColumnNo ?? seat.columnNo ?? seat.Column ?? seat.column ?? 0);
-      if (r < minRow) minRow = r;
-      if (c < minCol) minCol = c;
-    });
-
-    const rowOffset = minRow > 0 ? -minRow : 0;
-    const colOffset = minCol > 0 ? -minCol : 0;
-
-    // Map each raw seat object to the standard layout props
+    // Map each raw seat object to standard layout props while preserving coordinate topology
     const mappedSeats = rawSeats.map((seat, index) => {
       const seatCode = String(
         seat.SeatName ??
@@ -363,8 +348,20 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
 
       const seatName = String(seat.SeatName ?? seat.seatName ?? seatCode).trim();
 
+      const codeUpper = seatCode.toUpperCase();
+      const isExit =
+        codeUpper.includes("EXIT") ||
+        codeUpper.includes("AISLE") ||
+        codeUpper.includes("DOOR") ||
+        codeUpper.includes("CABIN") ||
+        codeUpper.startsWith("RB_") ||
+        codeUpper.startsWith("LB_") ||
+        codeUpper.startsWith("RF_") ||
+        codeUpper.startsWith("LF_");
+
       // Check for string boolean values: "true" means available, "false" means booked.
       const isBooked =
+        isExit ||
         seat.SeatStatus === "false" ||
         seat.seatStatus === "false" ||
         seat.isBooked === true ||
@@ -379,11 +376,8 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
       const priceInr = displayFare || (baseFare + externalGst) || 0;
 
       // Extract coordinates directly (RowNo -> row, ColumnNo -> column)
-      const rowVal = Number(seat.RowNo ?? seat.rowNo ?? seat.Row ?? seat.row ?? 0);
-      const colVal = Number(seat.ColumnNo ?? seat.columnNo ?? seat.Column ?? seat.column ?? 0);
-
-      const row = rowVal + rowOffset;
-      const column = colVal + colOffset;
+      const rawRow = Number(seat.RowNo ?? seat.rowNo ?? seat.Row ?? seat.row ?? 0);
+      const rawCol = Number(seat.ColumnNo ?? seat.columnNo ?? seat.Column ?? seat.column ?? 0);
 
       const isUpper = Boolean(
         seat.IsUpper === true ||
@@ -391,7 +385,7 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
         String(seat.IsUpper).toLowerCase() === "true" ||
         String(seat.isUpper).toLowerCase() === "true" ||
         String(seat.Deck ?? "").toLowerCase().includes("upper") ||
-        seatCode.toUpperCase().startsWith("U")
+        (seatCode.toUpperCase().startsWith("U") && !seatCode.toUpperCase().startsWith("UN"))
       );
 
       let gender = "available";
@@ -417,8 +411,13 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
 
       let seatType = String(seat.SeatType ?? seat.seatType ?? "Seater");
       if (seatType === "1") seatType = "Seater";
-      else if (seatType === "2") seatType = "Sleeper";
+      else if (seatType === "2") seatType = "Horizontal Sleeper";
       else if (seatType === "3") seatType = "Semi-Sleeper";
+
+      const isSleeper =
+        seatType.toUpperCase().includes("SLEEPER") ||
+        seatType.toUpperCase().includes("SL") ||
+        Boolean(seat.isSleeper);
 
       return {
         ...seat,
@@ -430,162 +429,197 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
         displayFare,
         priceInr,
         isBooked,
-        row,
-        column,
+        isExit,
+        row: rawRow,
+        column: rawCol,
         gender,
         isUpper,
+        isSleeper,
         width: Number(seat.Width ?? seat.width ?? 1),
         height: Number(seat.Height ?? seat.height ?? 1),
       };
-    }).filter((seat) => {
-      // Filter out non-seat markers (exit doors, aisles, structural elements)
-      const code = seat.seatCode.toUpperCase();
-      const isMarker =
-        code.includes("EXIT") ||
-        code.includes("AISLE") ||
-        code.includes("DOOR") ||
-        code.includes("CABIN") ||
-        code.startsWith("RB_") ||
-        code.startsWith("LB_") ||
-        code.startsWith("RF_") ||
-        code.startsWith("LF_");
-      return !isMarker;
     });
 
-    // ── Per-Deck Independent Grid Mapping (Vertical Coach Support) ──
-    // Lower deck and Upper deck often start from different coordinate numbers in SRDV (e.g., 0,1,3 vs 1,2,4).
-    // We map row and column coordinates independently per deck so both decks align perfectly!
+    // ── Independent Per-Deck Coordinate & Layout Mapping ──
     const decks = [
-      { key: "LOWER", seats: mappedSeats.filter((s) => !s.isUpper && !String(s.deck || "").toUpperCase().includes("UPPER")) },
-      { key: "UPPER", seats: mappedSeats.filter((s) => s.isUpper || String(s.deck || "").toUpperCase().includes("UPPER")) }
+      { key: "LOWER", seats: mappedSeats.filter((s) => !s.isUpper) },
+      { key: "UPPER", seats: mappedSeats.filter((s) => s.isUpper) }
     ];
 
     let maxOverallRows = 0;
     let maxOverallCols = 0;
     let globalAisleAfterGridRow = -1;
+    let is2Plus2Detected = false;
 
     decks.forEach(({ seats: deckSeats }) => {
       if (deckSeats.length === 0) return;
 
-      // Find main row tracks by seat count
+      const passengerSeats = deckSeats.filter((s) => !s.isExit);
+      const seatsToProcess = passengerSeats.length > 0 ? passengerSeats : deckSeats;
+
       const rowCounts = new Map();
-      deckSeats.forEach((s) => {
+      seatsToProcess.forEach((s) => {
         const r = Number(s.row) || 0;
         rowCounts.set(r, (rowCounts.get(r) || 0) + 1);
       });
 
-      const allUniqueRows = [...rowCounts.keys()].sort((a, b) => a - b);
-      const majorLanes = allUniqueRows.filter((r) => (rowCounts.get(r) || 0) >= 3);
-      const mainLanes = majorLanes.length >= 2 ? majorLanes : allUniqueRows;
+      const uniqueRows = [...rowCounts.keys()].sort((a, b) => a - b);
+
+      const uniqueCols = [...new Set(deckSeats.map((s) => Number(s.column) || 0))].sort((a, b) => a - b);
+      const minGridCol = uniqueCols.length > 0 ? Math.min(...uniqueCols) : 0;
+      const maxGridCol = uniqueCols.length > 0 ? Math.max(...uniqueCols) : 0;
+      const totalPhysicalRows = (maxGridCol - minGridCol) + 1;
+
+      // 2+2 Layout Detection: 4 or 5 unique row values in raw provider response (e.g. 0, 1, 2, 3, 4)
+      const is2Plus2 = uniqueRows.length >= 4 || passengerSeats.length >= 30;
 
       const rowGridMap = new Map();
       let aisleAfterGridRow = -1;
 
-      if (mainLanes.length === 3) {
-        // Standard 2+1 layout in India (RHD):
-        // Single seat column MUST be on LEFT (gridRow 0)
-        // Double seat columns MUST be on RIGHT (gridRow 1, 2) under steering wheel
-        const [r0, r1, r2] = mainLanes;
+      if (is2Plus2) {
+        is2Plus2Detected = true;
+        aisleAfterGridRow = 1; // 2 seats left (col 0, 1), AISLE, 2 seats right (col 2, 3)
 
-        // Detect whether (r0, r1) is the double pair or (r1, r2) is the double pair
-        let is01Double = false;
+        deckSeats.forEach((seat) => {
+          const rawRow = Number(seat.row) || 0;
+          const rawCol = Number(seat.column) || 0;
+          const physicalRow = Math.max(0, rawCol - minGridCol);
 
-        // 1. Check for single prefix ('S') or regular prefix ('R')
-        const r2Seats = deckSeats.filter((s) => Number(s.row) === r2);
-        const r0Seats = deckSeats.filter((s) => Number(s.row) === r0);
-        const r2HasSinglePrefix = r2Seats.some((s) => String(s.seatCode || s.seatName).toUpperCase().startsWith("S"));
-        const r0HasSinglePrefix = r0Seats.some((s) => String(s.seatCode || s.seatName).toUpperCase().startsWith("S"));
+          const isRearRow = physicalRow === (totalPhysicalRows - 1) && (rawRow === 2 || deckSeats.filter(s => (Number(s.column)||0) === rawCol).length > 4);
 
-        if (r2HasSinglePrefix && !r0HasSinglePrefix) {
-          is01Double = true;
-        } else if (r0HasSinglePrefix && !r2HasSinglePrefix) {
-          is01Double = false;
+          let normalizedCol = 0;
+          let side = "left";
+
+          if (rawRow >= 4) {
+            normalizedCol = 0;
+            side = "left";
+          } else if (rawRow === 3) {
+            normalizedCol = 1;
+            side = "left";
+          } else if (rawRow === 2) {
+            normalizedCol = 2;
+            side = isRearRow ? "center" : "left";
+          } else if (rawRow === 1) {
+            normalizedCol = isRearRow ? 3 : 2;
+            side = "right";
+          } else if (rawRow === 0) {
+            normalizedCol = isRearRow ? 4 : 3;
+            side = "right";
+          } else {
+            normalizedCol = Math.min(3, Math.max(0, rawRow));
+          }
+
+          seat.normalizedRow = physicalRow;
+          seat.normalizedColumn = normalizedCol;
+          seat.side = side;
+          seat.deck = seat.isUpper ? "upper" : "lower";
+          seat.isRearRow = isRearRow;
+          seat.gridRow = normalizedCol;
+          seat.gridCol = physicalRow;
+          seat.aisleAfterGridRow = aisleAfterGridRow;
+        });
+
+      } else if (uniqueRows.length === 3) {
+        // Standard 2+1 layout topology:
+        const [rA, rB, rC] = uniqueRows;
+        const gapAB = rB - rA;
+        const gapBC = rC - rB;
+
+        let singleRow = rC;
+        let doublePair = [rA, rB];
+
+        if (gapBC > gapAB) {
+          singleRow = rC;
+          doublePair = [rB, rA];
+        } else if (gapAB > gapBC) {
+          singleRow = rA;
+          doublePair = [rB, rC];
         } else {
-          // 2. Check for consecutive seat number pairing between adjacent lanes
-          let consecutive01 = 0;
-          let consecutive12 = 0;
-
-          const extractNum = (str) => {
-            const m = String(str).match(/\d+/);
-            return m ? parseInt(m[0], 10) : null;
-          };
-
-          const cols0Map = new Map(r0Seats.map((s) => [Number(s.column), extractNum(s.seatCode || s.seatName)]));
-          const r1Seats = deckSeats.filter((s) => Number(s.row) === r1);
-          const cols1Map = new Map(r1Seats.map((s) => [Number(s.column), extractNum(s.seatCode || s.seatName)]));
-          const cols2Map = new Map(r2Seats.map((s) => [Number(s.column), extractNum(s.seatCode || s.seatName)]));
-
-          cols1Map.forEach((num1, col) => {
-            const num0 = cols0Map.get(col);
-            const num2 = cols2Map.get(col);
-            if (num0 !== null && num1 !== null && Math.abs(num0 - num1) === 1) consecutive01++;
-            if (num1 !== null && num2 !== null && Math.abs(num1 - num2) === 1) consecutive12++;
-          });
-
-          is01Double = consecutive01 >= consecutive12;
+          const countA = rowCounts.get(rA) || 0;
+          const countC = rowCounts.get(rC) || 0;
+          if (countC < countA) {
+            singleRow = rC;
+            doublePair = [rB, rA];
+          } else {
+            singleRow = rA;
+            doublePair = [rB, rC];
+          }
         }
 
-        if (is01Double) {
-          // r2 is SINGLE (e.g. S1..S10 or U1..U13) -> mapped to LEFT (0)
-          // r0, r1 are DOUBLE (e.g. R1..R20 or U2..U15) -> mapped to RIGHT (1, 2)
-          rowGridMap.set(r2, 0);
-          rowGridMap.set(r0, 1);
-          rowGridMap.set(r1, 2);
-          allUniqueRows.forEach((r) => {
-            if (!rowGridMap.has(r)) rowGridMap.set(r, 1);
-          });
-        } else {
-          // r0 is SINGLE (e.g. Seat 1, 6, 7..) -> mapped to LEFT (0)
-          // r1, r2 are DOUBLE (e.g. Seat 2 & 3..) -> mapped to RIGHT (1, 2)
-          rowGridMap.set(r0, 0);
-          rowGridMap.set(r1, 1);
-          rowGridMap.set(r2, 2);
-          allUniqueRows.forEach((r) => {
-            if (!rowGridMap.has(r)) rowGridMap.set(r, 1);
-          });
-        }
-        aisleAfterGridRow = 0;
-      } else if (mainLanes.length === 4) {
-        // 2+2 layout: 2 on left (0, 1), aisle after 1, 2 on right (2, 3)
-        mainLanes.forEach((r, idx) => rowGridMap.set(r, idx));
-        allUniqueRows.forEach((r) => {
-          if (!rowGridMap.has(r)) rowGridMap.set(r, 1);
+        rowGridMap.set(singleRow, 0);
+        rowGridMap.set(doublePair[0], 1);
+        rowGridMap.set(doublePair[1], 2);
+
+        deckSeats.forEach((s) => {
+          const r = Number(s.row) || 0;
+          if (!rowGridMap.has(r)) {
+            if (r > doublePair[0] && r < singleRow) {
+              rowGridMap.set(r, 1);
+            } else if (r > singleRow) {
+              rowGridMap.set(r, 0);
+            } else {
+              rowGridMap.set(r, 2);
+            }
+          }
         });
-        aisleAfterGridRow = 1;
-      } else if (mainLanes.length === 2) {
-        // 1+1 layout: 1 on left (0), aisle after 0, 1 on right (1)
-        mainLanes.forEach((r, idx) => rowGridMap.set(r, idx));
-        allUniqueRows.forEach((r) => {
-          if (!rowGridMap.has(r)) rowGridMap.set(r, 0);
-        });
+
         aisleAfterGridRow = 0;
+
+        deckSeats.forEach((seat) => {
+          const rawRow = Number(seat.row) || 0;
+          const rawCol = Number(seat.column) || 0;
+          const physicalRow = Math.max(0, rawCol - minGridCol);
+          const gridRow = rowGridMap.get(rawRow) ?? 0;
+          seat.normalizedRow = physicalRow;
+          seat.normalizedColumn = gridRow;
+          seat.side = gridRow === 0 ? "left" : "right";
+          seat.deck = seat.isUpper ? "upper" : "lower";
+          seat.gridRow = gridRow;
+          seat.gridCol = physicalRow;
+          seat.aisleAfterGridRow = aisleAfterGridRow;
+        });
+
       } else {
-        allUniqueRows.forEach((r, idx) => rowGridMap.set(r, idx));
-        aisleAfterGridRow = Math.floor((allUniqueRows.length - 1) / 2);
+        uniqueRows.forEach((r, idx) => rowGridMap.set(r, idx));
+        aisleAfterGridRow = Math.floor((uniqueRows.length - 1) / 2);
+
+        deckSeats.forEach((seat) => {
+          const rawRow = Number(seat.row) || 0;
+          const rawCol = Number(seat.column) || 0;
+          const physicalRow = Math.max(0, rawCol - minGridCol);
+          const gridRow = rowGridMap.get(rawRow) ?? 0;
+          seat.normalizedRow = physicalRow;
+          seat.normalizedColumn = gridRow;
+          seat.side = gridRow <= aisleAfterGridRow ? "left" : "right";
+          seat.deck = seat.isUpper ? "upper" : "lower";
+          seat.gridRow = gridRow;
+          seat.gridCol = physicalRow;
+          seat.aisleAfterGridRow = aisleAfterGridRow;
+        });
       }
 
-      if (allUniqueRows.length > maxOverallRows) maxOverallRows = allUniqueRows.length;
-      if (aisleAfterGridRow !== -1 && globalAisleAfterGridRow === -1) globalAisleAfterGridRow = aisleAfterGridRow;
+      const totalGridCols = totalPhysicalRows;
+      const totalGridRows = is2Plus2 ? 4 : Math.max(3, uniqueRows.length);
 
-      // 2. Map ColumnNo to vertical grid coordinates starting from 0 for this deck
-      const uniqueCols = [...new Set(deckSeats.map((s) => Number(s.column) || 0))].sort((a, b) => a - b);
-      const minGridCol = uniqueCols.length > 0 ? Math.min(...uniqueCols) : 0;
-      const maxGridCol = uniqueCols.length > 0 ? Math.max(...uniqueCols) : 0;
-      const totalGridCols = (maxGridCol - minGridCol) + 1;
+      if (totalGridRows > maxOverallRows) maxOverallRows = totalGridRows;
       if (totalGridCols > maxOverallCols) maxOverallCols = totalGridCols;
-
-      // Assign clean coordinates to each seat in this deck
-      deckSeats.forEach((seat) => {
-        const rawRow = Number(seat.row) || 0;
-        const rawCol = Number(seat.column) || 0;
-        seat.gridRow = rowGridMap.get(rawRow) ?? 0;
-        seat.gridCol = Math.max(0, rawCol - minGridCol);
-        seat.aisleAfterGridRow = aisleAfterGridRow !== -1 ? aisleAfterGridRow : (allUniqueRows.length === 3 ? 0 : -1);
-      });
+      if (aisleAfterGridRow !== -1 && globalAisleAfterGridRow === -1) globalAisleAfterGridRow = aisleAfterGridRow;
     });
 
-    console.log("Parsed Seats:", mappedSeats.length, "seats mapped to vertical grid (Upper & Lower decks combined).");
-    console.log("Grid dimensions:", maxOverallRows, "lanes x", maxOverallCols, "rows. Aisle after lane:", globalAisleAfterGridRow);
+    const activePassengerSeats = mappedSeats.filter((s) => !s.isExit);
+    const layoutTypeStr = is2Plus2Detected ? "2+2 seater coach geometry" : "2+1 vertical coach geometry";
+
+    console.log("Detected layout type:", is2Plus2Detected ? "2+2" : "2+1");
+    console.log("Normalized seat count:", activePassengerSeats.length);
+    console.log("Normalized rows:", maxOverallCols);
+    console.log("Normalized 2+2 layout:", {
+      totalSeats: mappedSeats.length,
+      activeBookableSeats: activePassengerSeats.length,
+      normalizedRows: maxOverallCols,
+      layoutType: is2Plus2Detected ? "2+2" : "2+1",
+    });
+    console.log(`Parsed Seats: ${activePassengerSeats.length} bookable seats mapped to ${layoutTypeStr}.`);
+    console.log(`Grid dimensions: ${maxOverallRows} lanes x ${maxOverallCols} rows. Aisle after lane: ${globalAisleAfterGridRow}`);
 
     const finalLayout = {
       ...normalizedData,
