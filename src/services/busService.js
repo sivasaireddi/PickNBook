@@ -468,10 +468,16 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
       const uniqueCols = [...new Set(deckSeats.map((s) => Number(s.column) || 0))].sort((a, b) => a - b);
       const minGridCol = uniqueCols.length > 0 ? Math.min(...uniqueCols) : 0;
       const maxGridCol = uniqueCols.length > 0 ? Math.max(...uniqueCols) : 0;
-      const totalPhysicalRows = (maxGridCol - minGridCol) + 1;
+
+      // Do not compact sparse column values. If sleepers are sent as 0, 2, 4, 6, they need to span 2 rows.
+      // If we compact them to 0, 1, 2, 3, they will overlap in the UI since the UI component draws them with span=2 height.
+      const totalPhysicalRows = maxGridCol - minGridCol + 1;
 
       // 2+2 Layout Detection: 4 or 5 unique row values in raw provider response (e.g. 0, 1, 2, 3, 4)
-      const is2Plus2 = uniqueRows.length >= 4 || passengerSeats.length >= 30;
+      // Seat count is not a reliable layout signal: a long 2+1 sleeper can
+      // easily contain 30+ seats. The provider's row coordinates are the
+      // source of truth for the lane topology.
+      const is2Plus2 = uniqueRows.length >= 4;
 
       const rowGridMap = new Map();
       let aisleAfterGridRow = -1;
@@ -932,5 +938,4 @@ export default {
   getBusCoupons,
   getFeaturedOffers,
 };
-
 

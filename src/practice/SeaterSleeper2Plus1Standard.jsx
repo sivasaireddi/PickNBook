@@ -154,9 +154,10 @@ const buildSubtitleFromRoute = (route) => {
 
 
 /* ── Deck Header Component ── */
-const CompactDeckHeader = memo(({ title }) => (
+const CompactDeckHeader = memo(({ title, isLower }) => (
   <View style={styles.deckHeader}>
     <Text style={styles.deckTitle}>{title}</Text>
+    {isLower && <DriverIndicator inline />}
   </View>
 ));
 
@@ -221,17 +222,21 @@ const DeckCardContainer = memo(
     const CARD_PADDING = 8;
     const AISLE_W = 16;
     const CELL_GAP = 4;
-    const ROW_GAP = 6;
+    const ROW_GAP = 5;
+    const seatCanvasTop = 18;
 
-    const maxCellW = 42;
     const rawCellW = (availableCanvasWidth - CARD_PADDING * 2 - (hasAisle && totalCols > 1 ? AISLE_W : 0)) / totalCols;
-    const cellW = Math.min(maxCellW, Math.max(28, rawCellW));
+    // Let the lane grid use the full deck width. Capping this value leaves a
+    // large unused strip on the aisle side of each deck card on narrow screens.
+    const cellW = Math.max(28, rawCellW);
 
     const gridTotalW = cellW * totalCols + (hasAisle && totalCols > 1 ? AISLE_W : 0);
     const offsetX = Math.max(0, (availableCanvasWidth - CARD_PADDING * 2 - gridTotalW) / 2);
 
-    // Content-driven cell height to ensure compact wrapping without stretching
-    const cellH = 38;
+    // Compact vertical rhythm: reducing the row pitch from 38 to 32 reduces
+    // both seater and sleeper heights by roughly 15-20% while preserving the
+    // calculated seat width and all seat styling.
+    const cellH = 32;
     const SEATER_W_DYN = cellW - CELL_GAP;
     const SEATER_H_DYN = cellH - ROW_GAP;
     const SLEEPER_W_DYN = SEATER_W_DYN;
@@ -259,15 +264,10 @@ const DeckCardContainer = memo(
     }));
 
     return (
-      <Animated.View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, deckAnimatedStyle]}>
-        {showDeckHeader && <CompactDeckHeader title={deck.title} />}
-        {deck.isLower && (
-          <View style={styles.driverRow}>
-            <DriverIndicator />
-          </View>
-        )}
+      <Animated.View style={[styles.deckCard, { width: availableCanvasWidth }, BUS_SEAT_SHADOWS.soft, deckAnimatedStyle]}>
+        {showDeckHeader && <CompactDeckHeader title={deck.title} isLower={deck.isLower} />}
         <View style={styles.cabinDivider} />
-        <Animated.View style={[styles.deckCanvasWrapper, { height: actualCanvasHeight }, seatsAnimatedStyle]}>
+        <Animated.View style={[styles.deckCanvasWrapper, { height: actualCanvasHeight + seatCanvasTop }, seatsAnimatedStyle]}>
           {seats.map((seat) => {
             if (seat.isExit) return null;
 
@@ -308,7 +308,7 @@ const DeckCardContainer = memo(
               left = offsetX + effectiveCol * cellW + aisleOff;
             }
 
-            const top = gridC * cellH;
+            const top = seatCanvasTop + gridC * cellH;
 
             return (
               <SeatItem
@@ -490,11 +490,13 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   }, [busId, layout?.boardingPoints, layout?.droppingPoints, layout?.priceInr, navigation, route?.params, seatMap, selectedSeats]);
 
   const numDecks = (lowerDeckData ? 1 : 0) + (upperDeckData ? 1 : 0);
-  const deckGap = 10;
-  const deckHorizontalPadding = 12 * 2;
+  // Keep both deck cards in the viewport. The deck renderer scales its three
+  // lanes to this width, while the outer seat area still scrolls vertically.
+  const deckGap = 6;
+  const deckOuterPadding = 24;
   const availableDeckWidth = numDecks === 2
-    ? (seatAreaSize.width - deckHorizontalPadding - deckGap) / 2
-    : Math.min(360, seatAreaSize.width - deckHorizontalPadding);
+    ? Math.max(138, (seatAreaSize.width - deckOuterPadding - deckGap) / 2)
+    : Math.min(360, Math.max(0, seatAreaSize.width - 24));
 
   /* ── Render States ── */
   if (loading && !layout) {
@@ -660,10 +662,12 @@ const styles = StyleSheet.create({
   /* ── Responsive Decks Row Container ── */
   decksRowContainer: {
     flexDirection: "row",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    alignItems: "flex-start",
+    gap: 6,
     paddingHorizontal: 12,
-    paddingTop: 4,
-    paddingBottom: 16,
+    paddingTop: 2,
+    paddingBottom: 8,
     width: "100%",
   },
 
@@ -675,15 +679,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(240, 77, 77, 0.22)",
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-    paddingTop: 6,
+    paddingHorizontal: 6,
+    paddingBottom: 6,
+    paddingTop: 4,
     alignSelf: "center",
   },
   deckHeader: {
-    height: 24,
+    height: 28,
+    flexDirection: "row",
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 6,
   },
   deckTitle: {
     fontSize: 14,
@@ -691,7 +697,6 @@ const styles = StyleSheet.create({
     color: BUS_SEAT_COLORS.textPrimary,
   },
   driverRow: {
-    height: 22,
     width: "100%",
     position: "relative",
     justifyContent: "center",
@@ -699,8 +704,8 @@ const styles = StyleSheet.create({
   cabinDivider: {
     height: 1,
     backgroundColor: "#F3F4F6",
-    marginTop: 2,
-    marginBottom: 6,
+    marginTop: 1,
+    marginBottom: 3,
     width: "100%",
   },
   deckCanvasWrapper: {

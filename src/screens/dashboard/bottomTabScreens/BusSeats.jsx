@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import axios from 'axios';
 
 import { BUS_SEAT_COLORS, BUS_SEAT_SHADOWS } from '../../../theme/busSeatTheme';
 import SeatLegend from '../../../components/busSeats/SeatLegend';
@@ -18,17 +17,17 @@ import DeckHeader from '../../../components/busSeats/DeckHeader';
 import DriverIndicator from '../../../components/busSeats/DriverIndicator';
 import SeatBottomSheet from '../../../components/busSeats/SeatBottomSheet';
 import { moderateScale } from 'react-native-size-matters';
-import { API_BASE_URL } from '../../../constants/config';
+import { getSeatLayout } from '../../../services/busService';
 
-const BUS_SEATS_API_BASE_URL = `${API_BASE_URL}/api/BusBookings`;
-
-const SEAT_SIZE = 38;
-const CELL_GAP = 6;
-const ROW_GAP = 10;
-const AISLE_W = 16;
+const SEAT_WIDTH = 48;
+const SEAT_HEIGHT = 82;
+const CELL_GAP = 8;
+const ROW_GAP = 12;
+const AISLE_W = 18;
 
 const BusSeats = ({ route, navigation }) => {
   const busId = route?.params?.busId;
+  const routeSeatLayout = route?.params?.seatLayout;
   const insets = useSafeAreaInsets();
 
   const [seats, setSeats] = useState([]);
@@ -48,16 +47,15 @@ const BusSeats = ({ route, navigation }) => {
     try {
       setLoading(true);
       setError('');
-      const url = `${BUS_SEATS_API_BASE_URL}/${encodeURIComponent(String(busId))}/seats`;
-      const response = await axios.get(url);
-
-      const nextSeats = Array.isArray(response.data?.seats)
-        ? response.data.seats
-        : Array.isArray(response.data)
-          ? response.data
-          : [];
-
-      setSeats(nextSeats);
+      let layout = routeSeatLayout;
+      if (!layout || !Array.isArray(layout.seats)) {
+        layout = await getSeatLayout({
+          traceId: route?.params?.traceId ?? route?.params?.bus?.traceId,
+          resultIndex: route?.params?.resultIndex ?? route?.params?.bus?.resultIndex,
+          srdvIndex: route?.params?.srdvIndex ?? route?.params?.bus?.srdvIndex,
+        });
+      }
+      setSeats(Array.isArray(layout?.seats) ? layout.seats : []);
     } catch (err) {
       console.log('Error fetching seats:', err);
       setError('Unable to load seats. Please try again.');
@@ -68,19 +66,11 @@ const BusSeats = ({ route, navigation }) => {
 
   useEffect(() => {
     fetchSeats();
-  }, [busId]);
+  }, [busId, routeSeatLayout, route?.params?.traceId, route?.params?.resultIndex, route?.params?.srdvIndex]);
 
   // Separate decks
-  const lowerDeck = seats.filter((s) => s?.seatCode?.startsWith('L'));
-  const upperDeck = seats.filter((s) => s?.seatCode?.startsWith('U'));
-
-  // Sort properly (L1, L2... not L1, L10)
-  const sortSeats = (arr) =>
-    [...arr].sort(
-      (a, b) =>
-        parseInt(a.seatCode.slice(1)) -
-        parseInt(b.seatCode.slice(1))
-    );
+  const lowerDeck = seats.filter((s) => !s?.isUpper);
+  const upperDeck = seats.filter((s) => s?.isUpper);
 
   const seatMap = useMemo(
     () => new Map(seats.map((s) => [s.seatCode, s])),
@@ -118,69 +108,24 @@ const BusSeats = ({ route, navigation }) => {
   };
 
   const renderSeatGridContainer = (deckSeats, isUpper = false) => {
-    const sorted = sortSeats(deckSeats);
-    const rows = [];
-
-    // Exact target width for 4-column 2+2 layout
-    const cardWidth = 224;
-
-    for (let i = 0; i < sorted.length; i += 4) {
-      rows.push(
-        <View key={`row-${i}`} style={styles.gridRow}>
-          <View style={styles.seatPair}>
-            {sorted[i] && (
-              <View style={{ width: SEAT_SIZE, height: SEAT_SIZE }}>
-                <SeatItem
-                  seat={sorted[i]}
-                  isSelected={selectedSeats.includes(sorted[i].seatCode)}
-                  onPressSeat={handlePressSeat}
-                  width={SEAT_SIZE}
-                  height={SEAT_SIZE}
-                />
-              </View>
-            )}
-            {sorted[i + 1] && (
-              <View style={{ width: SEAT_SIZE, height: SEAT_SIZE }}>
-                <SeatItem
-                  seat={sorted[i + 1]}
-                  isSelected={selectedSeats.includes(sorted[i + 1].seatCode)}
-                  onPressSeat={handlePressSeat}
-                  width={SEAT_SIZE}
-                  height={SEAT_SIZE}
-                />
-              </View>
-            )}
+    const maxRow = Math.max(...deckSeats.map((s) => Number(s.gridCol ?? s.normalizedRow ?? 0)), 0);
+    const maxLane = Math.max(...deckSeats.map((s) => Number(s.gridRow ?? s.normalizedColumn ?? 0)), 0);
+    const rows = Array.from({ length: maxRow + 1 }, (_, rowIndex) => {
+      const rowSeats = deckSeats.filter((s) => Number(s.gridCol ?? s.normalizedRow ?? 0) === rowIndex);
+      const cells = Array.from({ length: maxLane + 1 }, (_, laneIndex) => {
+        const seat = rowSeats.find((s) => Number(s.gridRow ?? s.normalizedColumn ?? 0) === laneIndex);
+        return (
+          <View key={`cell-${rowIndex}-${laneIndex}`} style={styles.seatCell}>
+            {seat && <SeatItem seat={seat} isSelected={selectedSeats.includes(seat.seatCode)} onPressSeat={handlePressSeat} width={SEAT_WIDTH} height={SEAT_HEIGHT} isSleeper={seat.isSleeper} />}
           </View>
+        );
+      });
+      const aisleIndex = Number(deckSeats[0]?.aisleAfterGridRow ?? 0);
+      if (aisleIndex >= 0 && aisleIndex < cells.length - 1) cells.splice(aisleIndex + 1, 0, <View key={`aisle-${rowIndex}`} style={styles.aisle} />);
+      return <View key={`row-${rowIndex}`} style={styles.gridRow}>{cells}</View>;
+    });
 
-          <View style={{ width: AISLE_W }} />
-
-          <View style={styles.seatPair}>
-            {sorted[i + 2] && (
-              <View style={{ width: SEAT_SIZE, height: SEAT_SIZE }}>
-                <SeatItem
-                  seat={sorted[i + 2]}
-                  isSelected={selectedSeats.includes(sorted[i + 2].seatCode)}
-                  onPressSeat={handlePressSeat}
-                  width={SEAT_SIZE}
-                  height={SEAT_SIZE}
-                />
-              </View>
-            )}
-            {sorted[i + 3] && (
-              <View style={{ width: SEAT_SIZE, height: SEAT_SIZE }}>
-                <SeatItem
-                  seat={sorted[i + 3]}
-                  isSelected={selectedSeats.includes(sorted[i + 3].seatCode)}
-                  onPressSeat={handlePressSeat}
-                  width={SEAT_SIZE}
-                  height={SEAT_SIZE}
-                />
-              </View>
-            )}
-          </View>
-        </View>
-      );
-    }
+    const cardWidth = Math.min(350, Math.max(190, (maxLane + 1) * (SEAT_WIDTH + CELL_GAP) + AISLE_W + 28));
 
     return (
       <View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, { width: cardWidth }]}>
@@ -239,14 +184,10 @@ const BusSeats = ({ route, navigation }) => {
           )}
 
           {/* Horizontal ScrollView wrapping Lower Deck & Upper Deck side-by-side */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.horizontalDecksContainer}
-          >
+          <View style={styles.horizontalDecksContainer}>
             {lowerDeck.length > 0 && renderSeatGridContainer(lowerDeck, false)}
             {upperDeck.length > 0 && renderSeatGridContainer(upperDeck, true)}
-          </ScrollView>
+          </View>
         </ScrollView>
 
         {/* Bottom Sheet Summary Bar */}
@@ -312,6 +253,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(240, 77, 77, 0.22)',
     padding: 12,
+    alignSelf: 'center',
     position: 'relative',
   },
   cabinDivider: {
@@ -325,12 +267,17 @@ const styles = StyleSheet.create({
   gridRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     marginBottom: ROW_GAP,
   },
-  seatPair: {
-    flexDirection: 'row',
-    gap: CELL_GAP,
+  seatCell: {
+    width: SEAT_WIDTH,
+    height: SEAT_HEIGHT,
+    marginRight: CELL_GAP,
+    position: 'relative',
+  },
+  aisle: {
+    width: AISLE_W,
   },
   loader: {
     flex: 1,

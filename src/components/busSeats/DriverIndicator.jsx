@@ -3,9 +3,9 @@ import { StyleSheet, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { BUS_SEAT_COLORS, BUS_SEAT_SHADOWS } from "../../theme/busSeatTheme";
 
-const DriverIndicator = () => {
+const DriverIndicator = ({ inline = false }) => {
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, inline && styles.inlineContainer]}>
       <View style={[styles.circularBadge, BUS_SEAT_SHADOWS.card]}>
         <MaterialCommunityIcons
           name="steering"
@@ -25,6 +25,11 @@ const styles = StyleSheet.create({
     right: 6,
     top: 6,
     zIndex: 10,
+  },
+  inlineContainer: {
+    position: "relative",
+    right: undefined,
+    top: undefined,
   },
   circularBadge: {
     width: 24,
