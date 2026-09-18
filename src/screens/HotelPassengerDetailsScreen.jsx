@@ -125,7 +125,6 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         HotelRoomsDetails: selectedRoomSlots,
       };
 
-      console.log("[HotelPassengerDetails] executing BlockRoom with payload:", blockRoomPayload);
       const res = await blockHotelRoom(blockRoomPayload);
 
       const blockResObj = res?.BlockRoomResult || res?.blockRoomResult || res || {};
@@ -575,7 +574,6 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
 
-      console.log("[HotelPassengerDetails] navigating to CheckoutScreen with payload:", bookPayload);
 
       const token = await SecureStore.getItemAsync("token");
 

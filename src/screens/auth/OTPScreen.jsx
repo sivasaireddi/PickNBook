@@ -51,8 +51,7 @@ export default function OTPScreen() {
 
         console.log("==========================================");
         console.log("[OTPScreen] LOGIN SUCCESSFUL!");
-        console.log("[OTPScreen] JWT TOKEN:", token);
-        console.log("[OTPScreen] USER DETAILS:", JSON.stringify(user, null, 2));
+        console.log("[OTPScreen] Login response received.");
         console.log("==========================================");
 
         if (token) {

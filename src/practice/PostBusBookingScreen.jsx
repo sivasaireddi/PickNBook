@@ -46,6 +46,28 @@ const SEATS_API_URL = (busId) =>
 
 const BOOKING_TIMEOUT_MS = 45000;
 
+const redactBookingLog = (value) => {
+  if (Array.isArray(value)) return value.map(redactBookingLog);
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => {
+      const hidden = ["contactNo", "phone", "phoneNumber", "email", "idNumber", "address"].some((field) =>
+        key.toLowerCase().includes(field.toLowerCase())
+      );
+      return [key, hidden ? "[REDACTED]" : redactBookingLog(child)];
+    })
+  );
+};
+
+const logBusBookingFlow = (stage, data) => {
+  if (data === undefined) {
+    console.log(`[BusBookingFlow] ${stage}`);
+    return;
+  }
+  console.log(`[BusBookingFlow] ${stage}`, redactBookingLog(data));
+};
+
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const CONTENT_MAX_WIDTH = 760;
 
@@ -770,6 +792,13 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   };
 
   const fetchPricingPreview = async ({ applyPricing = true } = {}) => {
+    logBusBookingFlow("Pricing preview started", {
+      applyPricing,
+      selectedSeats,
+      selectedSeatDetails,
+      couponCode,
+      selectedFeaturedOfferId,
+    });
     if (selectedSeats.length === 0) {
       if (applyPricing) {
         setPricing(null);
@@ -857,12 +886,12 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         seats: seatsPayload,
       };
 
-      console.log("[PostBusBookingScreen] Fetching pricing preview payload:", JSON.stringify(requestPayload, null, 2));
+      logBusBookingFlow("Pricing preview request", requestPayload);
 
       const apiData = await getPricingPreview(requestPayload);
       const pricingPayload = extractPricingPayload(apiData) || apiData;
 
-      console.log("[PostBusBookingScreen] Resolved Pricing Payload:", pricingPayload);
+      logBusBookingFlow("Pricing preview response", pricingPayload);
 
       if (applyPricing) {
         setPricing(pricingPayload);
@@ -871,6 +900,11 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       return pricingPayload;
     } catch (error) {
       const errorData = error?.response?.data;
+      logBusBookingFlow("Pricing preview failed", {
+        message: error?.message,
+        status: error?.response?.status,
+        response: errorData,
+      });
       console.log("Pricing Preview Error Details:", errorData ? JSON.stringify(errorData, null, 2) : error.message);
       
       const errorMessage = errorData?.message || errorData?.Message || "";
@@ -1232,6 +1266,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
   const handleBooking = async () => {
     if (!validateForm()) {
+      logBusBookingFlow("Booking validation failed");
       return;
     }
 
@@ -1248,6 +1283,12 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
     try {
       setLoading(true);
+      logBusBookingFlow("Booking flow started", {
+        selectedSeats,
+        bus: route?.params?.bus,
+        boardingPoint: route?.params?.selectedBoardingPoint || route?.params?.boardingPoint,
+        droppingPoint: route?.params?.selectedDroppingPoint || route?.params?.droppingPoint,
+      });
 
       const normalizedPassengers = passengers.map((passenger) => {
         const nameParts = String(passenger.fullName || "").trim().split(/\s+/);
@@ -1292,11 +1333,15 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         return normalizedPassenger;
       });
 
+      logBusBookingFlow("Passengers normalized", normalizedPassengers);
+
       const selectedSeatCodes = normalizedPassengers.map((passenger) => passenger.seatNumber);
 
       const finalPricingPayload = await fetchPricingPreview({
         applyPricing: true,
       });
+
+      logBusBookingFlow("Booking pricing result", finalPricingPayload);
 
       if (!finalPricingPayload) {
         Alert.alert("Pricing Error", "Unable to verify latest fare before booking.");
@@ -1360,7 +1405,20 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const droppingPointName = droppingPoint?.Name ?? droppingPoint?.name ?? "";
 
       // 1. Build Block payload matching API Integration Guide schema
+      const pricingSeats = Array.isArray(finalPricingPayload?.seats)
+        ? finalPricingPayload.seats
+        : [];
+
       const blockPassengers = normalizedPassengers.map((p) => {
+        const pricingSeat = pricingSeats.find(
+          (seat) => String(seat?.seatCode ?? "") === String(p.seatNumber ?? p.seatName ?? "")
+        );
+        // Block must receive the provider base fare. The pricing-preview
+        // response may also contain markup in fareBeforeTax; that value must
+        // not be sent to the operator's block API as passenger fare.
+        const providerSeatFare = Number(
+          pricingSeat?.baseFare ?? p.baseFare ?? p.fare ?? 0
+        );
         const passengerObj = {
           title: String(p.title || "Mr"),
           firstName: String(p.firstName || p.fullName || "Passenger"),
@@ -1368,7 +1426,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           age: Number(p.age) || 25,
           gender: p.genderInt !== undefined ? String(p.genderInt) : (String(p.genderStr || p.gender).toLowerCase() === "female" ? "2" : "1"),
           seatName: String(p.seatName || p.seatNumber || ""),
-          fare: Number(p.fare) || 0,
+          fare: providerSeatFare,
           contactNo: String(passengerPhone || "").trim(),
           email: String(passengerEmail || "").trim(),
           address: "123 Main St",
@@ -1402,12 +1460,20 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
       const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
-      const totalFare = Number(fareSummary.grandTotal || busObj.priceInr || 0);
+      // The bus operator's block API expects the provider fare, not the
+      // customer payable amount (which may include discounts, GST and fees).
+      // Sending grandTotal here can make SRDV reject an otherwise valid seat
+      // selection with error 1003.
+      const providerTotalFare = blockPassengers.reduce(
+        (sum, passenger) => sum + (Number(passenger.fare) || 0),
+        0
+      );
+      const customerTotalFare = Number(fareSummary.grandTotal || busObj.priceInr || 0);
 
       const blockRequestBody = {
         traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
         resultIndex: String(busObj.resultIndex ?? busObj.ResultIndex ?? route?.params?.resultIndex ?? ""),
-        srdvIndex: Number(busObj.srdvIndex ?? busObj.SrdvIndex ?? route?.params?.srdvIndex ?? 0),
+        srdvIndex: String(busObj.srdvIndex ?? busObj.SrdvIndex ?? route?.params?.srdvIndex ?? "").trim(),
         boardingPointId: String(boardingPointId || "").trim(),
         droppingPointId: String(droppingPointId || "").trim(),
         fromCity,
@@ -1416,15 +1482,37 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         arrivalTime,
         operatorName,
         busType,
-        totalFare,
+        totalFare: providerTotalFare,
         couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : null,
         passengers: blockPassengers,
       };
 
+      const missingBlockFields = [
+        ["traceId", blockRequestBody.traceId],
+        ["resultIndex", blockRequestBody.resultIndex],
+        ["srdvIndex", blockRequestBody.srdvIndex],
+        ["boardingPointId", blockRequestBody.boardingPointId],
+        ["droppingPointId", blockRequestBody.droppingPointId],
+      ].filter(([, value]) => !String(value || "").trim()).map(([name]) => name);
+
+      if (missingBlockFields.length > 0 || blockPassengers.some((passenger) => !passenger.seatName)) {
+        Alert.alert(
+          "Seat Block Failed",
+          `Missing booking details: ${missingBlockFields.join(", ") || "seat"}. Please go back and select the bus again.`
+        );
+        setLoading(false);
+        return;
+      }
+
       const finalBlockRequestBody = {
         ...blockRequestBody,
+        TraceId: blockRequestBody.traceId,
+        ResultIndex: blockRequestBody.resultIndex,
+        SrdvIndex: blockRequestBody.srdvIndex,
         request: blockRequestBody,
       };
+
+      logBusBookingFlow("Seat block request", finalBlockRequestBody);
 
       // 1. Block Seats — reuse cached block if available to prevent double /block calls
       let blockResponse;
@@ -1432,14 +1520,19 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       if (cachedBlockKey && cachedBlockResponse) {
         console.log("[PostBusBookingScreen] Reusing cached blockKey:", cachedBlockKey);
+        logBusBookingFlow("Seat block response reused", cachedBlockResponse);
         blockResponse = cachedBlockResponse;
         srdvBlockKey = cachedBlockKey;
       } else {
         try {
-          console.log("[PostBusBookingScreen] Blocking seats with payload:", JSON.stringify(finalBlockRequestBody, null, 2));
           blockResponse = await blockSeats(finalBlockRequestBody);
-          console.log("[PostBusBookingScreen] Seat block success:", blockResponse);
+          logBusBookingFlow("Seat block response", blockResponse);
         } catch (blockError) {
+          logBusBookingFlow("Seat block network failed", {
+            message: blockError?.message,
+            status: blockError?.response?.status,
+            response: blockError?.response?.data,
+          });
           console.log("[PostBusBookingScreen] Seat block failed:", blockError);
           const apiErrorMessage = extractApiErrorMessage(blockError?.response?.data);
           Alert.alert(
@@ -1478,6 +1571,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                          blockResponse?.Result?.SrdvBookingId ?? "";
 
         srdvBlockKey = String(blockKey || "");
+        logBusBookingFlow("Seat block key resolved", { srdvBlockKey });
 
         // Cache the block response to prevent re-blocking
         setCachedBlockKey(srdvBlockKey);
@@ -1512,8 +1606,10 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         };
       });
 
+      logBusBookingFlow("Seats resolved from block response", previewSeats);
+
       // 3. Dynamic Pricing Preview
-      let grandTotalToPay = Number(totalFare) || 0;
+      let grandTotalToPay = customerTotalFare;
       try {
         const pricingPayload = {
           traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
@@ -1526,11 +1622,10 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           toCity,
           departureTime,
           busType,
-          totalFare: (Number(totalFare) || 0) + previewSeats.reduce((sum, s) => sum + (Number(s.externalGst) || 0), 0)
+          totalFare: providerTotalFare + previewSeats.reduce((sum, s) => sum + (Number(s.externalGst) || 0), 0)
         };
-        console.log("[PostBusBookingScreen] Calling Pricing Preview:", JSON.stringify(pricingPayload, null, 2));
         const pricingResponse = await getPricingPreview(pricingPayload);
-        console.log("[PostBusBookingScreen] Pricing Preview Response:", JSON.stringify(pricingResponse, null, 2));
+        logBusBookingFlow("Final pricing preview response", pricingResponse);
 
         if (pricingResponse?.grandTotal) {
           grandTotalToPay = Number(pricingResponse.grandTotal);
@@ -1589,7 +1684,12 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         blockResponse: sanitizedBlockResponse
       };
 
-      console.log("Sanitized Payload being sent to Checkout:", JSON.stringify(bookingPayloadWithBlock, null, 2));
+      logBusBookingFlow("Checkout navigation payload", {
+        amount: grandTotalToPay,
+        bookingType: "Bus",
+        bookingDetails: bookingPayloadWithBlock,
+      });
+
 
       setLoading(false);
 
@@ -1609,6 +1709,12 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       return;
     } catch (error) {
+      logBusBookingFlow("Booking flow failed", {
+        code: error?.code,
+        message: error?.message,
+        status: error?.response?.status,
+        response: error?.response?.data,
+      });
       console.log("Booking Error:", {
         code: error?.code,
         message: error?.message,

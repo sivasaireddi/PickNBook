@@ -12,7 +12,6 @@ const client = axios.create({
   headers: {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   },
 });
 
@@ -49,18 +48,10 @@ client.interceptors.request.use(
       console.warn("[FlightService] Failed to fetch session token for interceptor:", e.message);
     }
     const fullUrl = `${config.baseURL || ""}${config.url || ""}`;
-    console.log(`\n==================================================`);
-    console.log(`🚀 [FLIGHT API REQUEST] ${config.method?.toUpperCase()} ${fullUrl}`);
-    if (config.params) console.log("📌 Request Params:", JSON.stringify(sanitizeForLog(config.params), null, 2));
-    if (config.data) {
-      const parsedData = typeof config.data === "string" ? (function() { try { return JSON.parse(config.data); } catch { return config.data; } })() : config.data;
-      console.log("📦 Request Payload:", typeof parsedData === "object" ? JSON.stringify(sanitizeForLog(parsedData), null, 2) : parsedData);
-    }
-    console.log(`==================================================\n`);
     return config;
   },
   (error) => {
-    console.error("❌ [FLIGHT API REQUEST ERROR]:", error);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [FLIGHT API REQUEST ERROR]:", error);
     return Promise.reject(error);
   }
 );
@@ -69,19 +60,14 @@ client.interceptors.request.use(
 client.interceptors.response.use(
   (response) => {
     const fullUrl = `${response.config?.baseURL || ""}${response.config?.url || ""}`;
-    console.log(`\n==================================================`);
-    console.log(`✅ [FLIGHT API RESPONSE] ${response.config?.method?.toUpperCase()} ${fullUrl} (Status: ${response.status})`);
-    console.log("📥 Response Data:", JSON.stringify(sanitizeForLog(response.data), null, 2));
-    console.log(`==================================================\n`);
     return response;
   },
   (error) => {
     const fullUrl = `${error.config?.baseURL || ""}${error.config?.url || ""}`;
     console.error(`\n==================================================`);
-    console.error(`❌ [FLIGHT API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
-    console.error("⚠️ Error Message:", error.message);
+    console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [FLIGHT API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
+    console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Error Message:", error.message);
     if (error.response?.data) {
-      console.error("📄 Error Response Data:", JSON.stringify(sanitizeForLog(error.response.data), null, 2));
     }
     console.error(`==================================================\n`);
     return Promise.reject(error);
@@ -377,9 +363,6 @@ export async function searchFlights(searchParams) {
 
   const payload = {
     EndUserIp: searchParams.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     AdultCount: Number(searchParams.adults !== undefined ? searchParams.adults : 1),
     ChildCount: Number(searchParams.children !== undefined ? searchParams.children : 0),
     InfantCount: Number(searchParams.infants !== undefined ? searchParams.infants : 0),
@@ -421,9 +404,6 @@ export async function getFlightFareQuote(params = {}) {
 
   const payload = {
     EndUserIp: params.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     TraceId: activeTraceId,
     ResultIndex: activeResultIndex,
     SrdvType: activeSrdvType,
@@ -431,7 +411,6 @@ export async function getFlightFareQuote(params = {}) {
     ...(params.couponCode || params.CouponCode ? { CouponCode: String(params.couponCode || params.CouponCode) } : {}),
   };
 
-  console.log(`[FARE_REVALIDATION_STARTED] Requesting /api/flight/srdv/FareQuote | TraceId: ${activeTraceId} | ResultIndex: ${activeResultIndex.slice(0, 30)}... | SrdvType: ${activeSrdvType} | SrdvIndex: ${activeSrdvIndex}`);
   try {
     const response = await client.post("/api/flight/srdv/FareQuote", payload);
     const resObj = response?.data?.Response || response?.data;
@@ -442,7 +421,6 @@ export async function getFlightFareQuote(params = {}) {
       throw new Error(errObj.ErrorMessage || "Fare revalidation failed by supplier.");
     }
 
-    console.log(`[FARE_REVALIDATION_SUCCESS] Supplier FareQuote confirmed | TraceId: ${activeTraceId}`);
     return response.data;
   } catch (error) {
     const msg = error?.response?.data?.Error?.ErrorMessage || error?.message || "Fare revalidation failed by supplier.";
@@ -462,17 +440,12 @@ export async function getFlightFareRule(params = {}) {
 
   const payload = {
     EndUserIp: params.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
-    ApiToken: "PickNB@486#232$",
     SrdvType: String(params.srdvType || params.SrdvType || "MixAPI"),
     SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
     TraceId: activeTraceId,
     ResultIndex: activeResultIndex,
   };
 
-  console.log(`[FARERULE_REQUEST] /api/flight/srdv/FareRule | TraceId: ${activeTraceId}`);
   try {
     const response = await client.post("/api/flight/srdv/FareRule", payload);
     const resObj = response?.data?.Response || response?.data;
@@ -484,7 +457,6 @@ export async function getFlightFareRule(params = {}) {
     }
 
     if (!results || (Array.isArray(results) && results.length === 0)) {
-      console.log(`[FARERULE_EMPTY] Empty fare rules returned by supplier for TraceId: ${activeTraceId}`);
       return { success: false, code: "FARE_RULE_UNAVAILABLE", message: "Fare rules not provided by supplier for this flight.", data: [] };
     }
 
@@ -508,35 +480,23 @@ export async function getFlightSSR(params = {}) {
   const isRoundTrip = activeResultIndex.includes(",");
   const indices = activeResultIndex.split(",");
   
-  console.log("[SSR_RESULT_INDEX]");
-  console.log(`TripType: ${isRoundTrip ? 'ROUND_TRIP' : 'ONE_WAY'}`);
-  console.log(`OutboundResultIndex: ${indices[0]}`);
   if (isRoundTrip && indices.length > 1) {
-    console.log(`ReturnResultIndex: ${indices[1]}`);
   }
-  console.log(`CombinedResultIndex: ${activeResultIndex}`);
 
   const activeSrdvType = String(params.srdvType || params.SrdvType || "MixAPI");
   const activeSrdvIndex = String(params.srdvIndex || params.SrdvIndex || "2");
 
   const payload = {
     EndUserIp: params.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     TraceId: activeTraceId,
     ResultIndex: activeResultIndex,
     SrdvType: activeSrdvType,
     SrdvIndex: activeSrdvIndex,
   };
 
-  console.log(`[SSR_REQUEST_RESULT_INDEX]`);
-  console.log(`ResultIndex: ${activeResultIndex}`);
 
-  console.log(`[SSR_STARTED] Requesting /api/flight/srdv/SSR | TraceId: ${activeTraceId} | ResultIndex: ${activeResultIndex}`);
   try {
     const response = await client.post("/api/flight/srdv/SSR", payload);
-    console.log("[SSR_RESPONSE] Raw Data:", JSON.stringify(response?.data).slice(0, 500));
 
     const resObj = response?.data?.Response || response?.data;
     const errObj = resObj?.Error || response?.data?.Error;
@@ -554,11 +514,9 @@ export async function getFlightSSR(params = {}) {
     const hasSsr = (Array.isArray(flatBaggage) && flatBaggage.length > 0) || (Array.isArray(flatMeals) && flatMeals.length > 0);
 
     if (!hasSsr) {
-      console.log(`[SSR_UNAVAILABLE] No extra baggage/meal SSR options returned by supplier for TraceId: ${activeTraceId}`);
       return { success: false, code: "SSR_NOT_APPLICABLE", message: "No extra baggage or meal add-ons available for this flight.", data: null };
     }
 
-    console.log(`[SSR_SUCCESS] SSR options loaded for TraceId: ${activeTraceId}`);
     return { success: true, code: "SSR_AVAILABLE", data: results, raw: response.data };
   } catch (error) {
     const msg = error?.response?.data?.Error?.ErrorMessage || error?.message || "SSR service unavailable.";
@@ -577,16 +535,12 @@ export async function getFlightSeatMap(params = {}) {
 
   const payload = {
     EndUserIp: params.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     TraceId: activeTraceId,
     ResultIndex: activeResultIndex,
     SrdvType: activeSrdvType,
     SrdvIndex: activeSrdvIndex,
   };
 
-  console.log(`[SEATMAP_STARTED] /api/flight/srdv/SeatMap | TraceId: ${activeTraceId} | ResultIndex: ${activeResultIndex}`);
   try {
     const response = await client.post("/api/flight/srdv/SeatMap", payload);
     const resObj = response?.data?.Response || response?.data;
@@ -602,7 +556,6 @@ export async function getFlightSeatMap(params = {}) {
       };
     }
 
-    console.log(`[SEATMAP_SUCCESS] Seat map loaded for TraceId: ${activeTraceId}`);
     return { success: true, code: "SEATMAP_AVAILABLE", data: resObj?.Results || response.data };
   } catch (error) {
     const msg = error?.message || "Seat map unavailable.";
@@ -617,9 +570,6 @@ export async function getFlightSeatMap(params = {}) {
 export async function ticketLCC(params = {}) {
   const innerPayload = {
     EndUserIp: params.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     TraceId: String(params.traceId || params.TraceId || ""),
     ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
     JourneyType: Number(params.journeyType || params.JourneyType || 1),
@@ -648,25 +598,8 @@ export async function ticketLCC(params = {}) {
     Request: innerPayload,
   };
 
-  if (__DEV__) {
-    payload.Passengers.forEach((p, idx) => {
-      console.log(`[TicketLCC] Passenger ${idx + 1} passport details:`, JSON.stringify({
-        PassportNo: p.PassportNo,
-        PassportIssueDate: p.PassportIssueDate,
-        PassportExpiry: p.PassportExpiry,
-        PassportIssueCountryCode: p.PassportIssueCountryCode,
-        Nationality: p.Nationality,
-        DateOfBirth: p.DateOfBirth,
-        DocumentType: p.DocumentType,
-        DocumentId: p.DocumentId
-      }, null, 2));
-    });
-  }
-
-  // Unsafe log removed, rely on Axios interceptor
   try {
     const response = await client.post("/api/flight/srdv/TicketLCC", payload);
-    console.log("[FlightService] TicketLCC response:", JSON.stringify(response?.data));
     const resObj = response?.data?.Response || response?.data;
     const errObj = resObj?.Error || response?.data?.Error;
     if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
@@ -685,9 +618,6 @@ export async function ticketLCC(params = {}) {
 export async function holdGDS(params = {}) {
   const innerPayload = {
     EndUserIp: params.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     TraceId: String(params.traceId || params.TraceId || ""),
     ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
     JourneyType: Number(params.journeyType || params.JourneyType || 1),
@@ -719,7 +649,6 @@ export async function holdGDS(params = {}) {
   // Unsafe log removed, rely on Axios interceptor
   try {
     const response = await client.post("/api/flight/srdv/HoldGDS", payload);
-    console.log("[FlightService] HoldGDS response:", JSON.stringify(response?.data));
     const resObj = response?.data?.Response || response?.data;
     const errObj = resObj?.Error || response?.data?.Error;
     if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
@@ -738,9 +667,6 @@ export async function holdGDS(params = {}) {
 export async function ticketGDS(params = {}) {
   const innerPayload = {
     EndUserIp: params.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     TraceId: String(params.traceId || params.TraceId || ""),
     ResultIndex: String(params.resultIndex || params.ResultIndex || ""),
     PNR: String(params.pnr || params.PNR || ""),
@@ -771,10 +697,8 @@ export async function ticketGDS(params = {}) {
     Request: innerPayload,
   };
 
-  console.log("[FlightService] ticketGDS requesting /api/flight/srdv/TicketGDS:", payload);
   try {
     const response = await client.post("/api/flight/srdv/TicketGDS", payload);
-    console.log("[FlightService] TicketGDS response:", response?.data);
     const resObj = response?.data?.Response || response?.data;
     const errObj = resObj?.Error || response?.data?.Error;
     if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
@@ -792,7 +716,7 @@ export async function ticketGDS(params = {}) {
 // 9. Get Cancellation Charges: POST /api/flight/srdv/GetCancellationCharges (auth required)
 export async function getCancellationCharges(params = {}) {
   const payload = {
-    EndUserIp: "127.0.0.1",
+    EndUserIp: params.endUserIp || "",
     RequestType: Number(params.requestType || params.RequestType || 1),
     TraceId: String(params.traceId || params.TraceId || ""),
     BookingId: String(params.bookingId || params.BookingId || ""),
@@ -800,7 +724,6 @@ export async function getCancellationCharges(params = {}) {
     SrdvIndex: String(params.srdvIndex || params.SrdvIndex || "2"),
   };
 
-  console.log("[FlightService] getCancellationCharges requesting /api/flight/srdv/GetCancellationCharges:", payload);
   try {
     const response = await client.post("/api/flight/srdv/GetCancellationCharges", payload);
     const resObj = response?.data?.Response || response?.data;
@@ -820,7 +743,7 @@ export async function getCancellationCharges(params = {}) {
 // 10. Send Cancel Request: POST /api/flight/srdv/SendChangeRequest (auth required)
 export async function sendCancelRequest(params = {}) {
   const payload = {
-    EndUserIp: "127.0.0.1",
+    EndUserIp: params.endUserIp || "",
     BookingId: String(params.bookingId || params.BookingId || ""),
     PNR: String(params.pnr || params.PNR || ""),
     RequestType: String(params.requestType || params.RequestType || "2"),
@@ -832,7 +755,6 @@ export async function sendCancelRequest(params = {}) {
     ...(params.ticketData || params.TicketData ? { TicketData: params.ticketData || params.TicketData } : {}),
   };
 
-  console.log("[FlightService] sendCancelRequest requesting /api/flight/srdv/SendChangeRequest:", payload);
   try {
     const response = await client.post("/api/flight/srdv/SendChangeRequest", payload);
     const resObj = response?.data?.Response || response?.data;
@@ -852,11 +774,10 @@ export async function sendCancelRequest(params = {}) {
 // 11. Get Cancel Status: POST /api/flight/srdv/GetCancelStatus (auth required)
 export async function getCancelStatus(params = {}) {
   const payload = {
-    EndUserIp: "127.0.0.1",
+    EndUserIp: params.endUserIp || "",
     ChangeRequestId: String(params.changeRequestId || params.ChangeRequestId || ""),
   };
 
-  console.log("[FlightService] getCancelStatus requesting /api/flight/srdv/GetCancelStatus:", payload);
   try {
     const response = await client.post("/api/flight/srdv/GetCancelStatus", payload);
     const resObj = response?.data?.Response || response?.data;
@@ -875,7 +796,6 @@ export async function getCancelStatus(params = {}) {
 
 // Additional APIs without mock data fallbacks
 export async function getPlaces() {
-  console.log("[FlightService] getPlaces calling /api/places");
   const response = await client.get("/api/places", {
     params: { tripType: "flight" },
   });
@@ -883,7 +803,6 @@ export async function getPlaces() {
 }
 
 export async function searchAirports(query, field, limit = 20) {
-  console.log(`[FlightService] searchAirports calling /api/Places?query=${query}`);
   const response = await client.get("/api/Places", {
     params: { query, tripType: "flight", field, limit },
   });
@@ -891,7 +810,6 @@ export async function searchAirports(query, field, limit = 20) {
 }
 
 export async function getHotRoutes() {
-  console.log("[FlightService] getHotRoutes checking route aliases...");
   const endpoints = [
     "/api/flight/popular-routes",
     "/api/admin/flight-popular-destinations",
@@ -902,7 +820,6 @@ export async function getHotRoutes() {
       const response = await client.get(ep);
       if (response?.data) return response.data;
     } catch (e) {
-      console.log(`[FlightService] Popular routes endpoint ${ep} failed (${e.message}), trying next fallback...`);
     }
   }
   return [];
@@ -917,7 +834,6 @@ export async function getFeaturedOffers() {
 export async function getCalendarFare(searchParams = {}) {
   const isMultiCity = searchParams.journeyType === 3 || String(searchParams.tripType || "").toLowerCase() === "multicity";
   if (isMultiCity) {
-    console.log("[FlightService] Calendar fare request skipped for Multi-City search session.");
     return { success: true, isMultiCity: true, data: [] };
   }
 
@@ -928,9 +844,6 @@ export async function getCalendarFare(searchParams = {}) {
 
   const payload = {
     EndUserIp: searchParams.endUserIp || "192.168.1.1",
-    ClientId: "180232",
-    UserName: "PickNBk6",
-    Password: "PickNB@486",
     JourneyType: Number(searchParams.journeyType || 1),
     FareType: Number(searchParams.fareType || 1),
     Segments: [
@@ -944,10 +857,8 @@ export async function getCalendarFare(searchParams = {}) {
     ],
   };
 
-  console.log("[FlightService] getCalendarFare requesting /api/flight/srdv/GetCalendarFare:", JSON.stringify(payload, null, 2));
   try {
     const response = await client.post("/api/flight/srdv/GetCalendarFare", payload);
-    console.log("[FlightService] getCalendarFare response status:", response?.status);
     
     const resObj = response?.data?.Response || response?.data;
     const errObj = resObj?.Error || response?.data?.Error;
@@ -965,10 +876,8 @@ export async function getCalendarFare(searchParams = {}) {
 
 // 13. Database Persistence: Save Confirmed Booking (POST /api/flight/bookings)
 export async function saveFlightBooking(bookingPayload) {
-  console.log("[FlightService] saveFlightBooking requesting POST /api/flight/bookings:", JSON.stringify(bookingPayload, null, 2));
   try {
     const response = await client.post("/api/flight/bookings", bookingPayload);
-    console.log("[FlightService] saveFlightBooking response status:", response?.status);
     return response.data;
   } catch (error) {
     console.warn("[FlightService] POST /api/flight/bookings endpoint failed/unavailable:", error?.message);
@@ -983,7 +892,6 @@ export async function saveFlightBooking(bookingPayload) {
 
 // 14. Database Persistence: Get User's Bookings (GET /api/flight/bookings)
 export async function getUserFlightBookings() {
-  console.log("[FlightService] getUserFlightBookings requesting GET /api/flight/bookings");
   try {
     const response = await client.get("/api/flight/bookings");
     return response.data;
@@ -995,7 +903,6 @@ export async function getUserFlightBookings() {
 
 // 15. Database Persistence: Get Booking Details (GET /api/flight/bookings/:bookingId)
 export async function getFlightBookingDetails(bookingId) {
-  console.log(`[FlightService] getFlightBookingDetails requesting GET /api/flight/bookings/${bookingId}`);
   try {
     const response = await client.get(`/api/flight/bookings/${bookingId}`);
     return response.data;
@@ -1028,4 +935,8 @@ export default {
   getUserFlightBookings,
   getFlightBookingDetails,
 };
+
+
+
+
 

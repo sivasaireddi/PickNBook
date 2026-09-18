@@ -547,7 +547,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
       const isTicketConfirmed = Boolean(pnr && bookingId && pnr.length > 0 && String(ticketStatus).toLowerCase() !== "failed");
 
       if (!isTicketConfirmed) {
-        console.error(`[TICKETING_FAILED] Supplier Response: PNR="${pnr}", BookingId="${bookingId}", Status="${ticketStatus}"`);
+        console.error("[TICKETING_FAILED] Supplier ticketing failed.");
         Alert.alert(
           "Booking Request Pending",
           `Airline ticketing response: PNR ${pnr || "Pending"}. Status: ${ticketStatus}.\n\nPlease check My Bookings or contact support with Trace ID: ${traceId}.`,
@@ -557,7 +557,6 @@ export default function FlightPaymentScreen({ route, navigation }) {
       }
 
       console.log("================================================================================");
-      console.log(`[TICKETING_SUCCESS] Supplier ticket issued successfully | PNR: ${pnr} | Booking ID: ${bookingId} | Status: ${ticketStatus}`);
       console.log("================================================================================");
 
       const nextState = {

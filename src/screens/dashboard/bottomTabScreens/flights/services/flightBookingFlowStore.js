@@ -89,7 +89,7 @@ export async function saveConfirmedFlightBookingLocally(bookingRecord) {
     const filtered = existing.filter((item) => String(item.pnr || item.bookingId || item.id) !== pnrStr);
     const updated = [bookingRecord, ...filtered].slice(0, 30);
     await SecureStore.setItemAsync(CONFIRMED_BOOKINGS_KEY, JSON.stringify(updated));
-    console.log(`[flightBookingFlowStore] 💾 Saved confirmed flight booking (${pnrStr}) to SecureStore. Total items: ${updated.length}`);
+    console.log("[flightBookingFlowStore] Saved confirmed flight booking to SecureStore.");
   } catch (err) {
     console.warn("[flightBookingFlowStore] Local booking save warning:", err?.message);
   }

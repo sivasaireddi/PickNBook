@@ -8,9 +8,11 @@ import {
   Animated,
 } from "react-native";
 import * as Location from "expo-location";
+import Constants from "expo-constants";
 import MapView, { Marker, AnimatedRegion } from "react-native-maps";
 import MapViewDirections from "react-native-maps-directions";
 import axios from "axios";
+import * as SecureStore from "expo-secure-store";
 import { AUTH_API_BASE_URL } from "../../../services/authService";
 import {
   requestLocationPermissions,
@@ -22,12 +24,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import AppHeader from "../../../components/AppHeader";
 import carImage from "../../../../assets/car.jpg";
 
-const GOOGLE_MAPS_APIKEY = "AIzaSyB9xc0jsXjB47ClikNaJ4Po0cQRLYaONio";
+const GOOGLE_MAPS_APIKEY =
+  Constants?.expoConfig?.android?.config?.googleMaps?.apiKey || "";
 const DEVIATION_THRESHOLD = 40;
 
 const MOVEMENT_UPLOAD_THRESHOLD = 10;
-const HARDCODED_JWT =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9lbWFpbGFkZHJlc3MiOiJ2aWppdGhhQGdtYWlsLmNvbSIsImh0dHA6Ly9zY2hlbWFzLnhtbHNvYXAub3JnL3dzLzIwMDUvMDUvaWRlbnRpdHkvY2xhaW1zL25hbWVpZGVudGlmaWVyIjoiMiIsIlJvbGVJZCI6IjIiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJFbXBsb3llZSIsIkVtcGxveWVlSWQiOiJQMjU5IiwiZXhwIjoxNzg0MDI4MzQ0LCJpc3MiOiJFTVMiLCJhdWQiOiJFTVNVc2VycyJ9.2eIWR_YSH63ayyB7TtYtfcT8KwX2QU2OnY1vR8eZijc";
 
 const RideScreen = () => {
   const mapRef = useRef(null);
@@ -57,7 +58,7 @@ const RideScreen = () => {
   const updateQueue = useRef([]);
   const isAnimating = useRef(false);
 
-  const saveLocationWithHardcodedJwt = async (
+  const saveLocation = async (
     latitude,
     longitude,
     source = "foreground"
@@ -70,10 +71,15 @@ const RideScreen = () => {
         address: "Unknown Location",
       };
 
+      const token = await SecureStore.getItemAsync("token");
+      if (!token) {
+        return false;
+      }
+
       await axios.post(url, requestBody, {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${HARDCODED_JWT}`,
+          Authorization: `Bearer ${token}`,
         },
         timeout: 10000,
       });
@@ -205,7 +211,7 @@ const RideScreen = () => {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const success = await saveLocationWithHardcodedJwt(
+        const success = await saveLocation(
           coords.latitude,
           coords.longitude,
           source
@@ -286,7 +292,7 @@ const RideScreen = () => {
       setReady(true);
       setTrackingStatus("active");
 
-      await saveLocationWithHardcodedJwt(
+      await saveLocation(
         start.latitude,
         start.longitude,
         "foreground_immediate"

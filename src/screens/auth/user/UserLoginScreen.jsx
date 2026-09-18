@@ -306,15 +306,11 @@ const UserLoginScreen = ({ navigation }) => {
     setApiMessage("");
 
     try {
-      const requestUrl = `${String(AUTH_API_BASE_URL).replace(/\/+$/, "")}/api/Auth/login`;
       const deviceInfo = getDeviceHostInfo();
 
-      console.log("Request URL:", requestUrl);
-      console.log("Expo host info:", deviceInfo);
-
-      if (deviceInfo.isPhysicalDevice && isLocalhostUrl(AUTH_API_BASE_URL)) {
+      if (__DEV__ && deviceInfo.isPhysicalDevice && isLocalhostUrl(AUTH_API_BASE_URL)) {
         throw new Error(
-          "Invalid API base URL for Expo Go on a physical device. Replace localhost with your LAN IP or ngrok URL."
+          "Invalid local API base URL for Expo Go on a physical device."
         );
       }
 
@@ -338,22 +334,14 @@ const UserLoginScreen = ({ navigation }) => {
         },
       );
 
-      console.log("Response:", JSON.stringify(data, null, 2));
-
       if (!data || typeof data !== "object") {
         throw new Error("Malformed login response.");
       }
 
-      console.log("Status:", 200);
-
       const token = data?.token || data?.Token;
       const storedUser = extractStoredUser(data);
 
-      console.log("==========================================");
-      console.log("[UserLoginScreen] LOGIN SUCCESSFUL!");
-      console.log("[UserLoginScreen] JWT TOKEN:", token);
-      console.log("[UserLoginScreen] USER DETAILS:", JSON.stringify(storedUser, null, 2));
-      console.log("==========================================");
+      console.log("[UserLoginScreen] Login successful.");
 
       if (!token) {
         throw new Error(
@@ -398,10 +386,6 @@ const UserLoginScreen = ({ navigation }) => {
       });
       return;
     } catch (error) {
-      console.log("Error:", error);
-      console.log("Response:", error?.response?.data);
-      console.log("Status:", error?.response?.status);
-
       const statusCode = error?.response?.status;
       const apiMessage =
         error?.response?.data?.message ||

@@ -340,14 +340,12 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     console.log("================================================================================");
     console.log("✈️ [MULTI-CITY PASSENGER DETAILS TELEMETRY]");
     console.log(`🆔 Trace ID: ${activeTraceId} | Result Index: ${activeResultIndex}`);
-    console.log(`👥 Passengers Count: ${passengers.length} | Contact Email: ${contact.email} | Mobile: ${contact.mobile}`);
     if (flowState.isMultiCity || flowState.journeyType === 3) {
       console.log("🌍 Multi-City Route Summary:");
       (flowState.multiCityFlights || []).forEach((leg, i) => {
         console.log(`  Leg ${i + 1}: ${leg.airlineName || leg.airlineCode || "Flight"} (${leg.fromCity || leg.origin} ➔ ${leg.toCity || leg.destination})`);
       });
     }
-    console.log("[FlightPassengerDetailsScreen] Passengers Payload:", JSON.stringify(passengers, null, 2));
     console.log("================================================================================");
 
     const nextState = {

@@ -193,11 +193,6 @@ export async function saveLocationApi(latitude, longitude, source = 'foreground'
       attempt++;
       
       // Logging requirements before request
-      console.log("Latitude:", latitude);
-      console.log("Longitude:", longitude);
-      console.log("Address:", address);
-      console.log("JWT:", token);
-
       const url = `${API_BASE_URL}/api/Attendance/checkin`;
       const requestBody = {
         latitude,
@@ -205,8 +200,6 @@ export async function saveLocationApi(latitude, longitude, source = 'foreground'
         address
       };
       
-      console.log("Request body:", JSON.stringify(requestBody));
-
       const response = await axios.post(
         url,
         requestBody,
@@ -219,7 +212,6 @@ export async function saveLocationApi(latitude, longitude, source = 'foreground'
         }
       );
 
-      console.log("Response body:", JSON.stringify(response.data));
       console.log("HTTP status code:", response.status);
       console.log(`[LocationService] Successfully posted location. Source: ${source}`);
       success = true;

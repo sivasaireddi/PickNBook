@@ -220,9 +220,9 @@ export default function FlightSearchScreen({ navigation }) {
       }
     } catch (err) {
       let friendlyMessage = "Failed to process search.";
-      if (err?.status === 503 || String(err?.message || "").includes("ERR_NGROK_3004")) {
+      if (err?.status === 503) {
          friendlyMessage = "Flight service is temporarily unavailable. Please try again.";
-      } else if (err?.status === 404 || String(err?.message || "").includes("ERR_NGROK_3200")) {
+      } else if (err?.status === 404) {
          friendlyMessage = "Flight service backend is offline. Please try again later.";
       } else if (err?.message) {
          friendlyMessage = err.message;

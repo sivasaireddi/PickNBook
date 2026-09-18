@@ -104,95 +104,14 @@ const createEmptyBookings = () => ({
   Cancelled: [],
 });
 
-const DEFAULT_BUS_BOOKINGS = {
-  Upcoming: [
-    {
-      id: "demo-bus-1",
-      pnr: "PNR123456",
-      from: "Hyderabad",
-      to: "Vijayawada",
-      agencyName: "Jagan Travels",
-      date: "25 Jul 2025",
-      departTime: "08:30 AM",
-      arriveTime: "02:45 PM",
-      duration: "6h 15m",
-      seats: "Seat 15",
-      totalAmount: "₹1,200",
-      busType: "A/C Seater / 2+2",
-      status: "Upcoming",
-      canCancel: true,
-      isBus: true,
-    },
-    {
-      id: "demo-bus-2",
-      pnr: "PNR123455",
-      from: "Bangalore",
-      to: "Chennai",
-      agencyName: "SRS Travels",
-      date: "22 Jul 2025",
-      departTime: "07:00 PM",
-      arriveTime: "06:00 AM",
-      duration: "11h 00m",
-      seats: "Seat 12",
-      totalAmount: "₹850",
-      busType: "A/C Sleeper / 2+1",
-      status: "Upcoming",
-      canCancel: true,
-      isBus: true,
-    },
-  ],
-  Past: [
-    {
-      id: "demo-bus-3",
-      pnr: "PNR8BXRD25C",
-      from: "Hyderabad",
-      to: "Vijayawada",
-      agencyName: "Jagan Travels",
-      date: "23 Jul 2024",
-      departTime: "12:30 PM",
-      arriveTime: "06:45 PM",
-      duration: "6h 15m",
-      seats: "Seat 01",
-      totalAmount: "₹311.85",
-      busType: "A/C Seater / 2+2",
-      status: "Past",
-      canCancel: false,
-      isBus: true,
-    },
-  ],
-  Cancelled: [],
-};
-
-const DEFAULT_HOTEL_BOOKINGS = {
-  Upcoming: [
-    {
-      id: "demo-hotel-1",
-      pnr: "HT-20260731153022-123",
-      providerBookingId: 78491823,
-      traceId: "53626",
-      hotelName: "Hotel Urban Lion - Delhi Airport",
-      address: "Asset No 1 Gate No 5, Delhi",
-      checkInDate: "01 Aug 2026",
-      checkOutDate: "05 Aug 2026",
-      roomsText: "1 Room (4 Nights)",
-      guestName: "Gurushankar M P",
-      totalAmount: "₹8,004.80",
-      status: "Booked",
-      canCancel: true,
-      isHotel: true,
-    },
-  ],
-  Past: [],
-  Cancelled: [],
-};
 
 export default function BookingsScreen() {
   const navigation = useNavigation();
   const [category, setCategory] = useState("bus");
   const [activeTab, setActiveTab] = useState("Upcoming");
 
-  const [busBookings, setBusBookings] = useState(DEFAULT_BUS_BOOKINGS);
-  const [hotelBookings, setHotelBookings] = useState(DEFAULT_HOTEL_BOOKINGS);
+  const [busBookings, setBusBookings] = useState(createEmptyBookings());
+  const [hotelBookings, setHotelBookings] = useState(createEmptyBookings());
   const [flightBookings, setFlightBookings] = useState(createEmptyBookings());
 
   const [loading, setLoading] = useState(false);
@@ -264,26 +183,26 @@ export default function BookingsScreen() {
   const groupBusBookingsByStatus = (data) => {
     const grouped = createEmptyBookings();
     (Array.isArray(data) ? data : []).forEach((item, index) => {
-      const fromVal = cleanCityName(item.from, "Hyderabad");
-      const toVal = cleanCityName(item.to, "Vijayawada");
-      const agencyVal = cleanAgencyName(item.operatorName, "Jagan Travels");
+      const fromVal = cleanCityName(item.from, "");
+      const toVal = cleanCityName(item.to, "");
+      const agencyVal = cleanAgencyName(item.operatorName, "");
       const statusRaw = (item.tripState || item.status || "Upcoming").trim();
       const isCompleted = statusRaw.toLowerCase() === "completed" || statusRaw.toLowerCase() === "past";
       const isCancelled = statusRaw.toLowerCase() === "cancelled";
 
       const formatted = {
-        id: item.bookingId ? item.bookingId.toString() : `bus-${index}`,
-        pnr: item.pnr ? (item.pnr.startsWith("PNR") ? item.pnr : `PNR${item.pnr}`) : `PNR123${456 + index}`,
+        id: item.bookingId ? item.bookingId.toString() : (item.pnr || ""),
+        pnr: item.pnr ? (item.pnr.startsWith("PNR") ? item.pnr : `PNR${item.pnr}`) : "",
         from: fromVal,
         to: toVal,
         agencyName: agencyVal,
-        date: "25 Jul 2025",
-        departTime: "08:30 AM",
-        arriveTime: item.dropTime || "06:45 AM",
-        duration: "6h 15m",
-        seats: `Seat ${String(item.seatsBooked || 1).padStart(2, "0")}`,
-        totalAmount: item.totalPriceInr ? `₹${item.totalPriceInr}` : "₹1,200",
-        busType: item.busType || "A/C Seater / 2+2",
+        date: item.date || item.departureDate || "",
+        departTime: item.departTime || item.departureTime || "",
+        arriveTime: item.dropTime || item.arriveTime || item.arrivalTime || "",
+        duration: item.duration || "",
+        seats: item.seatsBooked ? `Seat ${String(item.seatsBooked).padStart(2, "0")}` : "",
+        totalAmount: item.totalPriceInr ? `₹${item.totalPriceInr}` : "",
+        busType: item.busType || "",
         status: isCancelled ? "Cancelled" : isCompleted ? "Past" : "Upcoming",
         canCancel: !isCompleted && !isCancelled,
         isBus: true,
@@ -300,19 +219,19 @@ export default function BookingsScreen() {
     const grouped = createEmptyBookings();
     (Array.isArray(data) ? data : []).forEach((item, index) => {
       const isCancelled = String(item.status || "").toLowerCase() === "cancelled";
-      const providerId = item.providerBookingId || item.bookingId || index;
+      const providerId = item.providerBookingId || item.bookingId || null;
       const formatted = {
-        id: String(item.bookingId || index),
-        providerBookingId: Number(providerId),
+        id: String(item.bookingId || item.providerBookingId || ""),
+        providerBookingId: providerId ? Number(providerId) : null,
         traceId: String(item.traceId || ""),
-        pnr: item.bookingReference || `HTL${990000 + index}`,
-        hotelName: item.hotelName || "Hotel Stay",
-        address: item.address || item.city || "City Center",
-        checkInDate: item.checkInDate || item.dates || "Check-in",
-        checkOutDate: item.checkOutDate || "Check-out",
-        roomsText: item.dates ? `${item.dates}` : "1 Room",
-        guestName: item.guestName || "Guest User",
-        totalAmount: item.amount ? `₹${item.amount}` : (item.totalPrice ? `₹${item.totalPrice}` : "₹0"),
+        pnr: item.bookingReference || "",
+        hotelName: item.hotelName || "",
+        address: item.address || item.city || "",
+        checkInDate: item.checkInDate || item.dates || "",
+        checkOutDate: item.checkOutDate || "",
+        roomsText: item.dates ? `${item.dates}` : "",
+        guestName: item.guestName || "",
+        totalAmount: item.amount ? `₹${item.amount}` : (item.totalPrice ? `₹${item.totalPrice}` : ""),
         status: isCancelled ? "Cancelled" : "Booked",
         canCancel: !isCancelled,
         isHotel: true,
@@ -336,11 +255,11 @@ export default function BookingsScreen() {
       const dateVal = item.date || item.departureDate || "";
       const departVal = item.departTime || item.departureTime || "";
       const arriveVal = item.arriveTime || item.arrivalTime || "";
-      const seatsVal = item.seats || (item.seatNumber ? `Seat ${item.seatNumber}` : "Seat Auto-assigned");
+      const seatsVal = item.seats || (item.seatNumber ? `Seat ${item.seatNumber}` : "");
       const amountVal = item.totalAmount || (item.totalPrice ? `₹${item.totalPrice.toLocaleString("en-IN")}` : (item.payableAmount ? `₹${Number(item.payableAmount).toLocaleString("en-IN")}` : ""));
 
       const formatted = {
-        id: String(item.id || item.bookingId || item.pnr || index),
+        id: String(item.id || item.bookingId || item.pnr || ""),
         pnr: pnrVal,
         from: fromVal,
         to: toVal,
@@ -351,7 +270,7 @@ export default function BookingsScreen() {
         duration: item.duration || "",
         seats: seatsVal,
         totalAmount: amountVal,
-        busType: item.travelClass || item.busType || "Economy",
+        busType: item.travelClass || item.busType || "",
         status: isCancelled ? "Cancelled" : "Upcoming",
         canCancel: !isCancelled,
         isFlight: true,
@@ -782,15 +701,15 @@ function BoardingPassCard({ item, categoryConfig, isFav, onToggleFav, onViewDeta
           <>
             <GridColumn label="CHECK-IN" value={item.checkInDate} />
             <GridColumn label="CHECK-OUT" value={item.checkOutDate} />
-            <GridColumn label="ROOMS" value={item.roomsText || "1 Room"} />
-            <GridColumn label="GUEST" value={item.guestName || "Guest User"} />
+            <GridColumn label="ROOMS" value={item.roomsText} />
+            <GridColumn label="GUEST" value={item.guestName} />
           </>
         ) : (
           <>
             <GridColumn label="DEPART" value={`${item.departTime}, ${item.date}`} />
-            <GridColumn label="ARRIVE" value={item.arriveTime || "N/A"} />
-            <GridColumn label="DURATION" value={item.duration || "N/A"} />
-            <GridColumn label="SEAT(S)" value={item.seats || "1 Seat"} />
+            <GridColumn label="ARRIVE" value={item.arriveTime} />
+            <GridColumn label="DURATION" value={item.duration} />
+            <GridColumn label="SEAT(S)" value={item.seats} />
           </>
         )}
       </View>

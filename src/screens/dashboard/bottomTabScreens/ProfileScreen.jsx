@@ -47,9 +47,9 @@ const normalizeUser = (value, fallback = {}) => {
     root
 
   const firstName =
-    raw.firstName ?? raw.FirstName ?? root.firstName ?? fallback.firstName ?? 'Siva Sai'
+    raw.firstName ?? raw.FirstName ?? root.firstName ?? fallback.firstName ?? ''
   const lastName =
-    raw.lastName ?? raw.LastName ?? root.lastName ?? fallback.lastName ?? 'Reddy'
+    raw.lastName ?? raw.LastName ?? root.lastName ?? fallback.lastName ?? ''
 
   return {
     ...fallback,
@@ -65,14 +65,14 @@ const normalizeUser = (value, fallback = {}) => {
       null,
     firstName,
     lastName,
-    email: raw.email ?? raw.Email ?? root.email ?? fallback.email ?? 'sainimmakayala123@gmail.com',
+    email: raw.email ?? raw.Email ?? root.email ?? fallback.email ?? '',
     phoneNumber:
       raw.phoneNumber ??
       raw.phone ??
       raw.mobile ??
       root.phoneNumber ??
       fallback.phoneNumber ??
-      '+91 9885180211',
+      '',
     profileImageUrl: raw.profileImageUrl
       ? raw.profileImageUrl.startsWith('http')
         ? raw.profileImageUrl
@@ -81,7 +81,7 @@ const normalizeUser = (value, fallback = {}) => {
     fullName: buildFullName(
       firstName,
       lastName,
-      raw.fullName ?? root.fullName ?? fallback.fullName ?? 'Siva Sai Reddy'
+      raw.fullName ?? root.fullName ?? fallback.fullName ?? ''
     ),
   }
 }
@@ -108,9 +108,9 @@ const ProfileScreen = () => {
 
   const applyUserState = (nextUser) => {
     setUser(nextUser)
-    setFirstName(nextUser?.firstName || 'Siva Sai')
+    setFirstName(nextUser?.firstName || '')
     setLastName(nextUser?.lastName || 'Reddy')
-    setPhoneNumber(nextUser?.phoneNumber || '+91 9885180211')
+    setPhoneNumber(nextUser?.phoneNumber || '')
   }
 
   useEffect(() => {
@@ -154,11 +154,11 @@ const ProfileScreen = () => {
 
       if (!cachedUser) {
         applyUserState({
-          firstName: 'Siva Sai',
+          firstName: '',
           lastName: 'Reddy',
-          fullName: 'Siva Sai Reddy',
-          email: 'sainimmakayala123@gmail.com',
-          phoneNumber: '+91 9885180211',
+          fullName: '',
+          email: '',
+          phoneNumber: '',
         })
       }
 
@@ -298,9 +298,9 @@ const ProfileScreen = () => {
   const displayAvatar =
     imageUri || user?.profileImageUrl || DEFAULT_AVATAR
 
-  const displayName = user?.fullName || 'Siva Sai Reddy'
-  const displayEmail = user?.email || 'sainimmakayala123@gmail.com'
-  const displayPhone = user?.phoneNumber || '+91 9885180211'
+  const displayName = user?.fullName || ''
+  const displayEmail = user?.email || ''
+  const displayPhone = user?.phoneNumber || ''
 
   return (
     <SafeAreaView style={styles.safeArea}>

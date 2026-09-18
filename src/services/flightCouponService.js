@@ -95,7 +95,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
     if (minFare > 0 && cartTotal < minFare) {
       return {
         valid: false,
-        reason: `Minimum fare of ₹${minFare.toLocaleString()} required for coupon ${cleanCode}.`,
+        reason: `Minimum fare of Ã¢â€šÂ¹${minFare.toLocaleString()} required for coupon ${cleanCode}.`,
       };
     }
 
@@ -117,7 +117,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
       discountValue: rawVal,
       maxDiscountCap: cap < Infinity ? cap : null,
       title: String(liveOffer.title || liveOffer.Title || liveOffer.code || liveOffer.Code || cleanCode),
-      description: String(liveOffer.description || liveOffer.Description || "Flat ₹500 instant discount on summer flights"),
+      description: String(liveOffer.description || liveOffer.Description || "Flat Ã¢â€šÂ¹500 instant discount on summer flights"),
     };
   }
 
@@ -131,27 +131,18 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
   for (const ep of candidateEndpoints) {
     try {
       const payload = { code: cleanCode, cartTotal, userId, routeId };
-      console.log(`\n==================================================`);
-      console.log(`🚀 [COUPON API REQUEST] POST ${ep}`);
-      console.log("📦 Request Payload:", JSON.stringify(payload, null, 2));
-      console.log(`==================================================\n`);
 
       const response = await axios.post(
         ep,
         payload,
-        { headers: { "ngrok-skip-browser-warning": "true" }, timeout: 6000 }
+        { timeout: 6000 }
       );
 
-      console.log(`\n==================================================`);
-      console.log(`✅ [COUPON API RESPONSE] POST ${ep} (Status: ${response.status})`);
-      console.log("📥 Response Data:", JSON.stringify(response.data, null, 2));
-      console.log(`==================================================\n`);
 
       if (response?.data && response.data.valid !== undefined) {
         return response.data;
       }
     } catch (err) {
-      console.log(`[flightCouponService] Coupon endpoint ${ep} returned error (${err?.message}), checking fallbacks...`);
     }
   }
 
@@ -166,7 +157,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
   if (cartTotal < offer.minFare) {
     return {
       valid: false,
-      reason: `Minimum fare of ₹${offer.minFare.toLocaleString()} required for coupon ${cleanCode}.`,
+      reason: `Minimum fare of Ã¢â€šÂ¹${offer.minFare.toLocaleString()} required for coupon ${cleanCode}.`,
     };
   }
 
@@ -195,3 +186,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
 export function getDefaultAvailableOffers() {
   return DEFAULT_OFFERS;
 }
+
+
+
+

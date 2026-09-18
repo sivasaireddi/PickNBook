@@ -6,14 +6,12 @@ import { API_BASE_URL } from "../constants/config";
 const runtimeEnv = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
 let BASE_URL = API_BASE_URL;
 
-console.log("[BusService] Resolved API Base URL:", BASE_URL);
 
 const client = axios.create({
   baseURL: BASE_URL,
   timeout: 120000, // 2 minutes timeout to prevent ECONNABORTED for slow responses
   headers: {
     Accept: "application/json",
-    "ngrok-skip-browser-warning": "true",
   },
 });
 
@@ -46,7 +44,6 @@ export async function searchCities(query = "") {
     const trimmed = String(query || "").trim();
     if (!trimmed) return [];
 
-    console.log(`[BusService] searchCities Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/Places?query=${encodeURIComponent(trimmed)}&tripType=bus`);
     const response = await client.get("/api/Places", {
       params: { query: trimmed, tripType: "bus" },
     });
@@ -77,7 +74,6 @@ async function resolveCityCode(city) {
 
   // Otherwise, it's a city name. Query the search-cities API to get its code
   try {
-    console.log(`[BusService] Resolving city code for name: "${trimmed}"`);
     const cities = await searchCities(trimmed);
 
     const match = cities.find(
@@ -86,7 +82,6 @@ async function resolveCityCode(city) {
 
     if (match) {
       const code = String(match.cityId || match.code || match.cityCode || match.id || "").trim();
-      console.log(`[BusService] Resolved "${trimmed}" -> "${code}"`);
       return code;
     }
   } catch (error) {
@@ -140,16 +135,7 @@ export async function searchBuses(params = {}, options = {}) {
       departDate: normalizedDate,
     };
 
-    console.log(`[BusService] searchBuses Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/search`);
-    console.log("[BusService] searchBuses calling API via Axios", {
-      baseURL: BASE_URL,
-      url: "/api/BusBookings/search",
-      payload,
-    });
-
     const response = await client.post("/api/BusBookings/search", payload, options);
-    console.log("[BusService] searchBuses response status:", response?.status);
-    console.log("[BusService] Response:", JSON.stringify(response.data, null, 2));
 
     const responseData = response.data || {};
 
@@ -315,14 +301,9 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     request: innerPayload,
   };
 
-  console.log(`[SeatLayout] Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/seat-layout`);
-  console.log("[SeatLayout] URL:", "/api/BusBookings/seat-layout");
-  console.log("[SeatLayout] Payload:", JSON.stringify(payload, null, 2));
 
   try {
     const response = await client.post("/api/BusBookings/seat-layout", payload);
-    console.log("[BusService] getSeatLayout response status:", response?.status);
-    console.log("[BusService] Seat Layout Response:", JSON.stringify(response.data, null, 2));
 
     const layoutData = response.data || {};
     const normalizedData = layoutData.data || layoutData.result || layoutData.response || layoutData;
@@ -440,7 +421,7 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
       };
     });
 
-    // ── Independent Per-Deck Coordinate & Layout Mapping ──
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Independent Per-Deck Coordinate & Layout Mapping Ã¢â€â‚¬Ã¢â€â‚¬
     const decks = [
       { key: "LOWER", seats: mappedSeats.filter((s) => !s.isUpper) },
       { key: "UPPER", seats: mappedSeats.filter((s) => s.isUpper) }
@@ -615,18 +596,6 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     const activePassengerSeats = mappedSeats.filter((s) => !s.isExit);
     const layoutTypeStr = is2Plus2Detected ? "2+2 seater coach geometry" : "2+1 vertical coach geometry";
 
-    console.log("Detected layout type:", is2Plus2Detected ? "2+2" : "2+1");
-    console.log("Normalized seat count:", activePassengerSeats.length);
-    console.log("Normalized rows:", maxOverallCols);
-    console.log("Normalized 2+2 layout:", {
-      totalSeats: mappedSeats.length,
-      activeBookableSeats: activePassengerSeats.length,
-      normalizedRows: maxOverallCols,
-      layoutType: is2Plus2Detected ? "2+2" : "2+1",
-    });
-    console.log(`Parsed Seats: ${activePassengerSeats.length} bookable seats mapped to ${layoutTypeStr}.`);
-    console.log(`Grid dimensions: ${maxOverallRows} lanes x ${maxOverallCols} rows. Aisle after lane: ${globalAisleAfterGridRow}`);
-
     const finalLayout = {
       ...normalizedData,
       seats: mappedSeats,
@@ -637,8 +606,6 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
 
     return finalLayout;
   } catch (error) {
-    console.log(error.response?.status);
-    console.log(error.response?.data);
     console.error("[BusService] getSeatLayout error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -668,22 +635,12 @@ export async function fetchSeatLayoutByBusId(busId) {
  */
 export async function getBoardingPoints(payload) {
   try {
-    console.log(`[BusService] getBoardingPoints Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/boarding-points`);
-    console.log("[BusService] getBoardingPoints calling API via Axios", {
-      baseURL: BASE_URL,
-      url: "/api/BusBookings/boarding-points",
-      payload,
-    });
-
     const response = await client.post("/api/BusBookings/boarding-points", payload);
-    console.log("[BusService] getBoardingPoints response status:", response?.status);
-    console.log("[BusService] Raw Boarding & Dropping Points API Response:", JSON.stringify(response?.data, null, 2));
 
     const data = response?.data;
     const inner = data?.Result ?? data?.result ?? data?.data ?? data ?? {};
     const bp = inner.BoardingPoints ?? inner.BoardingPointsDetails ?? inner.boardingPoints ?? data?.BoardingPoints ?? [];
     const dp = inner.DroppingPoints ?? inner.DroppingPointsDetails ?? inner.droppingPoints ?? data?.DroppingPoints ?? [];
-    console.log(`[BusService] Extracted ${Array.isArray(bp) ? bp.length : 0} Boarding Points and ${Array.isArray(dp) ? dp.length : 0} Dropping Points.`);
     return response.data;
   } catch (error) {
     console.error("[BusService] getBoardingPoints error:", error?.message, error?.response?.data);
@@ -696,17 +653,8 @@ export async function getBoardingPoints(payload) {
  */
 export async function blockSeats(payload) {
   try {
-    console.log(`[BusService] blockSeats Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/block`);
-    console.log("[BusService] blockSeats calling API via Axios", {
-      baseURL: BASE_URL,
-      url: "/api/BusBookings/block",
-      payload,
-    });
-
     // Make request without Authorization header
     const response = await client.post("/api/BusBookings/block", payload);
-    console.log("[BusService] blockSeats response status:", response?.status);
-    console.log("[BusService] blockSeats response data:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
     console.error("[BusService] blockSeats error:", error?.message, error?.response?.data);
@@ -739,22 +687,12 @@ export async function bookSeats(arg1, arg2, arg3) {
       });
     }
 
-    console.log(`[BusService] bookSeats Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/book`);
-    console.log("Booking Payload:\n", JSON.stringify(payload, null, 2));
-    console.log("[BusService] bookSeats calling API via Axios", {
-      baseURL: BASE_URL,
-      url: "/api/BusBookings/book",
-      payload,
-    });
-
     const token = authToken || (await getStoredAuthToken());
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
     const response = await client.post("/api/BusBookings/book", payload, {
       headers,
     });
-    console.log("[BusService] bookSeats response status:", response?.status);
-    console.log("[BusService] bookSeats response data:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
     console.error("[BusService] bookSeats error:", error?.message, error?.response?.data);
@@ -772,7 +710,6 @@ export async function getMyBusBookings(authToken) {
       throw new Error("No authentication token found. Please log in.");
     }
 
-    console.log(`[BusService] getMyBusBookings Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/bookings`);
 
     const response = await client.get("/api/BusBookings/bookings", {
       headers: {
@@ -780,7 +717,6 @@ export async function getMyBusBookings(authToken) {
       },
     });
 
-    console.log("[BusService] getMyBusBookings response status:", response?.status);
     return response.data || [];
   } catch (error) {
     console.error("[BusService] getMyBusBookings error:", error?.message, error?.response?.data);
@@ -802,7 +738,6 @@ export async function cancelBusBooking(bookingId, reason = "User requested cance
     const queryReason = String(reason || "User requested cancellation").trim();
     const url = `/api/BusBookings/bookings/${encodeURIComponent(cleanId)}/cancel?reason=${encodeURIComponent(queryReason)}`;
 
-    console.log(`[BusService] cancelBusBooking Request URL: ${BASE_URL.replace(/\/+$/, "")}${url}`);
 
     const response = await client.post(
       url,
@@ -814,8 +749,6 @@ export async function cancelBusBooking(bookingId, reason = "User requested cance
       }
     );
 
-    console.log("[BusService] cancelBusBooking response status:", response?.status);
-    console.log("[BusService] cancelBusBooking response data:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
     console.warn("[BusService] cancelBusBooking error:", error?.message, error?.response?.data);
@@ -839,8 +772,6 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
       passengerIds: (Array.isArray(passengerIds) ? passengerIds : [passengerIds]).map((id) => Number(id)),
     };
 
-    console.log(`[BusService] cancelBusPassengers Request URL: ${BASE_URL.replace(/\/+$/, "")}${url}`);
-    console.log("[BusService] cancelBusPassengers payload:", JSON.stringify(payload, null, 2));
 
     const response = await client.post(
       url,
@@ -853,11 +784,9 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
     );
 
 
-    console.log("[BusService] cancelBusPassengers response status:", response?.status);
-    console.log("[BusService] cancelBusPassengers response data:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
-    console.warn("[BusService] cancelBusPassengers warning/error:", error?.message, error?.response?.data);
+    console.warn("[BusService] cancelBusPassengers warning/error:", error?.message);
     throw error;
   }
 }
@@ -879,12 +808,8 @@ export async function getPricingPreview(arg1, arg2) {
       }));
     }
 
-    console.log(`[BusService] getPricingPreview Request URL: ${BASE_URL.replace(/\/+$/, "")}/api/BusBookings/pricing-preview`);
-    console.log("[BusService] getPricingPreview payload:", JSON.stringify(payload, null, 2));
 
     const response = await client.post("/api/BusBookings/pricing-preview", payload);
-    console.log("[BusService] getPricingPreview response status:", response?.status);
-    console.log("[BusService] getPricingPreview response data:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
     console.warn("[BusService] getPricingPreview error:", error?.message, error?.response?.data);
@@ -899,7 +824,6 @@ export async function getPricingPreview(arg1, arg2) {
 export async function getBusCoupons(token) {
   try {
     const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-    console.log(`[BusService] Fetching Bus Coupons...`);
     const response = await client.get("/api/BusBookings/user/available", config);
     return response.data;
   } catch (error) {
@@ -914,7 +838,6 @@ export async function getBusCoupons(token) {
  */
 export async function getFeaturedOffers() {
   try {
-    console.log(`[BusService] Fetching Featured Offers...`);
     const response = await client.get("/api/FeaturedOffers");
     return response.data;
   } catch (error) {
@@ -938,4 +861,3 @@ export default {
   getBusCoupons,
   getFeaturedOffers,
 };
-

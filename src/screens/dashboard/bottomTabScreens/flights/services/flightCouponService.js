@@ -131,7 +131,7 @@ export async function validateCoupon({ code, cartTotal = 0, userId = "", routeId
     const response = await axios.post(
       `${FLIGHT_API_BASE_URL}/api/coupons/validate`,
       { code: cleanCode, cartTotal, userId, routeId },
-      { headers: { "ngrok-skip-browser-warning": "true" }, timeout: 6000 }
+      { timeout: 6000 }
     );
     if (response?.data && response.data.valid !== undefined) {
       console.log(`[flightCouponService] Server coupon validation response:`, response.data);

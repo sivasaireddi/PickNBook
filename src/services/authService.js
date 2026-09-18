@@ -1,23 +1,8 @@
 import Constants from "expo-constants";
 import { API_BASE_URL } from "../constants/config";
 
-// Base URL resolution order:
-// 1. EXPO_PUBLIC_API_BASE_URL (recommended for Expo Go)
-// 2. app.json / app.config extra.apiBaseUrl
-// 3. Expo manifest extra.apiBaseUrl
-// 4. Default ngrok URL
-//
-// This keeps the app configurable for:
-// - local network IP: http://192.168.x.x:5207
-// - ngrok tunnel: https://xxxx.ngrok-free.dev
-// - emulator/simulator host aliases when appropriate
+// Base URL is provided by EXPO_PUBLIC_API_BASE_URL and validated centrally.
 const DEFAULT_API_BASE_URL = API_BASE_URL;
-
-const readExtraBaseUrl = () =>
-  Constants?.expoConfig?.extra?.apiBaseUrl ||
-  Constants?.manifest?.extra?.apiBaseUrl ||
-  Constants?.manifest2?.extra?.apiBaseUrl ||
-  "";
 
 export let AUTH_API_BASE_URL = DEFAULT_API_BASE_URL;
 
@@ -155,12 +140,6 @@ export async function requestAuth(
   let response;
 
   try {
-    console.log(`\n========== AUTH API REQUEST ==========`);
-    console.log(`[${options.method || "GET"}] ${url}`);
-    if (options.body) {
-      console.log(`Payload:`, JSON.stringify(JSON.parse(options.body), null, 2));
-    }
-    console.log(`======================================\n`);
     response = await fetch(url, {
       ...options,
       headers,
@@ -194,11 +173,6 @@ export async function requestAuth(
     );
   }
 
-  console.log(`\n========== AUTH API RESPONSE ==========`);
-  console.log(`[${response?.status}] ${url}`);
-  console.log(`Response Data:`, JSON.stringify(payload, null, 2));
-  console.log(`=======================================\n`);
-
   if (!response.ok) {
     const apiError = new Error(
       readApiMessage(payload, fallbackErrorMessage)
@@ -207,7 +181,6 @@ export async function requestAuth(
       status: response.status,
       data: payload,
     };
-    console.log("Error:", apiError);
     throw apiError;
   }
 
@@ -219,7 +192,6 @@ export async function requestAuth(
       status: response.status,
       data: payload,
     };
-    console.log("Error:", malformedError);
     throw malformedError;
   }
 
@@ -337,4 +309,3 @@ export async function registerUser(
     "User registration failed. Please try again."
   );
 }
-

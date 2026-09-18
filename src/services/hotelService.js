@@ -82,7 +82,6 @@ export async function searchCities(query = "") {
     const trimmed = String(query || "").trim();
     if (!trimmed) return [];
 
-    console.log(`[hotelService] searchCities Request URL: ${toHotelUrl("/api/Places")}?query=${encodeURIComponent(trimmed)}&tripType=hotel`);
     const response = await axios.get(toHotelUrl("/api/Places"), {
       params: { query: trimmed, tripType: "hotel" },
     });
@@ -96,7 +95,7 @@ export async function searchCities(query = "") {
 
 
 /**
- * Step 1: Search Hotels — POST /api/Hotels/SearchHotels
+ * Step 1: Search Hotels Ã¢â‚¬â€ POST /api/Hotels/SearchHotels
  */
 export async function searchHotelOffers(params = {}) {
   const rawCity =
@@ -183,14 +182,11 @@ export async function searchHotelOffers(params = {}) {
     ),
   };
 
-  console.log(`[hotelService] calling SearchHotels POST to ${toHotelUrl("/api/Hotels/SearchHotels")}`);
-  console.log("[hotelService] payloadBody:", JSON.stringify(payloadBody, null, 2));
 
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -204,10 +200,8 @@ export async function searchHotelOffers(params = {}) {
 
   if (response?.data?.traceId !== undefined && response?.data?.traceId !== null) {
     lastTraceId = String(response.data.traceId);
-    console.log("[hotelService] search query cached traceId:", lastTraceId);
   }
 
-  console.log("[hotelService] SearchHotels API response payload:", JSON.stringify(response?.data, null, 2));
 
   const apiResults =
     response.data?.results ||
@@ -255,13 +249,12 @@ export async function searchHotelOffers(params = {}) {
 }
 
 export async function searchHotels(params) {
-  console.log("[hotelService] searchHotels called with:", params);
   const result = await searchHotelOffers(params);
   return result?.hotels || [];
 }
 
 /**
- * Step 2: Get Hotel Info — POST /api/Hotels/GetHotelInfo
+ * Step 2: Get Hotel Info Ã¢â‚¬â€ POST /api/Hotels/GetHotelInfo
  */
 export async function getHotelInfo(payload = {}) {
   const resultIndexVal = String(
@@ -283,14 +276,11 @@ export async function getHotelInfo(payload = {}) {
     HotelCode: hotelCodeVal,
   };
 
-  console.log(`[hotelService] calling GetHotelInfo POST to ${toHotelUrl("/api/Hotels/GetHotelInfo")}`);
-  console.log("[hotelService] GetHotelInfo payload:", JSON.stringify(formattedPayload, null, 2));
 
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -303,7 +293,6 @@ export async function getHotelInfo(payload = {}) {
       { headers }
     );
 
-    console.log("[hotelService] GetHotelInfo API response payload:", JSON.stringify(response?.data, null, 2));
 
     if (response?.data?.hotelInfoResult?.error?.errorCode && response.data.hotelInfoResult.error.errorCode !== 0) {
       throw new Error(response.data.hotelInfoResult.error.errorMessage || "Trace ID or hotel details not found");
@@ -312,7 +301,6 @@ export async function getHotelInfo(payload = {}) {
     return response.data;
   } catch (err) {
     if (err.response?.data) {
-      console.log("[hotelService] GetHotelInfo HTTP error response data:", JSON.stringify(err.response.data, null, 2));
       const serverMsg =
         err.response.data?.hotelInfoResult?.error?.errorMessage ||
         err.response.data?.errorMessage ||
@@ -328,7 +316,7 @@ export async function getHotelInfo(payload = {}) {
 }
 
 /**
- * Step 3: Get Hotel Room — POST /api/Hotels/GetHotelRoom
+ * Step 3: Get Hotel Room Ã¢â‚¬â€ POST /api/Hotels/GetHotelRoom
  */
 export async function getHotelRoom(payload = {}) {
   const resultIndexVal = String(
@@ -350,14 +338,11 @@ export async function getHotelRoom(payload = {}) {
     HotelCode: hotelCodeVal,
   };
 
-  console.log(`[hotelService] calling GetHotelRoom POST to ${toHotelUrl("/api/Hotels/GetHotelRoom")}`);
-  console.log("[hotelService] GetHotelRoom payload:", JSON.stringify(formattedPayload, null, 2));
 
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -370,7 +355,6 @@ export async function getHotelRoom(payload = {}) {
       { headers }
     );
 
-    console.log("[hotelService] GetHotelRoom API response payload:", JSON.stringify(response?.data, null, 2));
 
     if (response?.data?.getHotelRoomResult?.error?.errorCode && response.data.getHotelRoomResult.error.errorCode !== 0) {
       throw new Error(response.data.getHotelRoomResult.error.errorMessage || "Trace ID or room details not found");
@@ -379,7 +363,6 @@ export async function getHotelRoom(payload = {}) {
     return response.data;
   } catch (err) {
     if (err.response?.data) {
-      console.log("[hotelService] GetHotelRoom HTTP error response data:", JSON.stringify(err.response.data, null, 2));
       const serverMsg =
         err.response.data?.getHotelRoomResult?.error?.errorMessage ||
         err.response.data?.errorMessage ||
@@ -395,7 +378,7 @@ export async function getHotelRoom(payload = {}) {
 }
 
 /**
- * Step 4: Block Room — POST /api/Hotels/BlockRoom
+ * Step 4: Block Room Ã¢â‚¬â€ POST /api/Hotels/BlockRoom
  */
 export async function blockHotelRoom(payload = {}) {
   const resultIndexVal = String(
@@ -504,14 +487,11 @@ export async function blockHotelRoom(payload = {}) {
     HotelRoomsDetails: formattedRooms,
   };
 
-  console.log(`[hotelService] calling BlockRoom POST to ${toHotelUrl("/api/Hotels/BlockRoom")}`);
-  console.log("[hotelService] BlockRoom payload:", JSON.stringify(formattedPayload, null, 2));
 
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -524,7 +504,6 @@ export async function blockHotelRoom(payload = {}) {
       { headers }
     );
 
-    console.log("[hotelService] BlockRoom API response payload:", JSON.stringify(response?.data, null, 2));
 
     if (response?.data?.blockRoomResult?.error?.errorCode && response.data.blockRoomResult.error.errorCode !== 0) {
       throw new Error(response.data.blockRoomResult.error.errorMessage || "BlockRoom API returned an error");
@@ -533,7 +512,6 @@ export async function blockHotelRoom(payload = {}) {
     return response.data;
   } catch (err) {
     if (err.response?.data) {
-      console.log("[hotelService] BlockRoom HTTP error response data:", JSON.stringify(err.response.data, null, 2));
       const serverMsg =
         err.response.data?.blockRoomResult?.error?.errorMessage ||
         err.response.data?.errorMessage ||
@@ -553,7 +531,7 @@ export function blockRoom(payload) {
 }
 
 /**
- * Step 5: Pricing Preview — POST /api/Hotels/pricing-preview
+ * Step 5: Pricing Preview Ã¢â‚¬â€ POST /api/Hotels/pricing-preview
  */
 export async function getHotelPricingPreview(payload = {}) {
   const formattedPayload = {
@@ -563,15 +541,12 @@ export async function getHotelPricingPreview(payload = {}) {
     CouponCode: String(payload.CouponCode || payload.couponCode || "").trim(),
   };
 
-  console.log(`[hotelService] calling pricing-preview POST to ${toHotelUrl("/api/Hotels/pricing-preview")}`);
-  console.log("[hotelService] pricing-preview payload:", JSON.stringify(formattedPayload, null, 2));
 
   try {
     const token = await getStoredToken();
     const headers = {
       Accept: "application/json",
       "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true",
     };
     if (token) {
       headers.Authorization = `Bearer ${token}`;
@@ -583,7 +558,6 @@ export async function getHotelPricingPreview(payload = {}) {
       { headers }
     );
 
-    console.log("[hotelService] pricing-preview API response payload:", JSON.stringify(response?.data, null, 2));
     return response.data;
   } catch (error) {
     console.warn("Pricing preview API unreachable, executing local coupon calculations", error?.message);
@@ -606,7 +580,7 @@ export async function getHotelPricingPreview(payload = {}) {
 }
 
 /**
- * Step 6: Book Room — POST /api/Hotels/BookRoom
+ * Step 6: Book Room Ã¢â‚¬â€ POST /api/Hotels/BookRoom
  */
 export async function bookHotelOffer(params = {}) {
   let extractedPrice = 0;
@@ -665,14 +639,11 @@ export async function bookHotelOffer(params = {}) {
     HotelRoomsDetails: roomDetailsList,
   };
 
-  console.log(`[hotelService] calling BookRoom POST to ${toHotelUrl("/api/Hotels/BookRoom")}`);
-  console.log("Hotel Book Request Payload:", JSON.stringify(requestBody, null, 2));
 
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -685,7 +656,6 @@ export async function bookHotelOffer(params = {}) {
       { headers }
     );
 
-    console.log("[hotelService] BookRoom API response payload:", JSON.stringify(response?.data, null, 2));
 
     if (response?.data?.bookResult?.error?.errorCode && response.data.bookResult.error.errorCode !== 0) {
       throw new Error(response.data.bookResult.error.errorMessage || "BookRoom API returned an error");
@@ -694,7 +664,6 @@ export async function bookHotelOffer(params = {}) {
     return response.data;
   } catch (err) {
     if (err.response?.data) {
-      console.log("[hotelService] BookRoom HTTP error response data:", JSON.stringify(err.response.data, null, 2));
       const serverMsg =
         err.response.data?.bookResult?.error?.errorMessage ||
         err.response.data?.errorMessage ||
@@ -714,7 +683,7 @@ export function bookHotel(payload) {
 }
 
 /**
- * Step 7: Cancel Room — POST /api/Hotels/CancelRoom
+ * Step 7: Cancel Room Ã¢â‚¬â€ POST /api/Hotels/CancelRoom
  */
 export async function cancelHotelBooking(payload = {}) {
   const providerBookingIdVal = Number(payload.providerBookingId || payload.bookingId || payload.BookingId || 0);
@@ -735,14 +704,11 @@ export async function cancelHotelBooking(payload = {}) {
     traceId: traceIdVal,
   };
 
-  console.log(`[hotelService] calling CancelRoom POST to ${toHotelUrl("/api/Hotels/CancelRoom")}`);
-  console.log("[hotelService] CancelRoom payload:", JSON.stringify(formattedPayload, null, 2));
 
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -755,7 +721,6 @@ export async function cancelHotelBooking(payload = {}) {
       { headers }
     );
 
-    console.log("[hotelService] CancelRoom API response:", JSON.stringify(response?.data, null, 2));
 
     const errObj = response?.data?.error || response?.data?.cancelResult?.error;
     if (errObj?.errorCode && errObj.errorCode !== 0) {
@@ -765,7 +730,6 @@ export async function cancelHotelBooking(payload = {}) {
     return response.data;
   } catch (err) {
     if (err.response?.data) {
-      console.log("[hotelService] CancelRoom HTTP error response data:", JSON.stringify(err.response.data, null, 2));
       const serverMsg =
         err.response.data?.error?.errorMessage ||
         err.response.data?.errorMessage ||
@@ -783,24 +747,19 @@ export async function getMyHotelBookings() {
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
   try {
-    console.log(`[hotelService] calling GET ${toHotelUrl("/api/Hotels/my-bookings")}`);
     const response = await axios.get(toHotelUrl("/api/Hotels/my-bookings"), { headers });
-    console.log("[hotelService] my-bookings API response payload:", JSON.stringify(response?.data, null, 2));
     return response.data || [];
   } catch (err) {
-    console.log("[hotelService] my-bookings endpoint notice, trying /api/Hotels/bookings fallback:", err?.message);
     try {
       const fallbackRes = await axios.get(toHotelUrl("/api/Hotels/bookings"), { headers });
       return fallbackRes.data || [];
     } catch (fallbackErr) {
-      console.log("[hotelService] getMyHotelBookings fallback failed:", fallbackErr?.message);
       return [];
     }
   }
@@ -808,17 +767,13 @@ export async function getMyHotelBookings() {
 
 export async function fetchHotelCoupons() {
   try {
-    console.log(`[hotelService] calling GET ${toHotelUrl("/api/Hotels/coupons/active")}`);
     const response = await axios.get(toHotelUrl("/api/Hotels/coupons/active"), {
       headers: {
         Accept: "application/json",
-        "ngrok-skip-browser-warning": "true",
       }
     });
-    console.log("[hotelService] active coupons response:", JSON.stringify(response?.data, null, 2));
     return response.data || [];
   } catch (err) {
-    console.log("[hotelService] fetchHotelCoupons error:", err?.message);
     return [];
   }
 }
@@ -828,20 +783,15 @@ export async function validateHotelCoupon(payload = {}) {
   const headers = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
   };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
 
   try {
-    console.log(`[hotelService] calling POST ${toHotelUrl("/api/Hotels/coupons/validate")}`);
-    console.log("[hotelService] validate coupon payload:", JSON.stringify(payload, null, 2));
     const response = await axios.post(toHotelUrl("/api/Hotels/coupons/validate"), payload, { headers });
-    console.log("[hotelService] validate coupon response:", JSON.stringify(response?.data, null, 2));
     return response.data || {};
   } catch (err) {
-    console.log("[hotelService] validateHotelCoupon error:", err?.message);
     if (err.response?.data) {
       const serverMsg = err.response.data?.message || err.response.data?.title || (typeof err.response.data === "string" ? err.response.data : null);
       throw new Error(serverMsg || "Failed to validate coupon");
@@ -867,3 +817,7 @@ export default {
   fetchHotelCoupons,
   validateHotelCoupon,
 };
+
+
+
+

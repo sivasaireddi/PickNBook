@@ -11,7 +11,6 @@ const client = axios.create({
   timeout: 30000,
   headers: {
     Accept: "application/json",
-    "ngrok-skip-browser-warning": "true",
   },
 });
 
@@ -19,11 +18,6 @@ const client = axios.create({
 client.interceptors.request.use(
   (config) => {
     const fullUrl = `${config.baseURL || ""}${config.url || ""}`;
-    console.log(`\n==================================================`);
-    console.log(`🚀 [TRAVELER API REQUEST] ${config.method?.toUpperCase()} ${fullUrl}`);
-    if (config.params) console.log("📌 Request Params:", JSON.stringify(config.params, null, 2));
-    if (config.data) console.log("📦 Request Payload:", typeof config.data === "string" ? config.data : JSON.stringify(config.data, null, 2));
-    console.log(`==================================================\n`);
     return config;
   },
   (error) => Promise.reject(error)
@@ -32,19 +26,14 @@ client.interceptors.request.use(
 client.interceptors.response.use(
   (response) => {
     const fullUrl = `${response.config?.baseURL || ""}${response.config?.url || ""}`;
-    console.log(`\n==================================================`);
-    console.log(`✅ [TRAVELER API RESPONSE] ${response.config?.method?.toUpperCase()} ${fullUrl} (Status: ${response.status})`);
-    console.log("📥 Response Data:", JSON.stringify(response.data, null, 2));
-    console.log(`==================================================\n`);
     return response;
   },
   (error) => {
     const fullUrl = `${error.config?.baseURL || ""}${error.config?.url || ""}`;
     console.error(`\n==================================================`);
-    console.error(`❌ [TRAVELER API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
-    console.error("⚠️ Error Message:", error.message);
+    console.error(`âŒ [TRAVELER API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
+    console.error("âš ï¸ Error Message:", error.message);
     if (error.response?.data) {
-      console.error("📄 Error Response Data:", JSON.stringify(error.response.data, null, 2));
     }
     console.error(`==================================================\n`);
     return Promise.reject(error);
@@ -155,9 +144,7 @@ export async function getTravelers(filtersOrToken) {
 
   for (const ep of endpoints) {
     try {
-      console.log(`[TravelerService] Trying GET ${ep} with headers:`, headers);
       const response = await client.get(ep, { headers, params });
-      console.log(`[TravelerService] GET ${ep} status:`, response.status);
 
       const rawList = Array.isArray(response.data)
         ? response.data
@@ -210,9 +197,7 @@ export async function createTraveler(travelerPayload, customToken) {
 
   for (const ep of endpoints) {
     try {
-      console.log(`[TravelerService] Trying POST ${ep} payload:`, normalizedPayload);
       const response = await client.post(ep, normalizedPayload, { headers });
-      console.log(`[TravelerService] POST ${ep} response:`, response.data);
 
       return normalizeTraveler(response.data?.data || response.data || travelerPayload);
     } catch (error) {
@@ -235,7 +220,6 @@ export async function getTravelerById(id, customToken) {
   }
 
   try {
-    console.log(`[TravelerService] GET /api/travelers/${id}`);
     const response = await client.get(`/api/travelers/${id}`, { headers });
     return normalizeTraveler(response.data?.data || response.data);
   } catch (error) {
@@ -259,7 +243,6 @@ export async function updateTraveler(id, travelerPayload, customToken) {
   const normalizedPayload = normalizePayloadForApi(travelerPayload);
 
   try {
-    console.log(`[TravelerService] PUT /api/travelers/${id} payload:`, normalizedPayload);
     const response = await client.put(`/api/travelers/${id}`, normalizedPayload, { headers });
     return normalizeTraveler(response.data?.data || response.data);
   } catch (error) {
@@ -280,7 +263,6 @@ export async function deleteTraveler(id, customToken) {
   }
 
   try {
-    console.log(`[TravelerService] DELETE /api/travelers/${id}`);
     const response = await client.delete(`/api/travelers/${id}`, { headers });
     return response.data;
   } catch (error) {
