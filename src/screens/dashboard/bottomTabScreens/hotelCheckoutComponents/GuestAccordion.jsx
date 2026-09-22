@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable, Animated } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-export default function GuestAccordion({ title, subtitle, isExpandedDefault, children }) {
+export default function GuestAccordion({ title, subtitle, isExpandedDefault, hasError = false, children }) {
   const [isExpanded, setIsExpanded] = useState(isExpandedDefault || false);
 
   const toggleAccordion = () => {
@@ -13,7 +13,12 @@ export default function GuestAccordion({ title, subtitle, isExpandedDefault, chi
     <View style={styles.container}>
       <Pressable style={styles.header} onPress={toggleAccordion}>
         <View style={styles.headerTextContainer}>
-          <Text style={styles.title}>{title}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>{title}</Text>
+            {hasError ? (
+              <Ionicons name="alert-circle" size={16} color="#EF4444" />
+            ) : null}
+          </View>
           {subtitle && !isExpanded ? (
             <Text style={styles.subtitle}>{subtitle}</Text>
           ) : null}
@@ -57,6 +62,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     color: "#0F172A",
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   subtitle: {
     fontSize: 13,

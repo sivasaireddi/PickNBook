@@ -503,6 +503,12 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
   const hasSeatSelection = selectedSeats.length > 0;
 
   const handleContinue = () => {
+    console.log("[BusFlow] BOARDING/DROPPING CONTINUE:", {
+      hasSeatSelection,
+      boardingPoint: selectedBoardingPoint?.name,
+      droppingPoint: selectedDroppingPoint?.name,
+      selectedSeatCount: selectedSeats.length,
+    });
     if (hasSeatSelection) {
       if (!selectedBoardingPoint || !selectedDroppingPoint) {
         Alert.alert(
@@ -524,6 +530,7 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
         selectedBoardingPoint,
         selectedDroppingPoint,
       });
+      console.log("[BusFlow] NAVIGATING TO PASSENGER DETAILS");
       return;
     }
 
@@ -674,10 +681,12 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
             </View>
           ) : (
             <FlatList
+              style={styles.pointsList}
               data={activeOptions}
               keyExtractor={(item, index) => `${item.id || index}`}
               renderItem={renderPoint}
               showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
               keyboardShouldPersistTaps="handled"
               ItemSeparatorComponent={() => <View style={styles.dividerLine} />}
               contentContainerStyle={
@@ -970,6 +979,8 @@ const createStyles = (scaleFont) =>
 
   // ─── Main List Card ──────────────────────────────────────────────────────
   listCard: {
+    flex: 1,
+    minHeight: 0,
     backgroundColor: COLORS.surface,
     borderRadius: 28,
     overflow: 'hidden',
@@ -993,7 +1004,10 @@ const createStyles = (scaleFont) =>
     backgroundColor: COLORS.divider,
   },
   listContent: {
-    paddingBottom: 6,
+    paddingBottom: 18,
+  },
+  pointsList: {
+    flex: 1,
   },
   pointRow: {
     flexDirection: 'row',

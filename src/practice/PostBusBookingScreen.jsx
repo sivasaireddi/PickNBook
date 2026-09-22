@@ -10,6 +10,7 @@ import {
   Animated,
   Dimensions,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -39,6 +40,9 @@ const PRICING_PREVIEW_API_URL = `${BASE_URL}/api/BusBookings/pricing-preview`;
 
 const BOOKING_API_URL = `${BASE_URL}/api/BusBookings/book`;
 
+const removeIndianCountryCode = (phone) =>
+  String(phone ?? "").replace(/^\s*\+91\s*/, "").trim();
+
 const SEATS_API_URL = (busId) =>
   `${BASE_URL}/api/BusBookings/${encodeURIComponent(
     String(busId)
@@ -62,10 +66,10 @@ const redactBookingLog = (value) => {
 
 const logBusBookingFlow = (stage, data) => {
   if (data === undefined) {
-    console.log(`[BusBookingFlow] ${stage}`);
+    console.log(`[BusFlow] ${stage}`);
     return;
   }
-  console.log(`[BusBookingFlow] ${stage}`, redactBookingLog(data));
+  console.log(`[BusFlow] ${stage}`, redactBookingLog(data));
 };
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -625,6 +629,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   const [travelersLoading, setTravelersLoading] = useState(false);
   const [travelersError, setTravelersError] = useState(null);
   const [selectedTravelerId, setSelectedTravelerId] = useState(null);
+  const [savedTravelerPickerOpen, setSavedTravelerPickerOpen] = useState(false);
 
   const [passengerName, setPassengerName] = useState("");
   const [passengerPhone, setPassengerPhone] = useState("");
@@ -680,7 +685,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       setAuthToken(token || "");
 
       setPassengerName(user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim());
-      setPassengerPhone(user?.phoneNumber || "");
+      setPassengerPhone(removeIndianCountryCode(user?.phoneNumber));
       setPassengerEmail(user?.email || "");
     } catch (error) {
       console.log("Session Load Error:", error);
@@ -764,7 +769,9 @@ const PostBusBookingScreen = ({ route, navigation }) => {
     });
 
     if (traveler.fullName) setPassengerName(traveler.fullName);
-    if (traveler.phoneNumber) setPassengerPhone(traveler.phoneNumber);
+    if (traveler.phoneNumber) {
+      setPassengerPhone(removeIndianCountryCode(traveler.phoneNumber));
+    }
     if (traveler.email) setPassengerEmail(traveler.email);
   };
 
@@ -1747,6 +1754,9 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   };
 
   const passengerCount = selectedSeats.length;
+  const selectedTraveler = savedTravelers.find(
+    (traveler) => String(traveler.id) === String(selectedTravelerId)
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1848,39 +1858,112 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <View style={styles.pickerShell}>
-                    <Picker
-                      selectedValue={selectedTravelerId ? String(selectedTravelerId) : ""}
-                      onValueChange={(itemValue) => {
-                        if (!itemValue || itemValue === "NEW_TRAVELER") {
-                          handleAddNewTraveler();
-                        } else {
-                          const selected = savedTravelers.find(
-                            (t) => String(t.id) === String(itemValue)
-                          );
-                          if (selected) {
-                            handleSelectTraveler(selected);
-                          }
-                        }
-                      }}
-                      style={[styles.pickerControl, { backgroundColor: "#FFFFFF" }]}
-                      accessibilityLabel="Saved Travelers Selection"
-                      dropdownIconColor="#D11A2A"
-                      mode="dropdown"
+                  <>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => setSavedTravelerPickerOpen(true)}
+                      style={styles.savedTravelerSelector}
+                      accessibilityRole="button"
+                      accessibilityLabel="Select saved traveler"
                     >
-                      <Picker.Item label="Select Saved Traveler" value="" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
-                      {savedTravelers.map((traveler) => (
-                        <Picker.Item
-                          key={traveler.id}
-                          label={`${traveler.fullName} (${traveler.gender}, ${traveler.age} yrs${traveler.phoneNumber ? ` • 📞 ${traveler.phoneNumber}` : ""})`}
-                          value={String(traveler.id)}
-                          color="#0F172A"
-                          style={{ backgroundColor: "#FFFFFF" }}
+                      <View style={styles.savedTravelerSelectorIcon}>
+                        <Ionicons name="person" size={18} color="#D11A2A" />
+                      </View>
+                      <View style={styles.savedTravelerSelectorTextWrap}>
+                        <Text style={styles.savedTravelerSelectorLabel}>
+                          {selectedTraveler ? "Selected traveler" : "Choose a traveler"}
+                        </Text>
+                        <Text style={styles.savedTravelerSelectorValue} numberOfLines={1}>
+                          {selectedTraveler?.fullName || "Select from your saved travelers"}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-down" size={20} color="#64748B" />
+                    </TouchableOpacity>
+
+                    <Modal
+                      visible={savedTravelerPickerOpen}
+                      transparent
+                      animationType="slide"
+                      onRequestClose={() => setSavedTravelerPickerOpen(false)}
+                    >
+                      <View style={styles.travelerModalBackdrop}>
+                        <TouchableOpacity
+                          style={styles.travelerModalDismissArea}
+                          activeOpacity={1}
+                          onPress={() => setSavedTravelerPickerOpen(false)}
                         />
-                      ))}
-                      <Picker.Item label="+ Add New Traveler" value="NEW_TRAVELER" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
-                    </Picker>
-                  </View>
+                        <View style={styles.travelerModalSheet}>
+                          <View style={styles.travelerModalHandle} />
+                          <View style={styles.travelerModalHeader}>
+                            <View>
+                              <Text style={styles.travelerModalTitle}>Choose traveler</Text>
+                              <Text style={styles.travelerModalSubtitle}>
+                                Select who is travelling on this booking
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => setSavedTravelerPickerOpen(false)}
+                              style={styles.travelerModalClose}
+                              accessibilityLabel="Close traveler selection"
+                            >
+                              <Ionicons name="close" size={20} color="#475569" />
+                            </TouchableOpacity>
+                          </View>
+
+                          <View style={styles.savedTravelersList}>
+                            {savedTravelers.map((traveler) => {
+                              const isSelected = String(traveler.id) === String(selectedTravelerId);
+                              return (
+                                <TouchableOpacity
+                                  key={traveler.id}
+                                  activeOpacity={0.85}
+                                  onPress={() => {
+                                    handleSelectTraveler(traveler);
+                                    setSavedTravelerPickerOpen(false);
+                                  }}
+                                  style={[styles.travelerItemCard, isSelected && styles.travelerItemCardSelected]}
+                                >
+                                  <View style={styles.travelerAvatar}>
+                                    <Text style={styles.travelerAvatarText}>
+                                      {(traveler.fullName || "?").charAt(0).toUpperCase()}
+                                    </Text>
+                                  </View>
+                                  <View style={styles.travelerDetailsWrap}>
+                                    <Text style={styles.travelerItemName} numberOfLines={1}>
+                                      {traveler.fullName || "Unnamed traveler"}
+                                    </Text>
+                                    <Text style={styles.travelerItemMeta}>
+                                      {traveler.gender || "Traveler"}{traveler.age ? ` • ${traveler.age} years` : ""}
+                                    </Text>
+                                    {traveler.phoneNumber ? (
+                                      <Text style={styles.travelerItemPhone}>
+                                        {removeIndianCountryCode(traveler.phoneNumber)}
+                                      </Text>
+                                    ) : null}
+                                  </View>
+                                  <View style={[styles.radioRing, isSelected && styles.radioRingSelected]}>
+                                    {isSelected ? <View style={styles.radioDot} /> : null}
+                                  </View>
+                                </TouchableOpacity>
+                              );
+                            })}
+
+                            <TouchableOpacity
+                              activeOpacity={0.85}
+                              onPress={() => {
+                                setSavedTravelerPickerOpen(false);
+                                handleAddNewTraveler();
+                              }}
+                              style={styles.addTravelerActionBtn}
+                            >
+                              <Ionicons name="add-circle-outline" size={19} color="#D11A2A" />
+                              <Text style={styles.addTravelerActionBtnText}>Add new traveler</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+                    </Modal>
+                  </>
                 )}
               </SectionCard>
             </AnimatedCard>
@@ -1897,7 +1980,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                     <TextInput
                       style={styles.contactTextInput}
                       value={passengerPhone}
-                      onChangeText={setPassengerPhone}
+                      onChangeText={(value) => setPassengerPhone(removeIndianCountryCode(value))}
                       placeholder="Enter mobile number"
                       keyboardType="phone-pad"
                       maxLength={15}
@@ -2552,6 +2635,95 @@ const styles = StyleSheet.create({
     width: "100%",
     fontSize: 12,
   },
+  savedTravelerSelector: {
+    minHeight: 68,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  savedTravelerSelectorIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF1F2",
+  },
+  savedTravelerSelectorTextWrap: {
+    flex: 1,
+  },
+  savedTravelerSelectorLabel: {
+    color: "#64748B",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  savedTravelerSelectorValue: {
+    color: "#0F172A",
+    fontSize: 15,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  travelerModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    justifyContent: "flex-end",
+  },
+  travelerModalDismissArea: {
+    flex: 1,
+  },
+  travelerModalSheet: {
+    backgroundColor: "#F8FAFC",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 24,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 12,
+  },
+  travelerModalHandle: {
+    alignSelf: "center",
+    width: 42,
+    height: 4,
+    borderRadius: 4,
+    backgroundColor: "#CBD5E1",
+    marginBottom: 18,
+  },
+  travelerModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  travelerModalTitle: {
+    color: "#0F172A",
+    fontSize: 21,
+    fontWeight: "800",
+  },
+  travelerModalSubtitle: {
+    color: "#64748B",
+    fontSize: 13,
+    marginTop: 4,
+  },
+  travelerModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E2E8F0",
+  },
   loadingInlineCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -2897,6 +3069,19 @@ const styles = StyleSheet.create({
     borderColor: "#D11A2A",
     borderWidth: 1.5,
     backgroundColor: "#FFF5F5",
+  },
+  travelerAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFE4E6",
+  },
+  travelerAvatarText: {
+    color: "#D11A2A",
+    fontSize: 17,
+    fontWeight: "800",
   },
   radioWrapper: {
     justifyContent: "center",

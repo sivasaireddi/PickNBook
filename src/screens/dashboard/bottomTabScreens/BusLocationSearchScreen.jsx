@@ -13,20 +13,22 @@ const BusLocationSearchScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   
-  const { type, currentValue, onSelect } = route.params || {};
+  const {
+    type,
+    currentValue,
+    currentSource,
+    currentDestination,
+    returnTo,
+    selectionRequestId,
+  } = route.params || {};
   
   const [query, setQuery] = useState(currentValue || '');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
+  const searchSequence = React.useRef(0);
   
   const isFrom = type === 'from';
   
-  useEffect(() => {
-    if (query) {
-      handleSearch(query);
-    }
-  }, []);
-
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (query.trim().length >= 2) {
@@ -45,10 +47,15 @@ const BusLocationSearchScreen = () => {
       return;
     }
     
+    const requestId = ++searchSequence.current;
     setLoading(true);
     try {
       const data = await searchCities(trimmed);
       const suggestions = Array.isArray(data) ? data : [];
+
+      // Do not let a slower response for an older query overwrite the latest
+      // results (this is especially noticeable while typing on mobile).
+      if (requestId !== searchSequence.current) return;
       
       console.log(`[BusLocationSearch] API Response count: ${suggestions.length}`);
       
@@ -126,15 +133,24 @@ const BusLocationSearchScreen = () => {
     } catch (error) {
       console.log("[BusLocationSearch] Error:", error);
     } finally {
-      setLoading(false);
+      if (requestId === searchSequence.current) setLoading(false);
     }
   };
 
   const handleSelect = (payload) => {
     console.log(`[BusLocationSearch] Selected Sub Location:`, payload);
-    if (onSelect) {
-      onSelect(payload);
+    if (returnTo) {
+      navigation.navigate(returnTo, {
+        busLocationSelection: payload,
+        busLocationSelectionType: type,
+        busLocationSelectionRequestId: selectionRequestId || String(Date.now()),
+        busLocationSource: currentSource,
+        busLocationDestination: currentDestination,
+      });
+      return;
     }
+
+    // Keep a safe fallback for callers from older navigation state.
     navigation.goBack();
   };
 

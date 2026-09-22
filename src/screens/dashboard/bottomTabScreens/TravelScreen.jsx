@@ -28,7 +28,7 @@ export default function TravelScreen({ navigation, route }) {
         <TravelTabs mode={mode} onChange={setMode} />
         <View style={styles.body}>
           {mode === "bus" ? (
-            <BusBookingSection navigation={navigation} />
+            <BusBookingSection navigation={navigation} route={route} />
           ) : (
             <FlightSearchScreen navigation={navigation} />
           )}

@@ -46,6 +46,12 @@ const validateDatetimeFields = (payloadJson) => {
  * @returns {Promise<{order_id: string, payment_session_id: string}>}
  */
 export const createOrder = async (payload, userToken) => {
+  console.log("[Payment] create-order request:", {
+    amount: payload?.orderAmount,
+    bookingType: payload?.bookingType,
+    customerId: payload?.customerId,
+    hasBookingPayload: !!payload?.bookingPayloadJson,
+  });
   // Validate datetime fields client-side before sending
   if (payload.bookingPayloadJson) {
     validateDatetimeFields(payload.bookingPayloadJson);
@@ -68,6 +74,14 @@ export const createOrder = async (payload, userToken) => {
 
   const data = await response.json().catch(() => ({}));
 
+  console.log("[Payment] create-order response:", {
+    status: response.status,
+    ok: response.ok,
+    orderId: data?.order_id || data?.orderId || null,
+    hasPaymentSession: Boolean(data?.payment_session_id || data?.paymentSessionId),
+    message: data?.message || null,
+  });
+
   if (!response.ok) {
     // Surface backend's message field (e.g. "Price mismatch") to the user
     throw new Error(data.message || `Failed to create order (status: ${response.status})`);
@@ -83,6 +97,7 @@ export const createOrder = async (payload, userToken) => {
  * @returns {Promise<Object>} Verification result
  */
 export const verifyPayment = async (orderId, userToken) => {
+  console.log("[Payment] verify-payment request:", { orderId });
   const response = await fetch(`${BASE_URL}/api/cashfree/orders/${orderId}/payments`, {
     method: 'GET',
     headers: {
@@ -92,6 +107,13 @@ export const verifyPayment = async (orderId, userToken) => {
   });
 
   const data = await response.json().catch(() => ({}));
+
+  console.log("[Payment] verify-payment response:", {
+    status: response.status,
+    ok: response.ok,
+    paymentStatus: data?.status || data?.paymentStatus || data?.data?.status || null,
+    message: data?.message || null,
+  });
 
   if (!response.ok) {
     throw new Error(data.message || `Failed to verify payment (status: ${response.status})`);

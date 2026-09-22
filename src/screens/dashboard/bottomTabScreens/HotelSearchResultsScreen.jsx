@@ -19,6 +19,8 @@ import {
   sortHotels,
 } from "../../../utils/hotelFilters";
 
+const getHotelDisplayPrice = (hotel) => getHotelPrice(hotel);
+
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
   return new Intl.NumberFormat("en-IN", {
@@ -74,7 +76,7 @@ const HotelCard = React.memo(({ item, isSelected, onSelect }) => {
 
   const priceObj = item?.price || {};
   const currency = priceObj.currencyCode || "INR";
-  const offeredPrice = priceObj.offeredPrice ?? item?.offeredFare ?? 0;
+  const offeredPrice = getHotelDisplayPrice(item);
   const publishedPrice = priceObj.publishedPrice ?? offeredPrice;
   const discount = priceObj.discount ?? 0;
 
@@ -159,7 +161,7 @@ const HotelNativeMarker = React.memo(({ hotel, isSelected, onPress, onCalloutPre
   const lon = Number(hotel?.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
-  const offeredPrice = Number(hotel?.price?.offeredPrice ?? hotel?.offeredFare ?? 0);
+  const offeredPrice = getHotelDisplayPrice(hotel);
   const formattedPrice = `₹${offeredPrice.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -219,6 +221,13 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   const { setSelectedHotel, session, searchParams: contextSearchParams } = useHotelBooking();
   const rawHotels = Array.isArray(route?.params?.hotels) ? route.params.hotels : [];
   const searchParams = route?.params?.searchParams || contextSearchParams || {};
+
+  useEffect(() => {
+    console.log("[HotelSearchResults] screen loaded:", {
+      hotelCount: rawHotels.length,
+      searchParams,
+    });
+  }, []);
 
   // Compute dynamic price bounds & options across all raw hotels
   const priceBounds = useMemo(() => {
@@ -445,6 +454,11 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
       };
 
       setSelectedHotel(hotelObj);
+      console.log("[HotelSearchResults] navigating to hotel details:", {
+        hotelCode: activeHotelCode,
+        resultIndex: activeResultIndex,
+        traceId: activeTraceId,
+      });
 
       navigation.navigate("HotelOfferDetails", {
         traceId: activeTraceId,
@@ -612,7 +626,7 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
                     hotel?.hotelAddress || hotel?.address || "",
                     hotel?.hotelCategory || "Premium Stay",
                     Number(hotel?.starRating ?? hotel?.rating) || 4.0,
-                    Number(hotel?.price?.offeredPrice ?? hotel?.offeredFare ?? 0),
+                    getHotelDisplayPrice(hotel),
                     hotel?.price
                   )
                 }

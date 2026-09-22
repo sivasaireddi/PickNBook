@@ -1,6 +1,8 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { getHotelRoomFinalPrice } from "./hotelPrice";
+import { CancellationDetails } from "./HotelInfoSections";
 
 export const getRatePlanKey = (room) =>
   String(room?.optionId || room?.ratePlanCode || room?.ratePlan || room?.roomId || "");
@@ -16,7 +18,10 @@ const formatCurrency = (value, currency = "INR") => {
 };
 
 export default function RoomRateOption({ room, displayCurrency, isSelected, onSelect }) {
-  const rmPrice = room.price?.offeredPrice || room.offeredPrice || 0;
+  const rmPrice = getHotelRoomFinalPrice(room);
+  const roomDescriptions = Array.isArray(room.description)
+    ? room.description.filter((description) => Boolean(description && String(description).trim()))
+    : (room.description ? [String(room.description)] : []);
   
   // Extract up to 3 important amenities
   const previewAmenities = Array.isArray(room.amenities) 
@@ -32,12 +37,14 @@ export default function RoomRateOption({ room, displayCurrency, isSelected, onSe
     >
       <View style={styles.headerRow}>
         <Text style={styles.promotionText} numberOfLines={1}>{promotion}</Text>
-        <Text style={styles.priceText}>{formatCurrency(rmPrice, displayCurrency)}</Text>
+        <Text style={styles.priceText}>
+          {rmPrice > 0 ? formatCurrency(rmPrice, displayCurrency) : "Price unavailable"}
+        </Text>
       </View>
 
-      {room.description && room.description.filter(d => Boolean(d && String(d).trim())).length > 0 ? (
+      {roomDescriptions.length > 0 ? (
         <Text style={styles.descText} numberOfLines={2}>
-          {room.description.filter(d => Boolean(d && String(d).trim())).join(" · ")}
+          {roomDescriptions.join(" · ")}
         </Text>
       ) : null}
 
@@ -64,7 +71,7 @@ export default function RoomRateOption({ room, displayCurrency, isSelected, onSe
           ) : null}
           {room.isPANMandatory ? <Text style={styles.flagBadge}>PAN Req</Text> : null}
           {room.isPassportMandatory ? <Text style={styles.flagBadge}>Passport Req</Text> : null}
-          {room.cancellationPolicies && room.cancellationPolicies.length > 0 ? (
+          {(room.cancellationPolicies && room.cancellationPolicies.length > 0) || room.cancellationPolicy ? (
             <Text style={[styles.flagBadge, styles.flagBadgeGreen]}>Cancellation Available</Text>
           ) : null}
         </View>
@@ -73,6 +80,21 @@ export default function RoomRateOption({ room, displayCurrency, isSelected, onSe
           {isSelected && <View style={styles.radioInner} />}
         </View>
       </View>
+
+      {(room.smokingPreference || room.childCount !== undefined || room.roomTypeCategory || room.servicesStatus?.length) ? (
+        <View style={styles.roomDetailsRow}>
+          {room.roomTypeCategory ? <Text style={styles.detailBadge}>Type: {room.roomTypeCategory}</Text> : null}
+          {room.smokingPreference ? <Text style={styles.detailBadge}>Smoking: {room.smokingPreference}</Text> : null}
+          {room.childCount !== undefined && room.childCount !== null ? <Text style={styles.detailBadge}>Children: {room.childCount}</Text> : null}
+          {Array.isArray(room.servicesStatus) ? room.servicesStatus.map((service, index) => (
+            <Text key={`${service?.name}-${index}`} style={styles.detailBadge}>
+              {[service?.name, service?.value].filter(Boolean).join(": ")}
+            </Text>
+          )) : null}
+        </View>
+      ) : null}
+
+      <CancellationDetails room={room} formatCurrency={formatCurrency} />
     </Pressable>
   );
 }
@@ -140,6 +162,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748B",
     fontWeight: "500",
+  },
+  roomDetailsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  detailBadge: {
+    fontSize: 10,
+    color: "#475569",
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 5,
   },
   bottomRow: {
     flexDirection: "row",

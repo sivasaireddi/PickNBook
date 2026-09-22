@@ -12,6 +12,8 @@ const client = axios.create({
   timeout: 120000, // 2 minutes timeout to prevent ECONNABORTED for slow responses
   headers: {
     Accept: "application/json",
+    // Some edge/WAF configurations reject requests without a User-Agent.
+    "User-Agent": "PickNBook/1.0 (React Native)",
   },
 });
 
@@ -36,10 +38,43 @@ let lastSearchResults = {
   buses: [],
 };
 
+const redactBusLog = (value) => {
+  if (Array.isArray(value)) return value.map(redactBusLog);
+  if (!value || typeof value !== "object") return value;
+  const hiddenKeys = ["authorization", "token", "password", "phone", "email", "idnumber", "address"];
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+    key,
+    hiddenKeys.some((hidden) => key.toLowerCase().includes(hidden))
+      ? "[REDACTED]"
+      : redactBusLog(child),
+  ]));
+};
+
+const busFlowLog = (stage, data) => {
+  if (data === undefined) console.log(`[BusFlow] ${stage}`);
+  else {
+    const safeData = redactBusLog(data);
+    try {
+      // Metro collapses nested objects to [Object]. Serialize the payload so
+      // the complete supplier response is visible in the console.
+      console.log(`[BusFlow] ${stage}:`, JSON.stringify(safeData, null, 2));
+    } catch {
+      console.log(`[BusFlow] ${stage}:`, safeData);
+    }
+  }
+};
+
+const busFlowError = (stage, error) => busFlowLog(`${stage} ERROR`, {
+  message: error?.message,
+  status: error?.response?.status,
+  response: error?.response?.data,
+});
+
 /**
  * Search cities for autocomplete via GET /api/Places?query={cityName}&tripType=bus
  */
 export async function searchCities(query = "") {
+  busFlowLog("CITY SEARCH START", { query });
   try {
     const trimmed = String(query || "").trim();
     if (!trimmed) return [];
@@ -48,9 +83,30 @@ export async function searchCities(query = "") {
       params: { query: trimmed, tripType: "bus" },
     });
 
-    return response.data || [];
+    const payload = response.data;
+    busFlowLog("CITY SEARCH RESPONSE", payload);
+    // The Places endpoint has returned both a raw array and wrapped payloads
+    // across environments. Keep the screen contract stable: always return an
+    // array of places.
+    if (Array.isArray(payload)) return payload;
+    const wrappedLists = [
+      payload?.data,
+      payload?.results,
+      payload?.places,
+      payload?.items,
+      payload?.cities,
+    ];
+    return wrappedLists.find(Array.isArray) || [];
   } catch (error) {
-    console.error("[BusService] searchCities error:", error?.message, error?.response?.data);
+    busFlowError("CITY SEARCH", error);
+    const requestUrl = `${BASE_URL.replace(/\/+$/, "")}/api/Places?query=${encodeURIComponent(trimmed)}&tripType=bus`;
+    const details = {
+      code: error?.code,
+      url: requestUrl,
+      status: error?.response?.status,
+      response: error?.response?.data,
+    };
+    console.error("[BusService] searchCities error:", error?.message, details);
     return [];
   }
 }
@@ -95,6 +151,7 @@ async function resolveCityCode(city) {
  * Search buses via POST /api/BusBookings/search
  */
 export async function searchBuses(params = {}, options = {}) {
+  busFlowLog("BUS SEARCH START", params);
   try {
     const fromCity = params.fromCityCode ?? params.fromCity ?? params.from;
     const toCity = params.toCityCode ?? params.toCity ?? params.to;
@@ -135,9 +192,12 @@ export async function searchBuses(params = {}, options = {}) {
       departDate: normalizedDate,
     };
 
+    busFlowLog("BUS SEARCH REQUEST", payload);
+
     const response = await client.post("/api/BusBookings/search", payload, options);
 
     const responseData = response.data || {};
+    busFlowLog("BUS SEARCH RESPONSE", responseData);
 
     // Extract traceId and buses list
     const rawTraceId = responseData.traceId ?? responseData.TraceId ?? "";
@@ -226,8 +286,11 @@ export async function searchBuses(params = {}, options = {}) {
       buses: mappedBuses,
     };
 
+    busFlowLog("BUS SEARCH NORMALIZED", { traceId, busCount: mappedBuses.length });
+
     return mappedBuses;
   } catch (error) {
+    busFlowError("BUS SEARCH", error);
     console.error("[BusService] searchBuses error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -301,11 +364,13 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     request: innerPayload,
   };
 
+  busFlowLog("SEAT LAYOUT REQUEST", payload);
 
   try {
     const response = await client.post("/api/BusBookings/seat-layout", payload);
 
     const layoutData = response.data || {};
+    busFlowLog("SEAT LAYOUT RESPONSE", layoutData);
     const normalizedData = layoutData.data || layoutData.result || layoutData.response || layoutData;
 
     // Resolve raw Result (Lower Deck) and ResultUpperSeat (Upper Deck)
@@ -599,13 +664,23 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     const finalLayout = {
       ...normalizedData,
       seats: mappedSeats,
+      layoutType: layoutTypeStr,
+      variant: is2Plus2Detected ? "2plus2" : "2plus1",
       totalGridRows: maxOverallRows,
       totalGridCols: maxOverallCols,
       aisleAfterGridRow: globalAisleAfterGridRow,
     };
 
+    busFlowLog("SEAT LAYOUT NORMALIZED", {
+      traceId: cleanTraceId,
+      resultIndex: cleanResultIndex,
+      seatCount: mappedSeats.length,
+      layoutType: layoutTypeStr,
+    });
+
     return finalLayout;
   } catch (error) {
+    busFlowError("SEAT LAYOUT", error);
     console.error("[BusService] getSeatLayout error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -634,15 +709,18 @@ export async function fetchSeatLayoutByBusId(busId) {
  * Retrieve Boarding & Dropping points via POST /api/BusBookings/boarding-points (no auth header)
  */
 export async function getBoardingPoints(payload) {
+  busFlowLog("BOARDING/DROPPING REQUEST", payload);
   try {
     const response = await client.post("/api/BusBookings/boarding-points", payload);
 
     const data = response?.data;
+    busFlowLog("BOARDING/DROPPING RESPONSE", data);
     const inner = data?.Result ?? data?.result ?? data?.data ?? data ?? {};
     const bp = inner.BoardingPoints ?? inner.BoardingPointsDetails ?? inner.boardingPoints ?? data?.BoardingPoints ?? [];
     const dp = inner.DroppingPoints ?? inner.DroppingPointsDetails ?? inner.droppingPoints ?? data?.DroppingPoints ?? [];
     return response.data;
   } catch (error) {
+    busFlowError("BOARDING/DROPPING", error);
     console.error("[BusService] getBoardingPoints error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -652,11 +730,16 @@ export async function getBoardingPoints(payload) {
  * Block seats via POST /api/BusBookings/block (no auth header)
  */
 export async function blockSeats(payload) {
+  busFlowLog("SEAT BLOCK REQUEST", payload);
   try {
     // Make request without Authorization header
+    const serializedPayload = JSON.stringify(payload);
+    console.log("[BusService] FINAL serialized Seat Block payload:", serializedPayload);
     const response = await client.post("/api/BusBookings/block", payload);
+    busFlowLog("SEAT BLOCK RESPONSE", response.data);
     return response.data;
   } catch (error) {
+    busFlowError("SEAT BLOCK", error);
     console.error("[BusService] blockSeats error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -690,11 +773,15 @@ export async function bookSeats(arg1, arg2, arg3) {
     const token = authToken || (await getStoredAuthToken());
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
+    busFlowLog("BUS BOOK REQUEST", payload);
+
     const response = await client.post("/api/BusBookings/book", payload, {
       headers,
     });
+    busFlowLog("BUS BOOK RESPONSE", response.data);
     return response.data;
   } catch (error) {
+    busFlowError("BUS BOOK", error);
     console.error("[BusService] bookSeats error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -704,6 +791,7 @@ export async function bookSeats(arg1, arg2, arg3) {
  * Fetch all bus bookings for the logged-in user via GET /api/BusBookings/bookings
  */
 export async function getMyBusBookings(authToken) {
+  busFlowLog("MY BUS BOOKINGS START");
   try {
     const token = authToken || (await getStoredAuthToken());
     if (!token) {
@@ -717,8 +805,11 @@ export async function getMyBusBookings(authToken) {
       },
     });
 
+    busFlowLog("MY BUS BOOKINGS RESPONSE", response.data);
+
     return response.data || [];
   } catch (error) {
+    busFlowError("MY BUS BOOKINGS", error);
     console.error("[BusService] getMyBusBookings error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -728,6 +819,7 @@ export async function getMyBusBookings(authToken) {
  * Cancel entire bus booking by bookingId via POST /api/BusBookings/bookings/{bookingId}/cancel?reason={reason}
  */
 export async function cancelBusBooking(bookingId, reason = "User requested cancellation", authToken) {
+  busFlowLog("BUS CANCELLATION REQUEST", { bookingId, reason });
   try {
     const token = authToken || (await getStoredAuthToken());
     if (!token) {
@@ -749,8 +841,11 @@ export async function cancelBusBooking(bookingId, reason = "User requested cance
       }
     );
 
+    busFlowLog("BUS CANCELLATION RESPONSE", response.data);
+
     return response.data;
   } catch (error) {
+    busFlowError("BUS CANCELLATION", error);
     console.warn("[BusService] cancelBusBooking error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -760,6 +855,7 @@ export async function cancelBusBooking(bookingId, reason = "User requested cance
  * Cancel specific passengers on a bus booking via POST /api/BusBookings/bookings/{bookingId}/cancel-passengers
  */
 export async function cancelBusPassengers(bookingId, passengerIds = [], authToken) {
+  busFlowLog("PASSENGER CANCELLATION REQUEST", { bookingId, passengerIds });
   try {
     const token = authToken || (await getStoredAuthToken());
     if (!token) {
@@ -783,9 +879,12 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
       }
     );
 
+    busFlowLog("PASSENGER CANCELLATION RESPONSE", response.data);
+
 
     return response.data;
   } catch (error) {
+    busFlowError("PASSENGER CANCELLATION", error);
     console.warn("[BusService] cancelBusPassengers warning/error:", error?.message);
     throw error;
   }
@@ -797,6 +896,7 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
 export async function getPricingPreview(arg1, arg2) {
   try {
     const payload = typeof arg1 === "object" && arg1 !== null ? arg1 : arg2;
+    busFlowLog("PRICING PREVIEW REQUEST", payload);
 
     // Strip out markupAmount from seats array
     if (payload && Array.isArray(payload.seats)) {
@@ -810,8 +910,10 @@ export async function getPricingPreview(arg1, arg2) {
 
 
     const response = await client.post("/api/BusBookings/pricing-preview", payload);
+    busFlowLog("PRICING PREVIEW RESPONSE", response.data);
     return response.data;
   } catch (error) {
+    busFlowError("PRICING PREVIEW", error);
     console.warn("[BusService] getPricingPreview error:", error?.message, error?.response?.data);
     throw error;
   }
@@ -822,11 +924,14 @@ export async function getPricingPreview(arg1, arg2) {
  * GET /api/BusBookings/user/available
  */
 export async function getBusCoupons(token) {
+  busFlowLog("BUS COUPONS START");
   try {
     const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
     const response = await client.get("/api/BusBookings/user/available", config);
+    busFlowLog("BUS COUPONS RESPONSE", response.data);
     return response.data;
   } catch (error) {
+    busFlowError("BUS COUPONS", error);
     console.warn("[BusService] getBusCoupons error:", error?.message);
     throw error;
   }

@@ -43,6 +43,10 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
   const { clearSession } = useHotelBooking();
   const { bookingResult = {} } = route?.params || {};
 
+  useEffect(() => {
+    console.log("[HotelFlow] booking confirmation screen:", JSON.stringify(bookingResult, null, 2));
+  }, []);
+
   // Clear booking session state on mount to prevent trace ID reuse
   useEffect(() => {
     return () => {

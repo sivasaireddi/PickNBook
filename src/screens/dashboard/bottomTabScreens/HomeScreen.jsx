@@ -246,8 +246,24 @@ export default function HomeScreen({ navigation }) {
               resizeMode="cover"
             >
               {/* TOP HEADER BAR */}
-              <View style={[styles.headerBar, { paddingTop: topInset + 6 }]}>
-                <View style={styles.headerLeft}>
+              <View
+                style={[
+                  styles.headerBar,
+                  { paddingTop: topInset + 6, minHeight: logoHeight + 12 },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.headerLeft,
+                    {
+                      width: logoWidth,
+                      height: logoHeight,
+                      top: topInset + 6,
+                      left: "50%",
+                      transform: [{ translateX: -logoWidth / 2 }],
+                    },
+                  ]}
+                >
                   <Image
                     source={require("../../../../assets/Splash-Icon.png")}
                     style={[
@@ -257,7 +273,15 @@ export default function HomeScreen({ navigation }) {
                     resizeMode="contain"
                   />
                 </View>
-                <View style={styles.headerRight}>
+                <View
+                  style={[
+                    styles.headerRight,
+                    {
+                      right: Math.max(30, Math.min(35, screenWidth * 0.045)),
+                      top: topInset + 6 + (logoHeight - 42) / 2,
+                    },
+                  ]}
+                >
                   <Pressable
                     onPress={() => navigation.navigate("NotificationsScreen")}
                     style={({ pressed }) => [
@@ -388,19 +412,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingLeft: 0,
+    position: "relative",
+    paddingLeft: 16,
     paddingRight: 16,
     paddingVertical: 6,
   },
   headerLeft: {
+    position: "absolute",
     justifyContent: "center",
     alignItems: "flex-start",
-    marginLeft: -22,
   },
   headerAppIcon: {
     resizeMode: "contain",
   },
   headerRight: {
+    position: "absolute",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

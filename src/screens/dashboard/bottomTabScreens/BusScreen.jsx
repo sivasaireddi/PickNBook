@@ -3,12 +3,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar, StyleSheet, View } from "react-native";
 import BusBookingSection from "./BusBookingSection";
 
-export default function BusScreen({ navigation }) {
+export default function BusScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea} edges={["left", "right"]}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <View style={styles.screen}>
-        <BusBookingSection navigation={navigation} />
+        <BusBookingSection navigation={navigation} route={route} />
       </View>
     </SafeAreaView>
   );

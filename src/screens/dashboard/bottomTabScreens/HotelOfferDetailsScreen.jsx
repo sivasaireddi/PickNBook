@@ -23,6 +23,13 @@ import RoomCategoryCard from "./hotelDetailsComponents/RoomCategoryCard";
 import RoomSelectionSheet from "./hotelDetailsComponents/RoomSelectionSheet";
 import { getRatePlanKey } from "./hotelDetailsComponents/RoomRateOption";
 import BookingBottomBar from "./hotelDetailsComponents/BookingBottomBar";
+import { getHotelRoomFinalPrice } from "./hotelDetailsComponents/hotelPrice";
+import AttractionsPreview from "./hotelDetailsComponents/AttractionsPreview";
+import AboutHotelCard from "./hotelDetailsComponents/AboutHotelCard";
+import {
+  HotelInformationSection,
+  HotelPoliciesSection,
+} from "./hotelDetailsComponents/HotelInfoSections";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -100,6 +107,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
       try {
         const infoRes = await getHotelInfo(payload);
         fetchedDetails = infoRes?.hotelInfoResult?.hotelDetails;
+        console.log("[HotelOfferDetailsScreen] hotel info parsed:", JSON.stringify(fetchedDetails, null, 2));
         if (fetchedDetails) {
           setHotelDetails(fetchedDetails);
         } else {
@@ -138,6 +146,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
         const roomsRes = await getHotelRoom(payload);
         const roomResData = roomsRes?.getHotelRoomResult || {};
         roomsData = roomResData.hotelRoomsDetails || roomResData.HotelRoomDetails || [];
+        console.log("[HotelOfferDetailsScreen] rooms parsed:", JSON.stringify(roomsData, null, 2));
       } catch (roomErr) {
         console.log("[HotelOfferDetailsScreen] getHotelRoom notice:", roomErr?.message);
       }
@@ -192,6 +201,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
       }
 
       if (Array.isArray(roomsData) && roomsData.length > 0) {
+        console.log("[HotelOfferDetailsScreen] room categories available:", roomsData.length);
         setRoomsList(roomsData);
         setHotelDetailsData(fetchedDetails || {}, roomsData);
 
@@ -338,8 +348,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
   const facilities = Array.isArray(hotelDetails.hotelFacilities) ? hotelDetails.hotelFacilities : [];
 
   const totalPriceSum = selectedRoomSlots.reduce((sum, slot) => {
-    const priceVal = slot?.price?.offeredPrice || slot?.offeredPrice || 0;
-    return sum + Number(priceVal);
+    return sum + getHotelRoomFinalPrice(slot);
   }, 0);
 
   const displayCurrency = selectedRoomSlots[0]?.price?.currencyCode || "INR";
@@ -363,10 +372,16 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
           pinCode={hotelDetails.pinCode}
         />
 
+        <AboutHotelCard description={hotelDetails.description} />
+
         <AmenitiesPreview 
           facilities={facilities} 
           onViewAllPress={() => setAmenitiesVisible(true)} 
         />
+
+        <HotelPoliciesSection hotel={hotelDetails} />
+        <HotelInformationSection hotel={hotelDetails} />
+        <AttractionsPreview attractions={hotelDetails.attractions} />
 
         {/* Room Inventory Selection Section */}
         <View style={styles.roomsSection}>

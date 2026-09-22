@@ -259,6 +259,30 @@ export default function RouteHeader({
   const [draftFrom, setDraftFrom] = useState(() => normalizeCity(fromProp ?? route?.params?.from));
   const [draftTo, setDraftTo] = useState(() => normalizeCity(toProp ?? route?.params?.to));
   const [selectedDate, setSelectedDate] = useState(journeyDate);
+  const lastLocationSelection = useRef(null);
+
+  useEffect(() => {
+    const selectionId = route?.params?.busLocationSelectionRequestId;
+    const selection = route?.params?.busLocationSelection;
+    const selectionType = route?.params?.busLocationSelectionType;
+
+    if (!selectionId || !selection || lastLocationSelection.current === selectionId) {
+      return;
+    }
+
+    lastLocationSelection.current = selectionId;
+    if (selectionType === "from") {
+      setDraftFrom(normalizeCity(selection));
+    } else if (selectionType === "to") {
+      setDraftTo(normalizeCity(selection));
+    }
+
+    navigation.setParams({
+      busLocationSelection: undefined,
+      busLocationSelectionType: undefined,
+      busLocationSelectionRequestId: undefined,
+    });
+  }, [navigation, route?.params?.busLocationSelectionRequestId]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -358,14 +382,16 @@ export default function RouteHeader({
             navigation.navigate("BusLocationSearchScreen", {
               type: "from",
               currentValue: draftFrom.cityName,
-              onSelect: (city) => setDraftFrom(city)
+              returnTo: route?.name,
+              selectionRequestId: String(Date.now()),
             });
           }}
           onPressTo={() => {
             navigation.navigate("BusLocationSearchScreen", {
               type: "to",
               currentValue: draftTo.cityName,
-              onSelect: (city) => setDraftTo(city)
+              returnTo: route?.name,
+              selectionRequestId: String(Date.now()),
             });
           }}
           onSelectDate={setSelectedDate}

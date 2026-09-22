@@ -126,6 +126,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       };
 
       const res = await blockHotelRoom(blockRoomPayload);
+      console.log("[HotelPassengerDetails] BlockRoom result:", JSON.stringify(res, null, 2));
 
       const blockResObj = res?.BlockRoomResult || res?.blockRoomResult || res || {};
       setBlockedResultData(blockResObj);
@@ -232,6 +233,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         couponCode: code.trim(),
         totalAmount: currentBaseTotal,
       });
+      console.log("[HotelPassengerDetails] coupon validation result:", result);
 
       if (result?.isValid) {
         setPricingPreview({
@@ -574,6 +576,15 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
 
+      console.log("[HotelPassengerDetails] booking payload prepared for checkout:", {
+        hotelCode: bookPayload.HotelCode,
+        resultIndex: bookPayload.ResultIndex,
+        traceId: bookPayload.TraceId,
+        roomCount: bookPayload.NoOfRooms,
+        amount: fareBreakdown.total,
+        hasGuestDetails: Boolean(bookPayload.GuestName && bookPayload.GuestEmail && bookPayload.GuestPhone),
+      });
+
 
       const token = await SecureStore.getItemAsync("token");
 
@@ -652,6 +663,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
               const key = `room-${rIdx}-pax-${pIdx}`;
               const pax = paxState[key] || {};
               const errors = validationState.fieldErrors[key] || {};
+              const guestHasErrors = Object.keys(errors).length > 0;
 
               const isLead = pax.isLead;
 
@@ -661,6 +673,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
                   title={`${(pIdx + 1).toString().padStart(2, '0')} ${isLead ? "Lead Guest" : `Guest ${pIdx + 1}`}`}
                   subtitle={`${roomTypeName}`}
                   isExpandedDefault={isLead}
+                  hasError={guestHasErrors}
                 >
                   <GuestForm
                     isLead={pax.isLead}

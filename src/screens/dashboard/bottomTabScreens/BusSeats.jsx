@@ -115,7 +115,7 @@ const BusSeats = ({ route, navigation }) => {
       const cells = Array.from({ length: maxLane + 1 }, (_, laneIndex) => {
         const seat = rowSeats.find((s) => Number(s.gridRow ?? s.normalizedColumn ?? 0) === laneIndex);
         return (
-          <View key={`cell-${rowIndex}-${laneIndex}`} style={styles.seatCell}>
+          <View key={`cell-${rowIndex}-${laneIndex}`} style={[styles.seatCell, laneIndex === maxLane && { marginRight: 0 }]}>
             {seat && <SeatItem seat={seat} isSelected={selectedSeats.includes(seat.seatCode)} onPressSeat={handlePressSeat} width={SEAT_WIDTH} height={SEAT_HEIGHT} isSleeper={seat.isSleeper} />}
           </View>
         );
@@ -125,10 +125,8 @@ const BusSeats = ({ route, navigation }) => {
       return <View key={`row-${rowIndex}`} style={styles.gridRow}>{cells}</View>;
     });
 
-    const cardWidth = Math.min(350, Math.max(190, (maxLane + 1) * (SEAT_WIDTH + CELL_GAP) + AISLE_W + 28));
-
     return (
-      <View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft, { width: cardWidth }]}>
+      <View style={[styles.deckCard, BUS_SEAT_SHADOWS.soft]}>
         <DeckHeader title={isUpper ? 'Upper Deck' : 'Lower Deck'} />
         {!isUpper && <DriverIndicator />}
         <View style={styles.cabinDivider} />
@@ -184,10 +182,14 @@ const BusSeats = ({ route, navigation }) => {
           )}
 
           {/* Horizontal ScrollView wrapping Lower Deck & Upper Deck side-by-side */}
-          <View style={styles.horizontalDecksContainer}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false} 
+            contentContainerStyle={styles.horizontalDecksContainer}
+          >
             {lowerDeck.length > 0 && renderSeatGridContainer(lowerDeck, false)}
             {upperDeck.length > 0 && renderSeatGridContainer(upperDeck, true)}
-          </View>
+          </ScrollView>
         </ScrollView>
 
         {/* Bottom Sheet Summary Bar */}
@@ -245,6 +247,7 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 16,
     gap: 16,
+    flexDirection: 'row',
     alignItems: 'flex-start',
   },
   deckCard: {
@@ -252,7 +255,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(240, 77, 77, 0.22)',
-    padding: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 12,
     alignSelf: 'center',
     position: 'relative',
   },

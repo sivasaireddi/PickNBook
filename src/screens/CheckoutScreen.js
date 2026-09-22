@@ -23,6 +23,19 @@ const CheckoutScreen = ({ route, navigation }) => {
 
   const { status, error, orderId, startPayment, reset } = useCashfreePayment(authToken);
 
+  useEffect(() => {
+    console.log("[Checkout] screen loaded:", {
+      bookingType,
+      amount,
+      hasBookingDetails: !!bookingDetails,
+      hasCustomerDetails: !!customerDetails,
+    });
+  }, []);
+
+  useEffect(() => {
+    console.log("[Checkout] payment status:", { bookingType, status, orderId, error: error?.message || error || null });
+  }, [status, orderId, error]);
+
   const handlePayPress = async () => {
     let tokenToUse = authToken;
     if (!tokenToUse) {
@@ -79,6 +92,13 @@ const CheckoutScreen = ({ route, navigation }) => {
       returnUrl: "https://api.picknbook.com/return", 
       bookingPayloadJson: JSON.stringify(bookingDetails),
     };
+
+    console.log("[Checkout] starting payment:", {
+      bookingType: effectiveBookingType,
+      amount,
+      customerId: custId,
+      hasBookingPayload: !!payload.bookingPayloadJson,
+    });
 
     startPayment(payload);
   };

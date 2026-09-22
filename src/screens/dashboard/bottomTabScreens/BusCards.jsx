@@ -553,6 +553,14 @@ const BusCards = ({
   const handleViewSeats = useCallback(async (item) => {
     const busId = getBusId(item);
 
+    console.log("[BusFlow] VIEW SEATS SELECTED:", {
+      busId,
+      operatorName: item?.operatorName,
+      traceId: item?.traceId,
+      resultIndex: item?.resultIndex,
+      srdvIndex: item?.srdvIndex,
+    });
+
     if (!busId || navigatingBusId) {
       console.log("Bus id missing or already navigating:", item);
       return;
@@ -566,6 +574,12 @@ const BusCards = ({
         traceId: item?.traceId,
         resultIndex: item?.resultIndex,
         srdvIndex: item?.srdvIndex,
+      });
+
+      console.log("[BusFlow] NAVIGATING TO SEAT SELECTION:", {
+        busId,
+        seatCount: seatLayout?.seats?.length || 0,
+        layoutType: seatLayout?.layoutType,
       });
 
       navigation.navigate(
@@ -593,6 +607,7 @@ const BusCards = ({
         },
       );
     } catch (error) {
+      console.log("[BusFlow] SEAT LAYOUT FALLBACK:", { busId, message: error?.message });
       console.log("Error fetching seat layout:", error);
 
       navigation.navigate(getSeatScreenName("", item?.busType, ""), {
@@ -618,6 +633,13 @@ const BusCards = ({
   const handleOpenBoardingDropping = useCallback((item) => {
     const busId = getBusId(item);
 
+    console.log("[BusFlow] BOARDING/DROPPING SCREEN:", {
+      busId,
+      operatorName: item?.operatorName,
+      traceId: item?.traceId,
+      resultIndex: item?.resultIndex,
+    });
+
     navigation.navigate("BordingNDroppingPoints", {
       busId,
       from: getCityName(from),
@@ -634,6 +656,7 @@ const BusCards = ({
   }, [getBusId, getCityName, from, to, date, navigation]);
 
   const handleOpenPolicies = useCallback((item) => {
+    console.log("[BusFlow] BUS POLICIES OPENED:", { operatorName: item?.operatorName });
     console.log("Policies clicked:", item?.operatorName || item?.TravelsName || item?.travelsName);
     console.log("CancellationPolicies:", item?.CancellationPolicies || item?.cancellationPolicies || item?.CancellationPolicy);
     setPolicyModalBus(item);

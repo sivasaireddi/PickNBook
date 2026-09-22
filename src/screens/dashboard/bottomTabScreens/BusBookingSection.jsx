@@ -111,7 +111,7 @@ const TravelField = ({
   );
 };
 
-export default function BusBookingSection({ navigation }) {
+export default function BusBookingSection({ navigation, route }) {
   const { height: screenHeight } = useWindowDimensions();
   const [source, setSource] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
   const [destination, setDestination] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
@@ -123,6 +123,36 @@ export default function BusBookingSection({ navigation }) {
   const swapRotation = useRef(new Animated.Value(0)).current;
   const swapScale = useRef(new Animated.Value(1)).current;
   const searchScale = useRef(new Animated.Value(1)).current;
+  const lastLocationSelection = useRef(null);
+
+  useEffect(() => {
+    const selectionId = route?.params?.busLocationSelectionRequestId;
+    const selection = route?.params?.busLocationSelection;
+    const selectionType = route?.params?.busLocationSelectionType;
+    const returnedSource = route?.params?.busLocationSource;
+    const returnedDestination = route?.params?.busLocationDestination;
+
+    if (!selectionId || !selection || lastLocationSelection.current === selectionId) {
+      return;
+    }
+
+    lastLocationSelection.current = selectionId;
+    if (selectionType === "from") {
+      setSource(selection || returnedSource || { cityId: "", cityName: "", label: "", stateName: "" });
+      if (returnedDestination) setDestination(returnedDestination);
+    } else if (selectionType === "to") {
+      if (returnedSource) setSource(returnedSource);
+      setDestination(selection || returnedDestination || { cityId: "", cityName: "", label: "", stateName: "" });
+    }
+
+    navigation.setParams({
+      busLocationSelection: undefined,
+      busLocationSelectionType: undefined,
+      busLocationSelectionRequestId: undefined,
+      busLocationSource: undefined,
+      busLocationDestination: undefined,
+    });
+  }, [navigation, route?.params?.busLocationSelectionRequestId]);
 
   const handleSearchPressIn = () => {
     Animated.spring(searchScale, { toValue: 0.96, useNativeDriver: true }).start();
@@ -245,6 +275,11 @@ export default function BusBookingSection({ navigation }) {
   };
 
   const handleSearch = () => {
+    console.log("[BusFlow] SEARCH FORM SUBMITTED:", {
+      from: source,
+      to: destination,
+      date: date?.toISOString?.() || date,
+    });
     const newErrors = { source: "", destination: "", date: "" };
     let hasError = false;
 
@@ -288,6 +323,7 @@ export default function BusBookingSection({ navigation }) {
       dateValue: date.toISOString(),
       passengers: 1,
     });
+    console.log("[BusFlow] NAVIGATING TO BUS RESULTS");
   };
 
   return (
@@ -342,7 +378,10 @@ export default function BusBookingSection({ navigation }) {
                   navigation.navigate("BusLocationSearchScreen", {
                     type: "from",
                     currentValue: source.cityName,
-                    onSelect: (city) => setSource(city)
+                    currentSource: source,
+                    currentDestination: destination,
+                    returnTo: route?.name || "TravelScreen",
+                    selectionRequestId: String(Date.now()),
                   });
                 }}
               />
@@ -360,7 +399,10 @@ export default function BusBookingSection({ navigation }) {
                   navigation.navigate("BusLocationSearchScreen", {
                     type: "to",
                     currentValue: destination.cityName,
-                    onSelect: (city) => setDestination(city)
+                    currentSource: source,
+                    currentDestination: destination,
+                    returnTo: route?.name || "TravelScreen",
+                    selectionRequestId: String(Date.now()),
                   });
                 }}
               />

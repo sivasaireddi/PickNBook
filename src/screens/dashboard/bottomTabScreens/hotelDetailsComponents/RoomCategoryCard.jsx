@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { getRatePlanKey } from "./RoomRateOption";
+import { getHotelRoomFinalPrice } from "./hotelPrice";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -17,7 +18,8 @@ export default function RoomCategoryCard({ categoryName, rooms, displayCurrency,
   if (!rooms || rooms.length === 0) return null;
 
   // Find the lowest price among all rate plans in this category
-  const lowestPrice = Math.min(...rooms.map(rm => rm.price?.offeredPrice || rm.offeredPrice || Infinity));
+  const validPrices = rooms.map(getHotelRoomFinalPrice).filter((price) => price > 0);
+  const lowestPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
   
   // Use the first room's data for basic info like image (if any) or bed type
   const firstRoom = rooms[0];
@@ -72,7 +74,9 @@ export default function RoomCategoryCard({ categoryName, rooms, displayCurrency,
       <View style={styles.cardFooter}>
         <View style={styles.priceContainer}>
           <Text style={styles.priceLabel}>From</Text>
-          <Text style={styles.priceValue}>{formatCurrency(lowestPrice, displayCurrency)}</Text>
+          <Text style={styles.priceValue}>
+            {lowestPrice > 0 ? formatCurrency(lowestPrice, displayCurrency) : "Price unavailable"}
+          </Text>
         </View>
         
         <Pressable 

@@ -16,6 +16,7 @@ import {
   RefreshControl,
   Animated,
   Dimensions,
+  KeyboardAvoidingView,
   ToastAndroid,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -589,7 +590,12 @@ export default function TravelersScreen() {
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <KeyboardAvoidingView
+            style={styles.keyboardModalContainer}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+          >
+            <View style={styles.modalContent}>
             {/* Modal header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
@@ -612,8 +618,11 @@ export default function TravelersScreen() {
               </View>
             ) : (
               <ScrollView
+                style={styles.modalFormScroll}
+                contentContainerStyle={styles.modalFormScrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
               >
                 {/* Dropdowns row */}
                 <View style={styles.dropdownRow}>
@@ -727,7 +736,8 @@ export default function TravelersScreen() {
                 <View style={{ height: 24 }} />
               </ScrollView>
             )}
-          </View>
+            </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -1045,12 +1055,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.5)",
     justifyContent: "flex-end",
   },
+  keyboardModalContainer: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   modalContent: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
     maxHeight: "90%",
+    minHeight: "45%",
   },
   modalHeader: {
     flexDirection: "row",
@@ -1071,6 +1086,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: "#64748B",
+  },
+  modalFormScroll: {
+    flex: 1,
+  },
+  modalFormScrollContent: {
+    paddingBottom: 24,
   },
 
   // ── Form Fields ─────────────────────────────────────────────────────────────

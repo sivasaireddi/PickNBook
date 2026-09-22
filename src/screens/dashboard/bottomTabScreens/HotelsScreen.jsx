@@ -317,8 +317,10 @@ const HotelsScreen = () => {
 
       console.log("[HotelsScreen] executing searchHotelOffers:", searchParams);
       const searchResult = await searchHotelOffers(searchParams);
+      console.log("[HotelsScreen] searchHotelOffers result:", JSON.stringify(searchResult, null, 2));
 
       const hotels = searchResult?.hotels || [];
+      console.log("[HotelsScreen] hotels received:", hotels.length);
       const sessionData = {
         traceId: searchResult?.traceId || "",
         srdvType: searchResult?.srdvType || "MixAPI",

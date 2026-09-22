@@ -21,6 +21,38 @@ function toHotelUrl(endpoint) {
 
 let lastTraceId = "";
 
+// Centralized hotel-flow logging. Sensitive credentials and guest contact data
+// are redacted before anything is sent to the Metro/Expo console.
+function hotelFlowLog(step, data) {
+  try {
+    const redacted = JSON.parse(JSON.stringify(data ?? {}));
+    const sensitiveKeys = new Set([
+      "Password", "password", "Authorization", "authorization", "token",
+      "GuestEmail", "guestEmail", "Email", "email", "GuestPhone", "guestPhone",
+      "Phoneno", "phone", "PAN", "pan", "PassportNo", "passport",
+    ]);
+    const redact = (value) => {
+      if (!value || typeof value !== "object") return value;
+      Object.keys(value).forEach((key) => {
+        if (sensitiveKeys.has(key)) value[key] = "[REDACTED]";
+        else if (value[key] && typeof value[key] === "object") redact(value[key]);
+      });
+      return value;
+    };
+    console.log(`[HotelFlow] ${step}:`, JSON.stringify(redact(redacted), null, 2));
+  } catch (err) {
+    console.log(`[HotelFlow] ${step}:`, data);
+  }
+}
+
+function hotelFlowError(step, error) {
+  hotelFlowLog(`${step} ERROR`, {
+    message: error?.message,
+    status: error?.response?.status,
+    response: error?.response?.data,
+  });
+}
+
 export function getLastTraceId() {
   return lastTraceId;
 }
@@ -78,6 +110,7 @@ function getDefaultDateString(offsetDays = 0) {
  * Search cities for autocomplete via GET /api/Places?query={cityName}&tripType=hotel
  */
 export async function searchCities(query = "") {
+  hotelFlowLog("CITY SEARCH REQUEST", { query });
   try {
     const trimmed = String(query || "").trim();
     if (!trimmed) return [];
@@ -86,8 +119,11 @@ export async function searchCities(query = "") {
       params: { query: trimmed, tripType: "hotel" },
     });
 
+    hotelFlowLog("CITY SEARCH RESPONSE", response.data);
+
     return response.data || [];
   } catch (error) {
+    hotelFlowError("CITY SEARCH", error);
     console.error("[hotelService] searchCities error:", error?.message, error?.response?.data);
     return [];
   }
@@ -98,6 +134,7 @@ export async function searchCities(query = "") {
  * Step 1: Search Hotels Ã¢â‚¬â€ POST /api/Hotels/SearchHotels
  */
 export async function searchHotelOffers(params = {}) {
+  hotelFlowLog("SEARCH START", params);
   const rawCity =
     params.cityId ||
     params.CityId ||
@@ -198,6 +235,8 @@ export async function searchHotelOffers(params = {}) {
     { headers }
   );
 
+  hotelFlowLog("SEARCH RESPONSE", response.data);
+
   if (response?.data?.traceId !== undefined && response?.data?.traceId !== null) {
     lastTraceId = String(response.data.traceId);
   }
@@ -216,6 +255,7 @@ export async function searchHotelOffers(params = {}) {
   const srdvType = String(response.data?.srdvType || "MixAPI");
 
   if (Array.isArray(apiResults) && apiResults.length > 0) {
+    hotelFlowLog("SEARCH NORMALIZED", { count: apiResults.length, traceId: responseTraceId, srdvType });
     return {
       traceId: responseTraceId,
       srdvType,
@@ -257,6 +297,7 @@ export async function searchHotels(params) {
  * Step 2: Get Hotel Info Ã¢â‚¬â€ POST /api/Hotels/GetHotelInfo
  */
 export async function getHotelInfo(payload = {}) {
+  hotelFlowLog("HOTEL INFO REQUEST", payload);
   const resultIndexVal = String(
     payload.ResultIndex || payload.resultIndex || payload.HotelCode || payload.hotelCode || ""
   );
@@ -293,6 +334,8 @@ export async function getHotelInfo(payload = {}) {
       { headers }
     );
 
+    hotelFlowLog("HOTEL INFO RESPONSE", response.data);
+
 
     if (response?.data?.hotelInfoResult?.error?.errorCode && response.data.hotelInfoResult.error.errorCode !== 0) {
       throw new Error(response.data.hotelInfoResult.error.errorMessage || "Trace ID or hotel details not found");
@@ -300,6 +343,7 @@ export async function getHotelInfo(payload = {}) {
 
     return response.data;
   } catch (err) {
+    hotelFlowError("HOTEL INFO", err);
     if (err.response?.data) {
       const serverMsg =
         err.response.data?.hotelInfoResult?.error?.errorMessage ||
@@ -319,6 +363,7 @@ export async function getHotelInfo(payload = {}) {
  * Step 3: Get Hotel Room Ã¢â‚¬â€ POST /api/Hotels/GetHotelRoom
  */
 export async function getHotelRoom(payload = {}) {
+  hotelFlowLog("ROOMS REQUEST", payload);
   const resultIndexVal = String(
     payload.ResultIndex || payload.resultIndex || payload.HotelCode || payload.hotelCode || ""
   );
@@ -355,6 +400,8 @@ export async function getHotelRoom(payload = {}) {
       { headers }
     );
 
+    hotelFlowLog("ROOMS RESPONSE", response.data);
+
 
     if (response?.data?.getHotelRoomResult?.error?.errorCode && response.data.getHotelRoomResult.error.errorCode !== 0) {
       throw new Error(response.data.getHotelRoomResult.error.errorMessage || "Trace ID or room details not found");
@@ -362,6 +409,7 @@ export async function getHotelRoom(payload = {}) {
 
     return response.data;
   } catch (err) {
+    hotelFlowError("ROOMS", err);
     if (err.response?.data) {
       const serverMsg =
         err.response.data?.getHotelRoomResult?.error?.errorMessage ||
@@ -381,6 +429,7 @@ export async function getHotelRoom(payload = {}) {
  * Step 4: Block Room Ã¢â‚¬â€ POST /api/Hotels/BlockRoom
  */
 export async function blockHotelRoom(payload = {}) {
+  hotelFlowLog("BLOCK ROOM REQUEST", payload);
   const resultIndexVal = String(
     payload.ResultIndex || payload.resultIndex || payload.HotelCode || payload.hotelCode || ""
   );
@@ -504,6 +553,8 @@ export async function blockHotelRoom(payload = {}) {
       { headers }
     );
 
+    hotelFlowLog("BLOCK ROOM RESPONSE", response.data);
+
 
     if (response?.data?.blockRoomResult?.error?.errorCode && response.data.blockRoomResult.error.errorCode !== 0) {
       throw new Error(response.data.blockRoomResult.error.errorMessage || "BlockRoom API returned an error");
@@ -511,6 +562,7 @@ export async function blockHotelRoom(payload = {}) {
 
     return response.data;
   } catch (err) {
+    hotelFlowError("BLOCK ROOM", err);
     if (err.response?.data) {
       const serverMsg =
         err.response.data?.blockRoomResult?.error?.errorMessage ||
@@ -534,6 +586,7 @@ export function blockRoom(payload) {
  * Step 5: Pricing Preview Ã¢â‚¬â€ POST /api/Hotels/pricing-preview
  */
 export async function getHotelPricingPreview(payload = {}) {
+  hotelFlowLog("PRICING PREVIEW REQUEST", payload);
   const formattedPayload = {
     TraceId: String(payload.TraceId || payload.traceId || lastTraceId || ""),
     HotelCode: String(payload.HotelCode || payload.hotelCode || ""),
@@ -558,8 +611,11 @@ export async function getHotelPricingPreview(payload = {}) {
       { headers }
     );
 
+    hotelFlowLog("PRICING PREVIEW RESPONSE", response.data);
+
     return response.data;
   } catch (error) {
+    hotelFlowError("PRICING PREVIEW", error);
     console.warn("Pricing preview API unreachable, executing local coupon calculations", error?.message);
     let couponDiscount = 0;
     const code = String(payload.CouponCode || "").trim().toUpperCase();
@@ -583,6 +639,7 @@ export async function getHotelPricingPreview(payload = {}) {
  * Step 6: Book Room Ã¢â‚¬â€ POST /api/Hotels/BookRoom
  */
 export async function bookHotelOffer(params = {}) {
+  hotelFlowLog("BOOK ROOM REQUEST", params);
   let extractedPrice = 0;
   if (typeof params.Price === "number" && !isNaN(params.Price)) {
     extractedPrice = params.Price;
@@ -656,6 +713,8 @@ export async function bookHotelOffer(params = {}) {
       { headers }
     );
 
+    hotelFlowLog("BOOK ROOM RESPONSE", response.data);
+
 
     if (response?.data?.bookResult?.error?.errorCode && response.data.bookResult.error.errorCode !== 0) {
       throw new Error(response.data.bookResult.error.errorMessage || "BookRoom API returned an error");
@@ -663,6 +722,7 @@ export async function bookHotelOffer(params = {}) {
 
     return response.data;
   } catch (err) {
+    hotelFlowError("BOOK ROOM", err);
     if (err.response?.data) {
       const serverMsg =
         err.response.data?.bookResult?.error?.errorMessage ||
@@ -686,6 +746,7 @@ export function bookHotel(payload) {
  * Step 7: Cancel Room Ã¢â‚¬â€ POST /api/Hotels/CancelRoom
  */
 export async function cancelHotelBooking(payload = {}) {
+  hotelFlowLog("CANCEL ROOM REQUEST", payload);
   const providerBookingIdVal = Number(payload.providerBookingId || payload.bookingId || payload.BookingId || 0);
   const traceIdVal = String(payload.traceId || payload.TraceId || lastTraceId || "");
 
@@ -721,6 +782,8 @@ export async function cancelHotelBooking(payload = {}) {
       { headers }
     );
 
+    hotelFlowLog("CANCEL ROOM RESPONSE", response.data);
+
 
     const errObj = response?.data?.error || response?.data?.cancelResult?.error;
     if (errObj?.errorCode && errObj.errorCode !== 0) {
@@ -729,6 +792,7 @@ export async function cancelHotelBooking(payload = {}) {
 
     return response.data;
   } catch (err) {
+    hotelFlowError("CANCEL ROOM", err);
     if (err.response?.data) {
       const serverMsg =
         err.response.data?.error?.errorMessage ||
@@ -744,6 +808,7 @@ export async function cancelHotelBooking(payload = {}) {
 }
 
 export async function getMyHotelBookings() {
+  hotelFlowLog("MY BOOKINGS START", {});
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
@@ -754,31 +819,39 @@ export async function getMyHotelBookings() {
 
   try {
     const response = await axios.get(toHotelUrl("/api/Hotels/my-bookings"), { headers });
+    hotelFlowLog("MY BOOKINGS RESPONSE", response.data);
     return response.data || [];
   } catch (err) {
+    hotelFlowError("MY BOOKINGS PRIMARY", err);
     try {
       const fallbackRes = await axios.get(toHotelUrl("/api/Hotels/bookings"), { headers });
+      hotelFlowLog("MY BOOKINGS FALLBACK RESPONSE", fallbackRes.data);
       return fallbackRes.data || [];
     } catch (fallbackErr) {
+      hotelFlowError("MY BOOKINGS FALLBACK", fallbackErr);
       return [];
     }
   }
 }
 
 export async function fetchHotelCoupons() {
+  hotelFlowLog("COUPONS START", {});
   try {
     const response = await axios.get(toHotelUrl("/api/Hotels/coupons/active"), {
       headers: {
         Accept: "application/json",
       }
     });
+    hotelFlowLog("COUPONS RESPONSE", response.data);
     return response.data || [];
   } catch (err) {
+    hotelFlowError("COUPONS", err);
     return [];
   }
 }
 
 export async function validateHotelCoupon(payload = {}) {
+  hotelFlowLog("COUPON VALIDATION REQUEST", payload);
   const token = await getStoredToken();
   const headers = {
     Accept: "application/json",
@@ -790,8 +863,10 @@ export async function validateHotelCoupon(payload = {}) {
 
   try {
     const response = await axios.post(toHotelUrl("/api/Hotels/coupons/validate"), payload, { headers });
+    hotelFlowLog("COUPON VALIDATION RESPONSE", response.data);
     return response.data || {};
   } catch (err) {
+    hotelFlowError("COUPON VALIDATION", err);
     if (err.response?.data) {
       const serverMsg = err.response.data?.message || err.response.data?.title || (typeof err.response.data === "string" ? err.response.data : null);
       throw new Error(serverMsg || "Failed to validate coupon");
@@ -817,7 +892,4 @@ export default {
   fetchHotelCoupons,
   validateHotelCoupon,
 };
-
-
-
 

@@ -1,5 +1,15 @@
 export const getHotelPrice = (hotel) => {
-  const price = Number(hotel?.price?.offeredPrice ?? hotel?.offeredFare ?? hotel?.price?.b2CTotalPrice ?? 0);
+  const price = Number(
+    hotel?.b2cFinalFare ??
+      hotel?.B2CFinalFare ??
+      hotel?.price?.b2cFinalFare ??
+      hotel?.price?.B2CFinalFare ??
+      hotel?.price?.b2CTotalPrice ??
+      hotel?.price?.B2CTotalPrice ??
+      hotel?.price?.offeredPrice ??
+      hotel?.offeredFare ??
+      0
+  );
   return Number.isFinite(price) ? price : 0;
 };
 
