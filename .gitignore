@@ -3,6 +3,9 @@
 # dependencies
 node_modules/
 
+# Local Android build tools (machine-specific JDK and diagnostic logs)
+.android-toolchain/
+
 # Expo
 .expo/
 dist/
