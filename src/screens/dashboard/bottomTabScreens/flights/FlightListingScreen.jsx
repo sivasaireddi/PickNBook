@@ -20,7 +20,6 @@ import CompactFlightCard from "./components/CompactFlightCard";
 import SortSheet from "./components/SortSheet";
 import FilterSheet from "./components/FilterSheet";
 
-import CalendarFareBar from "./components/CalendarFareBar";
 
 import { getFlightFareQuote, searchFlights } from "./services/flightBookingService";
 import { writeFlightBookingFlowState } from "./services/flightBookingFlowStore";
@@ -165,33 +164,6 @@ export default function FlightListingScreen({ route, navigation }) {
     return multiCityTotal;
   }, []);
 
-
-  const handleCalendarDateSelect = useCallback(async (selectedDateObj) => {
-    const formattedDate = selectedDateObj.toISOString().slice(0, 10);
-    console.log(`[FlightListingScreen] Calendar fare date clicked: ${formattedDate}. Re-querying search API...`);
-    setLoading(true);
-    try {
-      const newResults = await searchFlights({
-        from: origin,
-        to: destination,
-        date: formattedDate,
-        returnDate,
-        journeyType: isMultiCity ? 3 : isRoundTrip ? 2 : 1,
-        adults,
-        travelClass,
-      });
-      console.log(`[FlightListingScreen] Re-search successful. Loaded ${newResults?.length || 0} flights for ${formattedDate}`);
-      navigation.setParams({
-        departureDate: formattedDate,
-        flights: newResults,
-        rawResults: newResults,
-      });
-    } catch (err) {
-      console.log("[FlightListingScreen] Calendar fare search failed:", err?.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [origin, destination, returnDate, isMultiCity, isRoundTrip, adults, travelClass, navigation]);
 
   // Hook managing derived filtering and sorting
   const {
@@ -658,15 +630,6 @@ export default function FlightListingScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       )}
-
-      {/* Calendar Fare Bar */}
-      <CalendarFareBar
-        origin={activeTab === "return" ? destination : origin}
-        destination={activeTab === "return" ? origin : destination}
-        selectedDate={activeTab === "return" && returnDate ? returnDate : date}
-        travelClass={travelClass}
-        onSelectDate={handleCalendarDateSelect}
-      />
 
       {/* Filter Bar */}
       <FilterBar

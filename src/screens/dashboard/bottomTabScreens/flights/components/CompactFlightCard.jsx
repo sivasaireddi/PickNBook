@@ -1,5 +1,6 @@
-import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, useWindowDimensions } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const PRIMARY_RED = "#E11D2E";
 const TEXT_DARK = "#1F2937";
@@ -37,12 +38,15 @@ function formatDurationText(minutes) {
 }
 
 export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
+  const [fareListVisible, setFareListVisible] = useState(false);
+  const { width: screenWidth } = useWindowDimensions();
   if (!flight) return null;
 
   const rawItem = flight.rawItem || flight;
   
   // 1. Flight information mapping
-  const fareDataMultiple = rawItem.FareDataMultiple?.[0] || {};
+  const fareOptions = Array.isArray(rawItem.FareDataMultiple) ? rawItem.FareDataMultiple : [];
+  const fareDataMultiple = fareOptions[0] || {};
   const fareSegments = fareDataMultiple.FareSegments || [];
   const firstFareSeg = fareSegments[0] || {};
   
@@ -127,6 +131,26 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
 
   // 4. Refundability
   const isRefundable = rawItem.IsRefundable ?? flight.isRefundable ?? false;
+  const selectFare = (fare) => {
+    const fareInfo = fare?.Fare || {};
+    const fareSegment = fare?.FareSegments?.[0] || firstFareSeg;
+    const selectedPrice = Number(fare?.B2CFinalFare || fareInfo.B2CFinalFare || fareInfo.PublishedFare || fare?.OfferedFare || displayPrice);
+    onSelect({
+      ...flight,
+      price: selectedPrice,
+      displayFare: selectedPrice,
+      offeredFare: Number(fare?.OfferedFare || fareInfo.OfferedFare || selectedPrice),
+      baseFare: Number(fareInfo.BaseFare || selectedPrice),
+      tax: Number(fareInfo.Tax || 0),
+      resultIndex: fare?.ResultIndex || flight.resultIndex,
+      srdvIndex: fare?.SrdvIndex || flight.srdvIndex || "2",
+      selectedFareType: String(fare?.Source || fare?.FareType || "STANDARD").toUpperCase(),
+      isRefundable: Boolean(fare?.IsRefundable ?? isRefundable),
+      selectedFare: fare,
+      selectedFareSegment: fareSegment,
+    });
+    setFareListVisible(false);
+  };
 
   return (
     <View style={styles.card}>
@@ -172,11 +196,60 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
           <TouchableOpacity onPress={() => onViewDetails(flight)} style={styles.detailsBtn}>
             <Text style={styles.detailsBtnText}>View Details</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => onSelect(flight)} style={styles.selectBtn}>
-            <Text style={styles.selectBtnText}>Select →</Text>
+          <TouchableOpacity onPress={() => fareOptions.length > 1 ? setFareListVisible(true) : onSelect(flight)} style={styles.selectBtn}>
+            <Text style={styles.selectBtnText}>{fareOptions.length > 1 ? `View fares (${fareOptions.length})` : "Select →"}</Text>
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal visible={fareListVisible} animationType="slide" onRequestClose={() => setFareListVisible(false)}>
+        <SafeAreaView style={styles.fareModal} edges={["top", "left", "right"]}>
+          <View style={[styles.fareModalHeader, { paddingHorizontal: Math.max(14, Math.min(24, screenWidth * 0.05)) }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fareModalTitle} numberOfLines={1}>Flight Fare List</Text>
+              <Text style={styles.fareModalSubtitle} numberOfLines={1}>{airlineName} {flightNumber} · {originCode} → {destCode}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setFareListVisible(false)} style={styles.closeFareModal}>
+              <Text style={styles.closeFareModalText}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={styles.fareModalScroll}
+            contentContainerStyle={[styles.fareModalContent, { paddingHorizontal: Math.max(18, Math.min(30, screenWidth * 0.07)) }]}
+            showsVerticalScrollIndicator={false}
+          >
+            {fareOptions.map((fare, index) => {
+              const fareInfo = fare.Fare || {};
+              const fareSegment = fare.FareSegments?.[0] || firstFareSeg;
+              const label = String(fare.Source || fare.FareType || `Option ${index + 1}`).toUpperCase();
+              const price = Number(fare.B2CFinalFare || fareInfo.B2CFinalFare || fareInfo.PublishedFare || fare.OfferedFare || 0);
+              const refundable = Boolean(fare.IsRefundable ?? isRefundable);
+              return (
+                <View key={`${fare.ResultIndex || label}-${index}`} style={styles.fareOptionCard}>
+                  <View style={styles.fareOptionTop}>
+                    <View style={styles.fareLabel}><Text style={styles.fareLabelText}>{label}</Text></View>
+                    <Text style={styles.fareOptionPrice}>{formatINR(price)}</Text>
+                  </View>
+                  <View style={styles.fareOptionGrid}>
+                    <View style={styles.fareOptionColumn}>
+                      <Text style={styles.fareOptionHeading}>BAGGAGE</Text>
+                      <Text style={styles.fareOptionValue}>{fareSegment.Baggage || "Not provided"} check-in</Text>
+                      <Text style={styles.fareOptionMuted}>{fareSegment.CabinBaggage || "Not provided"} cabin</Text>
+                    </View>
+                    <View style={styles.fareOptionColumn}>
+                      <Text style={styles.fareOptionHeading}>REFUND</Text>
+                      <Text style={[styles.refundValue, { color: refundable ? "#15803D" : PRIMARY_RED }]}>{refundable ? "Refundable" : "Non-refundable"}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity onPress={() => selectFare(fare)} style={styles.fareSelectButton}>
+                    <Text style={styles.fareSelectButtonText}>Select</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -184,12 +257,14 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 16,
-    marginHorizontal: 16,
-    marginVertical: 8,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderRadius: 12,
+    padding: 7,
+    width: "94%",
+    alignSelf: "center",
+    marginHorizontal: 0,
+    marginVertical: 4,
+    borderWidth: 1.5,
+    borderColor: "#94A3B8",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
@@ -200,18 +275,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 12,
+    marginBottom: 4,
   },
   airlineInfo: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 6,
     flex: 1,
   },
   avatarCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: "#F3F4F6",
     justifyContent: "center",
     alignItems: "center",
@@ -219,17 +294,17 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
   },
   avatarText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "800",
     color: TEXT_DARK,
   },
   airlineName: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "800",
     color: TEXT_DARK,
   },
   flightNumber: {
-    fontSize: 12,
+    fontSize: 10,
     color: TEXT_MUTED,
     fontWeight: "600",
   },
@@ -238,12 +313,12 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   priceText: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: "900",
     color: TEXT_DARK,
   },
   refundableText: {
-    fontSize: 11,
+    fontSize: 9,
     color: "#059669",
     fontWeight: "600",
     marginTop: 2,
@@ -252,16 +327,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 4,
   },
   timeText: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "800",
     color: TEXT_DARK,
     width: 50,
   },
   timeTextRight: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "800",
     color: TEXT_DARK,
     width: 50,
@@ -270,10 +345,10 @@ const styles = StyleSheet.create({
   routeContainer: {
     flex: 1,
     alignItems: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   routeCodeText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "700",
     color: TEXT_DARK,
     letterSpacing: 1,
@@ -291,28 +366,28 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   cityTextLeft: {
-    fontSize: 11,
+    fontSize: 9,
     color: TEXT_MUTED,
     textAlign: "left",
     flex: 1,
   },
   cityTextCenter: {
-    fontSize: 11,
+    fontSize: 9,
     color: TEXT_MUTED,
     textAlign: "center",
     flex: 1,
   },
   cityTextRight: {
-    fontSize: 11,
+    fontSize: 9,
     color: TEXT_MUTED,
     textAlign: "right",
     flex: 1,
   },
   summaryRow: {
-    marginBottom: 12,
+    marginBottom: 4,
   },
   summaryText: {
-    fontSize: 12,
+    fontSize: 10,
     color: TEXT_MUTED,
     fontWeight: "500",
   },
@@ -322,35 +397,161 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
-    paddingTop: 10,
+    paddingTop: 4,
   },
   cabinClassText: {
-    fontSize: 12,
+    fontSize: 10,
     color: TEXT_MUTED,
     fontWeight: "600",
   },
   actionsContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 16,
+    gap: 8,
   },
   detailsBtn: {
-    paddingVertical: 6,
+    paddingVertical: 3,
   },
   detailsBtnText: {
-    fontSize: 13,
+    fontSize: 11,
     color: PRIMARY_RED,
     fontWeight: "700",
   },
   selectBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
     backgroundColor: PRIMARY_RED,
     borderRadius: 8,
   },
   selectBtnText: {
-    fontSize: 13,
+    fontSize: 11,
     color: "#FFFFFF",
     fontWeight: "700",
+  },
+  fareModal: {
+    flex: 1,
+    backgroundColor: "#F8F9FB",
+  },
+  fareModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: PRIMARY_RED,
+    paddingTop: 10,
+    paddingBottom: 12,
+  },
+  fareModalTitle: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    flexShrink: 1,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  fareModalSubtitle: {
+    color: "#FFFFFF",
+    opacity: 0.9,
+    marginTop: 3,
+    fontSize: 10,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  closeFareModal: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  closeFareModalText: {
+    color: "#FFFFFF",
+    fontSize: 21,
+    lineHeight: 23,
+  },
+  fareModalContent: {
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  fareModalScroll: {
+    flex: 1,
+  },
+  fareOptionCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 9,
+    padding: 7,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    elevation: 2,
+  },
+  fareOptionTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  fareLabel: {
+    backgroundColor: "#FEE2E2",
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  fareLabelText: {
+    color: PRIMARY_RED,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  fareOptionPrice: {
+    color: TEXT_DARK,
+    fontSize: 15,
+    fontWeight: "900",
+    flexShrink: 1,
+    textAlign: "right",
+    marginLeft: 10,
+  },
+  fareOptionGrid: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#E5E7EB",
+    paddingVertical: 5,
+    marginBottom: 6,
+  },
+  fareOptionColumn: {
+    flex: 1,
+  },
+  fareOptionHeading: {
+    color: TEXT_MUTED,
+    fontSize: 9,
+    fontWeight: "900",
+    marginBottom: 2,
+  },
+  fareOptionValue: {
+    color: TEXT_DARK,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  fareOptionMuted: {
+    color: TEXT_MUTED,
+    fontSize: 10,
+    marginTop: 1,
+  },
+  refundValue: {
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  fareSelectButton: {
+    backgroundColor: PRIMARY_RED,
+    borderRadius: 16,
+    alignItems: "center",
+    alignSelf: "center",
+    width: "88%",
+    paddingVertical: 4,
+  },
+  fareSelectButtonText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
   },
 });

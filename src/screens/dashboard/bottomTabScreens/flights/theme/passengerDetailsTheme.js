@@ -1,8 +1,8 @@
 export const COLORS = {
   // Brand & Gradients
   primaryRed: "#E53935",
-  primaryGradientStart: "#FF5A5F",
-  primaryGradientEnd: "#E53935",
+  primaryGradientStart: "#E53935",
+  primaryGradientEnd: "#C62828",
   accentGlow: "rgba(229, 57, 53, 0.15)",
 
   // Backgrounds
@@ -24,7 +24,7 @@ export const COLORS = {
   // Borders & Dividers
   borderLight: "rgba(226, 232, 240, 0.8)",
   borderMedium: "#E2E8F0",
-  borderFocused: "#FF5A5F",
+  borderFocused: "#E53935",
 
   // Status & Alerts
   errorRed: "#EF4444",
@@ -48,7 +48,7 @@ export const SHADOWS = {
     elevation: 6,
   },
   focusedInput: {
-    shadowColor: "#FF5A5F",
+    shadowColor: "#E53935",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 8,
@@ -57,9 +57,9 @@ export const SHADOWS = {
 };
 
 export const RADII = {
-  card: 26,
-  cardSmall: 18,
-  input: 16,
+  card: 18,
+  cardSmall: 13,
+  input: 12,
   pill: 999,
   badge: 12,
 };

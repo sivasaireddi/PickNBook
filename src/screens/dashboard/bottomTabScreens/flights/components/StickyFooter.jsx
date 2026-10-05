@@ -5,7 +5,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS, RADII, SHADOWS } from "../theme/passengerDetailsTheme";
 
-export const StickyFooter = React.memo(({ onContinue, onClearDraft }) => {
+export const StickyFooter = React.memo(({ onContinue }) => {
   const insets = useSafeAreaInsets();
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -32,6 +32,7 @@ export const StickyFooter = React.memo(({ onContinue, onClearDraft }) => {
         onPress={onContinue}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
+        style={styles.continueButton}
       >
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <LinearGradient
@@ -40,60 +41,45 @@ export const StickyFooter = React.memo(({ onContinue, onClearDraft }) => {
             end={{ x: 1, y: 0 }}
             style={styles.continueGradientBtn}
           >
-            <MaterialCommunityIcons name="ticket-confirmation-outline" size={24} color={COLORS.white} />
+            <MaterialCommunityIcons name="ticket-confirmation-outline" size={21} color={COLORS.white} />
             <Text style={styles.continueBtnText}>Continue to Seats Selection</Text>
-            <Ionicons name="arrow-forward" size={22} color={COLORS.white} />
+            <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
           </LinearGradient>
         </Animated.View>
       </TouchableOpacity>
 
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={onClearDraft}
-        style={styles.clearDraftBtn}
-        hitSlop={{ top: 10, bottom: 10, left: 20, right: 20 }}
-      >
-        <Text style={styles.clearDraftText}>Clear Booking Draft</Text>
-      </TouchableOpacity>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   stickyContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingHorizontal: 12,
+    paddingTop: 6,
     backgroundColor: "rgba(255, 255, 255, 0.95)",
     borderTopWidth: 1,
     borderTopColor: COLORS.borderLight,
-    gap: 12,
+    gap: 6,
     ...SHADOWS.glassCard,
   },
+  continueButton: {
+    width: "92%",
+    alignSelf: "center",
+  },
   continueGradientBtn: {
-    height: 56,
+    height: 40,
     borderRadius: RADII.input,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
     ...SHADOWS.glowButton,
   },
   continueBtnText: {
     color: COLORS.white,
-    fontSize: 16,
+    fontSize: 11,
     fontWeight: "900",
     letterSpacing: -0.2,
-  },
-  clearDraftBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 4,
-  },
-  clearDraftText: {
-    color: COLORS.textMuted,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.2,
   },
 });
 

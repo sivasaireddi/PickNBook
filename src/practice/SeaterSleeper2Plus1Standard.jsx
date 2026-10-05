@@ -157,7 +157,7 @@ const buildSubtitleFromRoute = (route) => {
 const CompactDeckHeader = memo(({ title, isLower }) => (
   <View style={styles.deckHeader}>
     <Text style={styles.deckTitle}>{title}</Text>
-    {isLower && <DriverIndicator inline />}
+    {isLower && <DriverIndicator inline style={{ marginLeft: 4 }} />}
   </View>
 ));
 
@@ -212,7 +212,9 @@ const DeckCardContainer = memo(
           if (mappedCol > m) m = mappedCol;
         }
       });
-      return Math.max(3, m);
+      // A 2+1 deck has three lanes. Keeping a fourth forced lane leaves a
+      // large unused strip on the right side of both deck cards.
+      return Math.max(2, m);
     }, [seats, columnMap]);
 
     const totalCols = maxMappedCol + 1;
@@ -225,7 +227,10 @@ const DeckCardContainer = memo(
     const ROW_GAP = 5;
     const seatCanvasTop = 18;
 
-    const rawCellW = (availableCanvasWidth - CARD_PADDING * 2 - (hasAisle && totalCols > 1 ? AISLE_W : 0)) / totalCols;
+    // Keep the original seat scale while allowing a 2+1 deck to use only
+    // three lanes. Otherwise the three lanes expand to fill the old width.
+    const sizingCols = Math.max(totalCols, 4);
+    const rawCellW = (availableCanvasWidth - CARD_PADDING * 2 - (hasAisle && sizingCols > 1 ? AISLE_W : 0)) / sizingCols;
     // Let the lane grid use the full deck width. Capping this value leaves a
     // large unused strip on the aisle side of each deck card on narrow screens.
     const cellW = Math.max(28, rawCellW);

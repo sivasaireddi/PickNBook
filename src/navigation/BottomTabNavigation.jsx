@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
-import { Platform, StyleSheet, View, Animated } from "react-native";
+import { Keyboard, Platform, StyleSheet, View, Animated } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import HomeScreen from "../screens/dashboard/bottomTabScreens/HomeScreen";
 import HotelsScreen from "../screens/dashboard/bottomTabScreens/HotelsScreen";
@@ -11,7 +11,8 @@ import HotelPassengerDetailsScreen from "../screens/HotelPassengerDetailsScreen"
 import HotelBookingConfirmationScreen from "../screens/dashboard/bottomTabScreens/HotelBookingConfirmationScreen";
 import BusScreen from "../screens/dashboard/bottomTabScreens/BusScreen";
 import FlightScreen from "../screens/dashboard/bottomTabScreens/FlightScreen";
-import PickCashScreen from "../screens/dashboard/bottomTabScreens/PickCashScreen";
+import BusLocationSearchScreen from "../screens/dashboard/bottomTabScreens/BusLocationSearchScreen";
+import OffersScreen from "../screens/dashboard/bottomTabScreens/OffersScreen";
 import BookingsScreen from "../screens/dashboard/bottomTabScreens/BookingsScreen";
 import HelpScreen from "../screens/dashboard/bottomTabScreens/HelpScreen";
 import ProfileScreen from "../screens/dashboard/bottomTabScreens/ProfileScreen";
@@ -30,6 +31,11 @@ function HomeStackNavigator() {
       <HomeStack.Screen name="HotelBookingConfirmation" component={HotelBookingConfirmationScreen} />
       <HomeStack.Screen name="BusScreen" component={BusScreen} />
       <HomeStack.Screen name="FlightScreen" component={FlightScreen} />
+      <HomeStack.Screen
+        name="BusLocationSearchScreen"
+        component={BusLocationSearchScreen}
+        options={{ animation: 'slide_from_bottom' }}
+      />
     </HomeStack.Navigator>
   );
 }
@@ -136,9 +142,26 @@ export default function BottomTabNavigation() {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeStackNavigator} />
+      <Tab.Screen
+        name="Home"
+        component={HomeStackNavigator}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            // Prevent the default tab-switch so we don't fire two navigation
+            // actions (default switch + our explicit navigate below).
+            e.preventDefault();
+            // Dismiss the soft keyboard BEFORE navigating so HomeScreen
+            // always mounts into the full-height window, avoiding the
+            // layout jump that happens when the keyboard dismisses async.
+            Keyboard.dismiss();
+            // Pop the HomeStack back to HomeScreenMain (e.g. if the user
+            // was on BusScreen or BusLocationSearchScreen).
+            navigation.navigate('Home', { screen: 'HomeScreenMain' });
+          },
+        })}
+      />
       <Tab.Screen name="Bookings" component={BookingsScreen} />
-      <Tab.Screen name="Offers" component={PickCashScreen} />
+      <Tab.Screen name="Offers" component={OffersScreen} />
       <Tab.Screen name="Help" component={HelpScreen} />
       <Tab.Screen name="Account" component={ProfileScreen} />
     </Tab.Navigator>

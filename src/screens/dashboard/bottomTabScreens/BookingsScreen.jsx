@@ -32,6 +32,7 @@ import {
 import { AUTH_API_BASE_URL } from "../../../services/authService";
 import { useNavigation } from "@react-navigation/native";
 import { readConfirmedFlightBookingsLocally } from "./flights/services/flightBookingFlowStore";
+import AppHeader from "../../../components/AppHeader";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -345,19 +346,13 @@ export default function BookingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["left", "right", "bottom"]}>
+      <AppHeader title="Bookings" />
       <StatusBar barStyle="dark-content" backgroundColor="#F6F7FB" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.headerBox}>
-          <Text style={styles.pageTitle}>My bookings</Text>
-          <Text style={styles.pageSubtitle}>
-            Every trip, stay and flight — in one place
-          </Text>
-        </View>
-
         <View style={styles.segmentedContainer}>
           <Animated.View
             style={[

@@ -21,6 +21,7 @@ import FlightListingScreen from "../screens/dashboard/bottomTabScreens/flights/F
 import FlightPassengerDetailsScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPassengerDetailsScreen";
 import FlightSeatSelectionScreen from "../screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen";
 import FlightPaymentScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPaymentScreen";
+import FlightPaymentProcessingScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPaymentProcessingScreen";
 import FlightConfirmationScreen from "../screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen";
 import FlightDetailsScreen from "../screens/dashboard/bottomTabScreens/flights/FlightDetailsScreen";
 import BottomTabNavigation from "./BottomTabNavigation";
@@ -37,9 +38,11 @@ import SeaterSleeper2Plus1Standard from "../practice/SeaterSleeper2Plus1Standard
 import PostBusBookingScreen from "../practice/PostBusBookingScreen";
 import BookingDetailsScreen from "../screens/booking/BookingDetailsScreen";
 import Seater from "../practice/Seater";
-import BusLocationSearchScreen from "../screens/dashboard/bottomTabScreens/BusLocationSearchScreen";
+
 import NotificationsScreen from "../screens/dashboard/bottomTabScreens/NotificationsScreen";
 import TravelersScreen from "../screens/TravelersScreen";
+import WalletScreen from "../screens/wallet/WalletScreen";
+import WalletTransactionsScreen from "../screens/wallet/WalletTransactionsScreen";
 
 // Cashfree Payment Screens
 import CheckoutScreen from "../screens/CheckoutScreen";
@@ -101,6 +104,7 @@ const StackNavigation = () => {
       <Stack.Screen name="FlightPassengerDetailsScreen" component={FlightPassengerDetailsScreen} />
       <Stack.Screen name="FlightSeatSelectionScreen" component={FlightSeatSelectionScreen} />
       <Stack.Screen name="FlightPaymentScreen" component={FlightPaymentScreen} />
+      <Stack.Screen name="FlightPaymentProcessingScreen" component={FlightPaymentProcessingScreen} />
       <Stack.Screen name="FlightConfirmationScreen" component={FlightConfirmationScreen} />
       <Stack.Screen name="FlightDetailsScreen" component={FlightDetailsScreen} />
       <Stack.Screen name="Seater" component={Seater} />
@@ -123,13 +127,11 @@ const StackNavigation = () => {
         name="BookingDetailsScreen"
         component={BookingDetailsScreen}
       />
-      <Stack.Screen
-        name="BusLocationSearchScreen"
-        component={BusLocationSearchScreen}
-        options={{ animation: 'slide_from_bottom' }}
-      />
+
       <Stack.Screen name="NotificationsScreen" component={NotificationsScreen} />
       <Stack.Screen name="TravelersScreen" component={TravelersScreen} />
+      <Stack.Screen name="WalletScreen" component={WalletScreen} />
+      <Stack.Screen name="WalletTransactionsScreen" component={WalletTransactionsScreen} />
       
       {/* Cashfree Payment Screens */}
       <Stack.Screen name="CheckoutScreen" component={CheckoutScreen} />

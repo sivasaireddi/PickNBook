@@ -3,7 +3,7 @@ import { Alert, StyleSheet, View, useWindowDimensions, Modal, ActivityIndicator,
 import { SafeAreaView } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
-import { writeFlightBookingFlowState, readFlightBookingFlowState, clearFlightBookingFlowState } from "./services/flightBookingFlowStore";
+import { writeFlightBookingFlowState, readFlightBookingFlowState } from "./services/flightBookingFlowStore";
 import { getTravelers } from "../../../../services/travelerService";
 import { getStoredAuthToken } from "../../../../utils/authSession";
 import { getFlightFareRule } from "./services/flightBookingService";
@@ -18,6 +18,9 @@ import PassengerCard from "./components/PassengerCard";
 import ContactCard from "./components/ContactCard";
 import FareRuleModal from "./components/FareRuleModal";
 import StickyFooter from "./components/StickyFooter";
+import PassengerFlightSummary from "./components/PassengerFlightSummary";
+import ImportantInformationCard from "./components/ImportantInformationCard";
+import AcknowledgementCard from "./components/AcknowledgementCard";
 
 export default function FlightPassengerDetailsScreen({ route, navigation }) {
   const { width } = useWindowDimensions();
@@ -159,6 +162,9 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
   const [travelersError, setTravelersError] = useState(null);
   const [selectedTravelerId, setSelectedTravelerId] = useState(null);
   const [errors, setErrors] = useState({});
+  const [acknowledgementAccepted, setAcknowledgementAccepted] = useState(
+    Boolean(flowState.acknowledgementAccepted)
+  );
 
   // Fetch saved travelers from service
   const fetchSavedTravelers = useCallback(async () => {
@@ -206,7 +212,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
         title,
         firstName,
         lastName,
-        gender: traveler.gender || "Male",
+        gender: traveler.gender === "Transgender" ? "Others" : (traveler.gender || "Male"),
       };
       return next;
     });
@@ -315,9 +321,14 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       isValid = false;
     }
 
+    if (!acknowledgementAccepted) {
+      nextErrors.acknowledgement = "Please accept the cancellation rules and booking terms to continue.";
+      isValid = false;
+    }
+
     setErrors(nextErrors);
     return isValid;
-  }, [passengers, contact, isInternational]);
+  }, [passengers, contact, isInternational, acknowledgementAccepted]);
 
   // Handle Continue to Seat Selection
   const handleContinue = useCallback(async () => {
@@ -356,6 +367,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       srdvIndex: activeSrdvIndex,
       passengers,
       contact,
+      acknowledgementAccepted,
       selectedSeats: [],
       selectedSeatLabels: [],
       fareSummary: flowState.fareSummary || {
@@ -367,13 +379,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     await writeFlightBookingFlowState(nextState);
     console.log("[FlightPassengerDetailsScreen] Navigating to FlightSeatSelectionScreen...");
     navigation.navigate("FlightSeatSelectionScreen", nextState);
-  }, [validateDetails, errors, passengers, contact, flowState, routeParams, navigation]);
-
-  // Handle Clear Draft
-  const handleClearDraft = useCallback(() => {
-    clearFlightBookingFlowState();
-    Alert.alert("Draft Cleared", "Passenger details draft has been cleared.");
-  }, []);
+  }, [validateDetails, errors, passengers, contact, acknowledgementAccepted, flowState, routeParams, navigation]);
 
   const handleBackPress = useCallback(() => {
     navigation.goBack();
@@ -398,6 +404,13 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.container, width >= 768 && styles.containerWide]}>
+            <PassengerFlightSummary
+              flight={flowState.flight || {}}
+              outboundFlight={flowState.outboundFlight}
+              returnFlight={flowState.returnFlight}
+              searchContext={flowState.searchContext || {}}
+              fareSummary={flowState.fareSummary || {}}
+            />
             {/* Saved Travellers Card */}
             <SavedTravellerCard
               savedTravelers={savedTravelers}
@@ -428,13 +441,24 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
               onUpdateContact={updateContact}
             />
 
+            <ImportantInformationCard />
+
+            <AcknowledgementCard
+              value={acknowledgementAccepted}
+              onChange={(value) => {
+                setAcknowledgementAccepted(value);
+                if (value) setErrors((prev) => ({ ...prev, acknowledgement: undefined }));
+              }}
+              error={errors.acknowledgement}
+            />
+
             {/* View Fare Rules & Cancellation Policy Trigger Button */}
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={handleFetchFareRules}
               style={styles.fareRuleBtn}
             >
-              <Ionicons name="document-text-outline" size={18} color="#E11D2E" />
+              <Ionicons name="document-text-outline" size={18} color={COLORS.primaryRed} />
               <Text style={styles.fareRuleBtnText}>View Fare Rules & Cancellation Policy</Text>
             </TouchableOpacity>
           </View>
@@ -452,7 +476,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
         />
 
         {/* Sticky Action Footer */}
-        <StickyFooter onContinue={handleContinue} onClearDraft={handleClearDraft} />
+        <StickyFooter onContinue={handleContinue} />
       </SafeAreaView>
     </View>
   );
@@ -473,9 +497,9 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
   },
   container: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    gap: 20,
+    paddingHorizontal: 12,
+    paddingTop: 2,
+    gap: 10,
   },
   containerWide: {
     maxWidth: 720,
@@ -487,18 +511,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: "#FEF2F2",
+    backgroundColor: "#FFF1F2",
     borderWidth: 1,
-    borderColor: "#FCA5A5",
-    paddingVertical: 12,
+    borderColor: "#FECACA",
+    paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 12,
     marginTop: 4,
   },
   fareRuleBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    color: "#E11D2E",
+    color: COLORS.primaryRed,
   },
   modalOverlay: {
     flex: 1,

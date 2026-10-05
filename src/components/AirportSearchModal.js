@@ -31,6 +31,11 @@ const POPULAR_AIRPORTS = [
   { cityName: "Visakhapatnam", airportCode: "VTZ", airportName: "Visakhapatnam Airport", airportId: "VTZ", country: "India" },
 ];
 
+const extractPlaces = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  return payload?.data || payload?.results || payload?.places || payload?.items || [];
+};
+
 export function AirportSearchModal({
   visible,
   onClose,
@@ -49,10 +54,19 @@ export function AirportSearchModal({
     };
   }, []);
 
+  useEffect(() => {
+    if (visible) {
+      setSearchQuery("");
+      setApiResults([]);
+      setLoading(false);
+    }
+  }, [visible]);
+
   const handleSearchChange = (text) => {
     setSearchQuery(text);
     
-    if (text.trim().length < 2) {
+    // Match the web search: suggestions begin after the first character.
+    if (text.trim().length < 1) {
       setApiResults([]);
       setLoading(false);
       return;
@@ -63,9 +77,9 @@ export function AirportSearchModal({
     
     debounceTimer.current = setTimeout(async () => {
       try {
-        const results = await searchAirports(text.trim(), "all");
+        const results = await searchAirports(text.trim(), "all", 20);
         // API returns objects with { cityName, airportCode, airportName, ... }
-        setApiResults(results || []);
+        setApiResults(extractPlaces(results));
       } catch (e) {
         setApiResults([]);
       } finally {
@@ -75,14 +89,15 @@ export function AirportSearchModal({
   };
 
   const filteredAirports = useMemo(() => {
-    if (!searchQuery.trim()) return POPULAR_AIRPORTS;
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) return POPULAR_AIRPORTS;
     
     // If we have API results, use them
     let results = apiResults.length > 0 ? [...apiResults] : [];
     
     // Fallback to local filter if API returned nothing but we are still searching
     if (results.length === 0) {
-      const query = searchQuery.trim().toLowerCase();
       results = POPULAR_AIRPORTS.filter(
         (item) =>
           item.cityName.toLowerCase().includes(query) ||
@@ -91,21 +106,8 @@ export function AirportSearchModal({
       );
     }
 
-    
-    // Add custom manual entry at the top
-    const customCode = query.substring(0, 3).toUpperCase();
-    results.unshift({
-      cityName: searchQuery.trim(),
-      airportCode: customCode,
-      airportName: `Use custom entry: ${searchQuery.trim()}`,
-      airportId: customCode,
-      country: "",
-      isCustom: true,
-      id: "custom-entry"
-    });
-
     return results;
-  }, [searchQuery]);
+  }, [searchQuery, apiResults]);
 
   if (!visible) return null;
 
@@ -136,19 +138,6 @@ export function AirportSearchModal({
             style={styles.searchInput}
             autoFocus
             clearButtonMode="while-editing"
-            onSubmitEditing={() => {
-              if (searchQuery.trim().length > 0) {
-                 const customCode = searchQuery.trim().substring(0, 3).toUpperCase();
-                 onSelectAirport({
-                    cityName: searchQuery.trim(),
-                    airportCode: customCode,
-                    airportName: `Custom: ${searchQuery.trim()}`,
-                    airportId: customCode,
-                    country: ""
-                 });
-                 onClose();
-              }
-            }}
           />
           {searchQuery.length > 0 && Platform.OS === "android" && (
             <TouchableOpacity onPress={() => handleSearchChange("")}>
@@ -164,7 +153,7 @@ export function AirportSearchModal({
         ) : (
           <FlatList
           data={filteredAirports}
-          keyExtractor={(item) => item.id || item.airportCode}
+          keyExtractor={(item, index) => `${item.id || item.airportCode || item.cityName}-${index}`}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
@@ -174,21 +163,22 @@ export function AirportSearchModal({
                 onSelectAirport(item);
                 onClose();
               }}
-              style={[styles.airportItem, item.isCustom && { backgroundColor: COLORS.surfaceMuted, borderBottomWidth: 2, borderBottomColor: COLORS.primary }]}
+              style={styles.airportItem}
             >
-              <View style={[styles.planeIconCircle, item.isCustom && { backgroundColor: COLORS.primary + "20" }]}>
-                <Ionicons name={item.isCustom ? "create-outline" : "airplane-outline"} size={20} color={COLORS.primary} />
+              <View style={styles.planeIconCircle}>
+                <Ionicons name="airplane-outline" size={20} color={COLORS.primary} />
               </View>
 
               <View style={styles.itemInfo}>
-                <Text style={[styles.itemCity, item.isCustom && { color: COLORS.primary }]}>{item.cityName}</Text>
+                <View style={styles.cityCodeRow}>
+                  <Text style={styles.itemCity} numberOfLines={1}>{item.cityName}</Text>
+                  <View style={styles.codeBadge}>
+                    <Text style={styles.codeText}>{item.airportCode}</Text>
+                  </View>
+                </View>
                 <Text style={styles.itemName} numberOfLines={1}>
                   {item.airportName}
                 </Text>
-              </View>
-
-              <View style={styles.codeBadge}>
-                <Text style={styles.codeText}>{item.airportCode}</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -272,6 +262,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: COLORS.textPrimary,
+    flexShrink: 1,
+  },
+  cityCodeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   itemName: {
     fontSize: 12,

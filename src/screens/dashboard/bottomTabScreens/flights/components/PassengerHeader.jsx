@@ -1,10 +1,32 @@
-import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { COLORS, RADII, SHADOWS } from "../theme/passengerDetailsTheme";
 
 export const PassengerHeader = React.memo(({ onBackPress }) => {
+  const activeStepScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(activeStepScale, {
+          toValue: 1.08,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+        Animated.timing(activeStepScale, {
+          toValue: 1,
+          duration: 850,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    pulse.start();
+    return () => pulse.stop();
+  }, [activeStepScale]);
+
   return (
     <View style={styles.container}>
       {/* Header Top Row */}
@@ -38,12 +60,14 @@ export const PassengerHeader = React.memo(({ onBackPress }) => {
 
         {/* Step 2: Passenger Details (Active) */}
         <View style={styles.stepItem}>
-          <LinearGradient
-            colors={[COLORS.primaryGradientStart, COLORS.primaryGradientEnd]}
-            style={styles.stepDotActive}
-          >
-            <Text style={styles.stepDotActiveText}>2</Text>
-          </LinearGradient>
+          <Animated.View style={[styles.activeStepPulse, { transform: [{ scale: activeStepScale }] }]}>
+            <LinearGradient
+              colors={[COLORS.primaryGradientStart, COLORS.primaryGradientEnd]}
+              style={styles.stepDotActive}
+            >
+              <Text style={styles.stepDotActiveText}>2</Text>
+            </LinearGradient>
+          </Animated.View>
           <Text style={styles.stepTextActive}>Passengers</Text>
         </View>
 
@@ -73,9 +97,9 @@ export const PassengerHeader = React.memo(({ onBackPress }) => {
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingHorizontal: 12,
+    paddingTop: 4,
+    paddingBottom: 6,
     backgroundColor: "transparent",
   },
   topRow: {
@@ -83,8 +107,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   backCircleBtn: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     borderRadius: RADII.pill,
     backgroundColor: COLORS.white,
     justifyContent: "center",
@@ -94,17 +118,17 @@ const styles = StyleSheet.create({
     ...SHADOWS.glassCard,
   },
   titleWrap: {
-    marginLeft: 14,
+    marginLeft: 10,
     flex: 1,
   },
   title: {
-    fontSize: 22,
+    fontSize: 17,
     fontWeight: "900",
     color: COLORS.textDark,
     letterSpacing: -0.4,
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: 9,
     color: COLORS.textMuted,
     fontWeight: "600",
     marginTop: 2,
@@ -112,47 +136,53 @@ const styles = StyleSheet.create({
   progressContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 18,
-    paddingHorizontal: 4,
+    marginTop: 8,
+    paddingHorizontal: 0,
   },
   stepItem: {
     alignItems: "center",
     gap: 4,
   },
   stepDotDone: {
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
     borderRadius: RADII.pill,
     backgroundColor: COLORS.successGreen,
     justifyContent: "center",
     alignItems: "center",
   },
   stepTextDone: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: "700",
     color: COLORS.successGreen,
   },
   stepDotActive: {
-    width: 26,
-    height: 26,
+    width: 24,
+    height: 24,
     borderRadius: RADII.pill,
     justifyContent: "center",
     alignItems: "center",
     ...SHADOWS.focusedInput,
   },
+  activeStepPulse: {
+    width: 28,
+    height: 28,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   stepDotActiveText: {
     color: COLORS.white,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900",
   },
   stepTextActive: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: "800",
     color: COLORS.primaryRed,
   },
   stepDotUpcoming: {
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
     borderRadius: RADII.pill,
     backgroundColor: COLORS.inputBg,
     borderWidth: 1,
@@ -162,11 +192,11 @@ const styles = StyleSheet.create({
   },
   stepDotUpcomingText: {
     color: COLORS.textSubtle,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
   },
   stepTextUpcoming: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: "600",
     color: COLORS.textSubtle,
   },

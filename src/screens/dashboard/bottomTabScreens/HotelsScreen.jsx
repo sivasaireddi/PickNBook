@@ -21,13 +21,9 @@ import {
   CalendarDays,
   Search,
   ArrowRight,
-  ShieldCheck,
-  Ticket,
-  Clock,
   Plus,
   X,
   Minus,
-  MapPin,
   Trash2,
 } from "lucide-react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -36,6 +32,7 @@ import * as SecureStore from "expo-secure-store";
 import { searchHotelOffers, resolveCityId, searchCities } from "../../../services/hotelService";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
 import { scale } from "../../../utils/responsive";
+import OffersCarousel from "../../../components/OffersCarousel";
 
 const LAST_HOTEL_SEARCH_KEY = "LAST_HOTEL_SEARCH";
 
@@ -106,17 +103,6 @@ const HotelsScreen = () => {
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.98)).current;
   
-  const badgesOpacity = [
-    useRef(new Animated.Value(0)).current,
-    useRef(new Animated.Value(0)).current,
-    useRef(new Animated.Value(0)).current,
-  ];
-  const badgesTranslateY = [
-    useRef(new Animated.Value(15)).current,
-    useRef(new Animated.Value(15)).current,
-    useRef(new Animated.Value(15)).current,
-  ];
-  
   const ctaArrowTranslateX = useRef(new Animated.Value(0)).current;
   const destinationIconScale = useRef(new Animated.Value(1)).current;
 
@@ -130,18 +116,10 @@ const HotelsScreen = () => {
     ).start();
 
     // Entrance Animation Sequence
-    Animated.stagger(150, [
-      Animated.parallel([
-        Animated.timing(cardOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-        Animated.spring(cardTranslateY, { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
-        Animated.spring(cardScale, { toValue: 1, friction: 7, tension: 40, useNativeDriver: true }),
-      ]),
-      Animated.stagger(100, badgesOpacity.map((op, i) => 
-        Animated.parallel([
-          Animated.timing(op, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.spring(badgesTranslateY[i], { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
-        ])
-      ))
+    Animated.parallel([
+      Animated.timing(cardOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+      Animated.spring(cardTranslateY, { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
+      Animated.spring(cardScale, { toValue: 1, friction: 7, tension: 40, useNativeDriver: true }),
     ]).start();
 
     return () => {
@@ -181,7 +159,7 @@ const HotelsScreen = () => {
 
   const handleCityInput = (text) => {
     setDestinationInput(text);
-    if (text.trim().length < 2) {
+    if (text.trim().length < 1) {
       setCitySuggestions([]);
       setShowSuggestions(false);
       return;
@@ -418,7 +396,7 @@ const HotelsScreen = () => {
                 }}
                 style={styles.input}
                 onFocus={() => {
-                   if (destinationInput.trim().length >= 2) setShowSuggestions(true);
+                   if (destinationInput.trim().length >= 1) setShowSuggestions(true);
                 }}
               />
               {destinationInput.length > 0 && (
@@ -452,7 +430,7 @@ const HotelsScreen = () => {
                   >
                     {citySuggestions.map((item, index) => (
                       <Pressable
-                        key={index}
+                        key={String(item.cityId || item.cityCode || `${item.cityName}-${index}`)}
                         style={styles.dropdownItem}
                         onPress={() => {
                           setDestinationInput(item.cityName);
@@ -460,10 +438,10 @@ const HotelsScreen = () => {
                           setShowSuggestions(false);
                         }}
                       >
-                        <MapPin size={scale(16)} color="#C0272D" />
+                        <Building2 size={scale(16)} color="#C0272D" />
                         <View style={styles.dropdownItemTextContainer}>
                           <Text style={styles.dropdownText}>{item.cityName}</Text>
-                          {item.countryName ? <Text style={styles.dropdownSubtext}>{item.countryName}</Text> : null}
+                          {(item.stateName || item.countryName) ? <Text style={styles.dropdownSubtext}>{item.stateName || item.countryName}</Text> : null}
                         </View>
                       </Pressable>
                     ))}
@@ -615,21 +593,7 @@ const HotelsScreen = () => {
             </AnimatedPressable>
           </Animated.View>
 
-          {/* Trust Badges */}
-          <View style={styles.trustBadgesRow}>
-            <Animated.View style={[styles.trustBadge, { opacity: badgesOpacity[0], transform: [{ translateY: badgesTranslateY[0] }] }]}>
-              <ShieldCheck size={scale(20)} color="#C0272D" />
-              <Text style={styles.trustBadgeText}>Safe and secure</Text>
-            </Animated.View>
-            <Animated.View style={[styles.trustBadge, { opacity: badgesOpacity[1], transform: [{ translateY: badgesTranslateY[1] }] }]}>
-              <Ticket size={scale(20)} color="#C0272D" />
-              <Text style={styles.trustBadgeText}>Easy cancellation</Text>
-            </Animated.View>
-            <Animated.View style={[styles.trustBadge, { opacity: badgesOpacity[2], transform: [{ translateY: badgesTranslateY[2] }] }]}>
-              <Clock size={scale(20)} color="#C0272D" />
-              <Text style={styles.trustBadgeText}>Real-time rates</Text>
-            </Animated.View>
-          </View>
+          <OffersCarousel serviceType="hotel" />
         </View>
       </ScrollView>
 
@@ -715,9 +679,9 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: scale(20),
-    paddingHorizontal: scale(12),
-    paddingTop: scale(12),
-    paddingBottom: scale(12),
+    paddingHorizontal: scale(10),
+    paddingTop: scale(10),
+    paddingBottom: scale(10),
     shadowColor: "rgba(0, 0, 0, 0.04)",
     shadowOffset: { width: 0, height: scale(6) },
     shadowOpacity: 1,
@@ -725,51 +689,51 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   label: {
-    fontSize: scale(11),
+    fontSize: scale(10),
     fontWeight: "800",
     color: "#6B7280",
     letterSpacing: 0.8,
-    marginBottom: scale(6),
+    marginBottom: scale(4),
     textTransform: "uppercase",
   },
   inputContainer: {
-    minHeight: scale(52),
+    minHeight: scale(44),
     backgroundColor: "#F9FAFB",
     borderWidth: 1,
     borderColor: "#D9DEE7",
-    borderRadius: scale(16),
+    borderRadius: scale(13),
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: scale(14),
-    marginBottom: scale(12),
+    paddingHorizontal: scale(10),
+    marginBottom: scale(8),
   },
   inputContainerActive: {
     borderColor: "#C0272D",
     backgroundColor: "#FFFFFF",
   },
   inputIconChip: {
-    width: scale(32),
-    height: scale(32),
+    width: scale(28),
+    height: scale(28),
     backgroundColor: "#FEE2E2",
-    borderRadius: scale(10),
+    borderRadius: scale(8),
     justifyContent: "center",
     alignItems: "center",
   },
   input: {
     flex: 1,
     minWidth: 0,
-    marginLeft: scale(10),
-    fontSize: scale(16),
+    marginLeft: scale(8),
+    fontSize: scale(14),
     color: "#1F2937",
     fontWeight: "600",
   },
   clearButton: {
-    width: scale(44),
-    height: scale(44),
-    borderRadius: scale(22),
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
     justifyContent: "center",
     alignItems: "center",
-    marginRight: -scale(6),
+    marginRight: -scale(4),
   },
   dropdown: {
     backgroundColor: "#FFFFFF",
@@ -854,8 +818,8 @@ const styles = StyleSheet.create({
   dateRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: scale(12),
-    marginBottom: scale(16),
+    gap: scale(8),
+    marginBottom: scale(12),
   },
   dateRowStacked: {
     flexDirection: "column",
@@ -865,19 +829,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dateInput: {
-    minHeight: scale(52),
+    minHeight: scale(44),
     borderWidth: 1,
     borderColor: "#D9DEE7",
-    borderRadius: scale(16),
+    borderRadius: scale(13),
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: scale(14),
+    paddingHorizontal: scale(10),
     backgroundColor: "#F9FAFB",
   },
   dateText: {
     flexShrink: 1,
-    marginLeft: scale(10),
-    fontSize: scale(15),
+    marginLeft: scale(8),
+    fontSize: scale(13),
     color: "#1F2937",
     fontWeight: "600",
   },
@@ -889,11 +853,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: scale(10),
+    marginBottom: scale(8),
   },
   roomsTitle: {
     flexShrink: 1,
-    fontSize: scale(17),
+    fontSize: scale(15),
     fontWeight: "700",
     color: "#1F2937",
   },
@@ -906,32 +870,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: scale(4),
     flexShrink: 0,
-    paddingVertical: scale(8),
-    paddingHorizontal: scale(10),
+    paddingVertical: scale(6),
+    paddingHorizontal: scale(8),
     backgroundColor: "#FEE2E2",
-    borderRadius: scale(12),
+    borderRadius: scale(10),
   },
   addRoomText: {
     color: "#C0272D",
     fontWeight: "600",
-    fontSize: scale(13),
+    fontSize: scale(12),
   },
   roomCard: {
     backgroundColor: "#F9FAFB",
-    borderRadius: scale(16),
+    borderRadius: scale(13),
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    padding: scale(14),
-    marginBottom: scale(12),
+    padding: scale(10),
+    marginBottom: scale(8),
   },
   roomTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: scale(10),
+    marginBottom: scale(7),
   },
   roomTitle: {
-    fontSize: scale(14),
+    fontSize: scale(13),
     fontWeight: "600",
     color: "#1F2937",
   },
@@ -941,43 +905,43 @@ const styles = StyleSheet.create({
   guestRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: scale(12),
+    gap: scale(8),
   },
   guestControlBox: {
     flex: 1,
   },
   guestSubLabel: {
-    fontSize: scale(13),
+    fontSize: scale(12),
     fontWeight: "600",
     color: "#6B7280",
-    marginBottom: scale(6),
+    marginBottom: scale(4),
   },
   stepper: {
-    height: scale(44),
+    height: scale(38),
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: scale(12),
+    borderRadius: scale(10),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: scale(8),
+    paddingHorizontal: scale(6),
     backgroundColor: "#FFFFFF",
   },
   stepperBtn: {
-    width: scale(36),
-    height: scale(36),
-    borderRadius: scale(10),
+    width: scale(30),
+    height: scale(30),
+    borderRadius: scale(8),
     backgroundColor: "#FEE2E2",
     alignItems: "center",
     justifyContent: "center",
   },
   stepperValue: {
-    fontSize: scale(17),
+    fontSize: scale(15),
     fontWeight: "600",
     color: "#1F2937",
   },
   childAgesContainer: {
-    marginTop: scale(12),
+    marginTop: scale(8),
   },
   childAgesRow: {
     flexDirection: "row",
@@ -990,22 +954,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    borderRadius: scale(12),
-    paddingHorizontal: scale(10),
-    gap: scale(6),
-    height: scale(44),
+    borderRadius: scale(10),
+    paddingHorizontal: scale(8),
+    gap: scale(4),
+    height: scale(38),
   },
   childAgeTag: {
-    fontSize: scale(12),
+    fontSize: scale(11),
     color: "#6B7280",
     fontWeight: "500",
   },
   childAgeInput: {
-    width: scale(32),
-    height: scale(32),
+    width: scale(28),
+    height: scale(28),
     textAlign: "center",
     fontWeight: "600",
-    fontSize: scale(15),
+    fontSize: scale(13),
     color: "#1F2937",
   },
   errorText: {
@@ -1023,8 +987,8 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   searchButtonGradient: {
-    borderRadius: scale(22),
-    height: scale(44),
+    borderRadius: scale(20),
+    height: scale(40),
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1036,31 +1000,7 @@ const styles = StyleSheet.create({
   },
   searchButtonText: {
     color: "#FFFFFF",
-    fontSize: scale(15),
+    fontSize: scale(14),
     fontWeight: "700",
-  },
-  trustBadgesRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: scale(8),
-    marginTop: scale(16),
-  },
-  trustBadge: {
-    flex: 1,
-    minWidth: scale(90),
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#EDEAE6",
-    borderRadius: scale(14),
-    paddingVertical: scale(12),
-    paddingHorizontal: scale(10),
-    alignItems: "center",
-    gap: scale(6),
-  },
-  trustBadgeText: {
-    fontSize: scale(10.5),
-    fontWeight: "500",
-    color: "#231F1F",
-    textAlign: "center",
   },
 });

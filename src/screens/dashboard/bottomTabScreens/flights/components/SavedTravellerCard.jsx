@@ -92,20 +92,20 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: COLORS.cardBg,
     borderRadius: RADII.card,
-    padding: 20,
+    padding: 10,
     borderWidth: 1,
     borderColor: COLORS.borderLight,
-    gap: 16,
+    gap: 7,
     ...SHADOWS.glassCard,
   },
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 9,
   },
   avatarBadge: {
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     borderRadius: RADII.cardSmall,
     backgroundColor: COLORS.badgeBg,
     justifyContent: "center",
@@ -115,13 +115,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "900",
     color: COLORS.textDark,
     letterSpacing: -0.2,
   },
   cardSubtitle: {
-    fontSize: 12,
+    fontSize: 8,
     color: COLORS.textMuted,
     fontWeight: "600",
     marginTop: 2,
@@ -203,11 +203,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.borderMedium,
     borderRadius: RADII.input,
     overflow: "hidden",
+    minHeight: 50,
   },
   pickerControl: {
     color: COLORS.textDark,
     backgroundColor: "transparent",
-    height: 52,
+    height: 50,
+    fontSize: 12,
   },
 });
 

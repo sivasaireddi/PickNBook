@@ -176,11 +176,10 @@ const SplashScreen = ({ navigation }) => {
 
       <View style={styles.topSection}>
         <Animated.View style={{ opacity: logoOpacity, transform: [{ scale: logoScale }], alignItems: 'center' }}>
-          <Text style={styles.logoText}>
-            <Text style={{ color: '#D71920' }}>Pick</Text>
-            <Text style={{ color: '#FF8A00' }}>N</Text>
-            <Text style={{ color: '#121826' }}>Book</Text>
-          </Text>
+          <Image 
+            source={require('../../../assets/Splash-Icon.png')}
+            style={styles.logoImage}
+          />
         </Animated.View>
         <Animated.Text style={[styles.tagline, { opacity: taglineOpacity }]}>
           One App. Every Journey.
@@ -243,10 +242,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-  logoText: {
-    fontSize: 44,
-    fontWeight: '900',
-    letterSpacing: 0.5,
+  logoImage: {
+    width: 260,
+    height: 70,
+    resizeMode: 'contain',
   },
   tagline: {
     fontSize: 16,

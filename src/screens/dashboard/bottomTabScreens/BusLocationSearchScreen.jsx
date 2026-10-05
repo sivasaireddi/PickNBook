@@ -31,7 +31,7 @@ const BusLocationSearchScreen = () => {
   
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      if (query.trim().length >= 2) {
+      if (query.trim().length >= 1) {
         handleSearch(query);
       } else if (query.trim().length === 0) {
         setResults([]);
@@ -124,9 +124,10 @@ const BusLocationSearchScreen = () => {
         }
       });
       
+      // Keep the order in which the API returned the cities. The previous
+      // alphabetical sort changed the supplier ranking/order shown to users
+      // (for example, Chennai was returned first but appeared after Chabi).
       const groupedArray = Object.values(grouped);
-      
-      groupedArray.sort((a, b) => a.city.localeCompare(b.city));
       
       console.log(`[BusLocationSearch] Grouped Locations length: ${groupedArray.length}`);
       setResults(groupedArray);
@@ -139,19 +140,16 @@ const BusLocationSearchScreen = () => {
 
   const handleSelect = (payload) => {
     console.log(`[BusLocationSearch] Selected Sub Location:`, payload);
-    if (returnTo) {
-      navigation.navigate(returnTo, {
-        busLocationSelection: payload,
-        busLocationSelectionType: type,
-        busLocationSelectionRequestId: selectionRequestId || String(Date.now()),
-        busLocationSource: currentSource,
-        busLocationDestination: currentDestination,
-      });
-      return;
-    }
-
-    // Keep a safe fallback for callers from older navigation state.
-    navigation.goBack();
+    // BusLocationSearchScreen is now in the same HomeStack as BusScreen.
+    // navigate('BusScreen') goes back to the existing BusScreen in the stack
+    // and delivers params cleanly — no Tab-level state is touched.
+    navigation.navigate('BusScreen', {
+      busLocationSelection: payload,
+      busLocationSelectionType: type,
+      busLocationSelectionRequestId: selectionRequestId || String(Date.now()),
+      busLocationSource: currentSource,
+      busLocationDestination: currentDestination,
+    });
   };
 
   const renderItem = ({ item }) => {
@@ -249,7 +247,7 @@ const BusLocationSearchScreen = () => {
               <ActivityIndicator size="large" color="#D11A2A" />
               <Text style={styles.statusText}>Searching locations...</Text>
             </View>
-          ) : query.length >= 2 && results.length === 0 && !loading ? (
+          ) : query.trim().length >= 1 && results.length === 0 && !loading ? (
             <View style={styles.centerContainer}>
               <MaterialCommunityIcons name="map-search-outline" size={48} color="#D11A2A" opacity={0.3} />
               <Text style={styles.noResultsText}>No locations found</Text>

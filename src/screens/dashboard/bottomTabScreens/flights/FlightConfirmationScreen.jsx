@@ -29,6 +29,14 @@ export default function FlightConfirmationScreen({ route, navigation }) {
 
   const isPending = String(flowState.ticketStatus || "").toLowerCase().includes("pending");
 
+  // ── Cashfree / SRDV fields from ProcessingScreen → ConfirmationScreen ──
+  const paymentMethod = String(flowState.paymentMethod || "Cashfree");
+  const paidAt = flowState.paidAt ? new Date(flowState.paidAt).toLocaleString("en-IN", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }) : null;
+  const cashfreeOrderId = flowState.cashfreeOrderId || null;
+
   useEffect(() => {
     console.log("================================================================================");
     console.log("🎉 [FLIGHT BOOKING FLOW - STEP 6: BOOKING CONFIRMATION & E-TICKET]");
@@ -89,16 +97,23 @@ export default function FlightConfirmationScreen({ route, navigation }) {
             </Text>
           </View>
 
-          {/* Reference block */}
+          {/* Reference block — PNR + Booking Ref + Payment Method */}
           <Animated.View style={[styles.card, { opacity: opacityAnim }, styles.refCard]}>
             <View style={styles.refCol}>
-              <Text style={styles.refLabel}>BOOKING ID / REF</Text>
-              <Text style={styles.refVal}>{flowState.bookingId || flowState.bookingReference || "N/A"}</Text>
+              <Text style={styles.refLabel}>BOOKING REF</Text>
+              <Text style={styles.refVal} numberOfLines={1}>
+                {flowState.bookingReference || flowState.bookingId || cashfreeOrderId || "N/A"}
+              </Text>
             </View>
             <View style={styles.refLine} />
             <View style={styles.refCol}>
               <Text style={styles.refLabel}>AIRLINE PNR</Text>
-              <Text style={styles.refVal}>{flowState.pnr || "N/A"}</Text>
+              <Text style={styles.refVal}>{flowState.pnr || "Issuing..."}</Text>
+            </View>
+            <View style={styles.refLine} />
+            <View style={styles.refCol}>
+              <Text style={styles.refLabel}>PAID VIA</Text>
+              <Text style={styles.refVal}>{paymentMethod}</Text>
             </View>
           </Animated.View>
 
@@ -156,6 +171,20 @@ export default function FlightConfirmationScreen({ route, navigation }) {
                 {formatCurrency(flowState.payableAmount || 0)}
               </Text>
             </View>
+            {paidAt ? (
+              <View style={[styles.paymentSummaryRow, { marginTop: 2 }]}>
+                <Text style={{ fontSize: 12, color: TEXT_MUTED, fontWeight: "500" }}>Paid at</Text>
+                <Text style={{ fontSize: 12, color: TEXT_MUTED, fontWeight: "700" }}>{paidAt}</Text>
+              </View>
+            ) : null}
+            {cashfreeOrderId ? (
+              <View style={[styles.paymentSummaryRow, { marginTop: 2 }]}>
+                <Text style={{ fontSize: 11, color: TEXT_MUTED, fontWeight: "500" }}>Order ID</Text>
+                <Text style={{ fontSize: 11, color: TEXT_MUTED, fontWeight: "600" }} numberOfLines={1}>
+                  {cashfreeOrderId}
+                </Text>
+              </View>
+            ) : null}
           </Animated.View>
 
           {/* Action Button Controls */}
