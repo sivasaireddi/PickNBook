@@ -60,6 +60,9 @@ client.interceptors.request.use(
 client.interceptors.response.use(
   (response) => {
     const fullUrl = `${response.config?.baseURL || ""}${response.config?.url || ""}`;
+    console.log(
+      `\n[FLIGHT API RESPONSE] ${response.config?.method?.toUpperCase()} ${fullUrl} (Status: ${response.status})\n${JSON.stringify(sanitizeForLog(response.data), null, 2)}`
+    );
     return response;
   },
   (error) => {
@@ -68,6 +71,7 @@ client.interceptors.response.use(
     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [FLIGHT API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
     console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Error Message:", error.message);
     if (error.response?.data) {
+      console.error("[FLIGHT API ERROR RESPONSE]", sanitizeForLog(error.response.data));
     }
     console.error(`==================================================\n`);
     return Promise.reject(error);
@@ -375,8 +379,14 @@ export async function searchFlights(searchParams) {
   // Unsafe log removed, rely on Axios interceptor
 
   try {
+    console.log("[FLIGHT SEARCH API REQUEST]", {
+      endpoint: "/api/flight/srdv/Search",
+      payload: sanitizeForLog(payload),
+    });
     const response = await client.post("/api/flight/srdv/Search", payload);
-    // Unsafe log removed, rely on Axios interceptor
+    console.log(
+      `[FLIGHT SEARCH API RESPONSE]\n${JSON.stringify(response.data, null, 2)}`
+    );
 
     const resObj = response?.data?.Response || response?.data;
     const errObj = resObj?.Error || response?.data?.Error;
@@ -387,6 +397,7 @@ export async function searchFlights(searchParams) {
     return mapFlightResults(response.data, fromCode, toCode, searchParams);
   } catch (error) {
     const errData = error?.response?.data;
+    console.error("[FLIGHT SEARCH API ERROR RESPONSE]", errData || error);
     const msg = errData?.Error?.ErrorMessage || errData?.message || errData?.title || error?.message;
     console.error("[FlightService] searchFlights failed:", msg);
     const customError = new Error(msg);
@@ -830,50 +841,6 @@ export async function getFeaturedOffers() {
   return response.data;
 }
 
-// 12. Get Calendar Fare: POST /api/flight/srdv/GetCalendarFare
-export async function getCalendarFare(searchParams = {}) {
-  const isMultiCity = searchParams.journeyType === 3 || String(searchParams.tripType || "").toLowerCase() === "multicity";
-  if (isMultiCity) {
-    return { success: true, isMultiCity: true, data: [] };
-  }
-
-  const fromCode = getCityCode(searchParams.from || searchParams.origin || "DEL");
-  const toCode = getCityCode(searchParams.to || searchParams.destination || "BOM");
-  const journeyDate = searchParams.date || searchParams.preferredDepartureTime || new Date().toISOString().slice(0, 10);
-  const cabinClassCode = toCabinClassCode(searchParams.travelClass || searchParams.flightCabinClass);
-
-  const payload = {
-    EndUserIp: searchParams.endUserIp || "192.168.1.1",
-    JourneyType: Number(searchParams.journeyType || 1),
-    FareType: Number(searchParams.fareType || 1),
-    Segments: [
-      {
-        Origin: fromCode,
-        Destination: toCode,
-        FlightCabinClass: cabinClassCode,
-        PreferredDepartureTime: `${journeyDate}T00:00:00`,
-        PreferredArrivalTime: `${journeyDate}T00:00:00`,
-      },
-    ],
-  };
-
-  try {
-    const response = await client.post("/api/flight/srdv/GetCalendarFare", payload);
-    
-    const resObj = response?.data?.Response || response?.data;
-    const errObj = resObj?.Error || response?.data?.Error;
-    if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
-      throw new Error(errObj.ErrorMessage);
-    }
-
-    return response.data;
-  } catch (error) {
-    const msg = error?.response?.data?.Error?.ErrorMessage || error?.message;
-    console.error("[FlightService] getCalendarFare request failed:", msg);
-    throw new Error(msg);
-  }
-}
-
 // 13. Database Persistence: Save Confirmed Booking (POST /api/flight/bookings)
 export async function saveFlightBooking(bookingPayload) {
   try {
@@ -930,7 +897,6 @@ export default {
   getCancellationCharges,
   sendCancelRequest,
   getCancelStatus,
-  getCalendarFare,
   saveFlightBooking,
   getUserFlightBookings,
   getFlightBookingDetails,

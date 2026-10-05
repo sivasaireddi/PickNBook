@@ -27,6 +27,7 @@ import {
   matchesBusFilters,
 } from "../../../utils/busFilters";
 import BusPoliciesModal from "./BusPoliciesModal";
+import BusBoardingDroppingModal from "./BusBoardingDroppingModal";
 import { API_BASE_URL } from "../../../constants/config";
 
 const BusListDataLoaderAsset = require("../../../../assets/BusListDataLoader.jpg");
@@ -499,6 +500,7 @@ const BusCards = ({
   const [loadingBusId, setLoadingBusId] = useState(null);
   const [navigatingBusId, setNavigatingBusId] = useState(null);
   const [policyModalBus, setPolicyModalBus] = useState(null);
+  const [boardingDroppingBus, setBoardingDroppingBus] = useState(null);
 
   // Refs for tracking animation values, active AbortController, and request deduplication
   const animatedValuesRef = useRef(new Map());
@@ -640,19 +642,7 @@ const BusCards = ({
       resultIndex: item?.resultIndex,
     });
 
-    navigation.navigate("BordingNDroppingPoints", {
-      busId,
-      from: getCityName(from),
-      to: getCityName(to),
-      date: formatHeaderDate(date),
-      dateValue: getSerializedDateValue(date),
-      operatorName: item?.operatorName,
-      bus: item,
-      boardingPoint: item?.boardingPoint,
-      droppingPoint: item?.droppingPoint,
-      boardingPoints: item?.boardingPoints,
-      droppingPoints: item?.droppingPoints,
-    });
+    setBoardingDroppingBus(item);
   }, [getBusId, getCityName, from, to, date, navigation]);
 
   const handleOpenPolicies = useCallback((item) => {
@@ -957,6 +947,13 @@ const BusCards = ({
         visible={!!policyModalBus}
         bus={policyModalBus}
         onClose={handleClosePolicies}
+      />
+      <BusBoardingDroppingModal
+        visible={!!boardingDroppingBus}
+        bus={boardingDroppingBus}
+        fromCity={getCityName(from)}
+        toCity={getCityName(to)}
+        onClose={() => setBoardingDroppingBus(null)}
       />
     </>
   );

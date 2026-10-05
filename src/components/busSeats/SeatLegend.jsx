@@ -94,7 +94,6 @@ const LegendCard = memo(({ item }) => {
               ]}
               resizeMode="contain"
             />
-            <View style={styles.femaleBookedBottomStrip} />
           </View>
         )}
       </View>
@@ -196,11 +195,6 @@ const styles = StyleSheet.create({
     backgroundColor: BUS_SEAT_COLORS.femaleBookedStrip,
     borderBottomLeftRadius: 1,
     borderBottomRightRadius: 1,
-  },
-  femaleBookedBottomStrip: {
-    width: "100%",
-    height: 3.5,
-    backgroundColor: BUS_SEAT_COLORS.femaleBookedStrip,
   },
   legendText: {
     fontSize: 11.5,

@@ -7,6 +7,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { Search } from "lucide-react-native";
 
 const PRIMARY_RED = "#E53935";
 const CARD_BG = "#FFFFFF";
@@ -75,7 +77,7 @@ export default function MultiCityCard({
                   style={styles.deleteIconBtn}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
-                  <Ionicons name="trash-outline" size={18} color="#94A3B8" />
+                <Ionicons name="trash-outline" size={16} color="#94A3B8" />
                 </TouchableOpacity>
               )}
             </View>
@@ -99,7 +101,7 @@ export default function MultiCityCard({
 
               {/* Arrow Icon */}
               <View style={styles.arrowContainer}>
-                <Ionicons name="arrow-forward-outline" size={18} color={PRIMARY_RED} />
+                <Ionicons name="arrow-forward-outline" size={16} color={PRIMARY_RED} />
               </View>
 
               {/* TO */}
@@ -128,13 +130,13 @@ export default function MultiCityCard({
               style={styles.dateRow}
             >
               <View style={styles.dateRowLeft}>
-                <Ionicons name="calendar-outline" size={20} color={PRIMARY_RED} style={{ marginRight: 10 }} />
+                <Ionicons name="calendar-outline" size={17} color={PRIMARY_RED} style={{ marginRight: 8 }} />
                 <View>
                   <Text style={styles.fieldLabel}>DEPARTURE DATE</Text>
                   <Text style={styles.dateValText}>{dateStr}</Text>
                 </View>
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
             </TouchableOpacity>
           </View>
         );
@@ -147,7 +149,7 @@ export default function MultiCityCard({
           onPress={onAddSegment}
           style={styles.addLegBtn}
         >
-          <Ionicons name="add" size={18} color={PRIMARY_RED} style={{ marginRight: 6 }} />
+          <Ionicons name="add" size={16} color={PRIMARY_RED} style={{ marginRight: 5 }} />
           <Text style={styles.addLegBtnText}>+ Add Another Flight Leg</Text>
         </TouchableOpacity>
       )}
@@ -160,9 +162,9 @@ export default function MultiCityCard({
           onPress={onPressTravellers}
           style={styles.selectorBox}
         >
-          <Ionicons name="people-outline" size={20} color={PRIMARY_RED} />
+          <Ionicons name="people-outline" size={18} color={PRIMARY_RED} />
           <View style={{ flex: 1, marginLeft: 8 }}>
-            <Text style={styles.fieldLabel}>TRAVELLERS</Text>
+            <Text style={styles.selectorLabel}>TRAVELLERS</Text>
             <Text style={styles.selectorText}>{travellerLabel}</Text>
           </View>
           <Ionicons name="chevron-down" size={16} color="#94A3B8" />
@@ -174,9 +176,9 @@ export default function MultiCityCard({
           onPress={onPressCabin}
           style={styles.selectorBox}
         >
-          <Ionicons name="airplane-outline" size={20} color={PRIMARY_RED} />
+          <Ionicons name="airplane-outline" size={18} color={PRIMARY_RED} />
           <View style={{ flex: 1, marginLeft: 8 }}>
-            <Text style={styles.fieldLabel}>CLASS</Text>
+            <Text style={styles.selectorLabel}>CLASS</Text>
             <Text style={styles.selectorText}>{String(cabinClass || "Economy").toUpperCase()}</Text>
           </View>
           <Ionicons name="chevron-down" size={16} color="#94A3B8" />
@@ -188,16 +190,18 @@ export default function MultiCityCard({
         activeOpacity={0.85}
         onPress={onSearch}
         disabled={searching}
-        style={styles.searchBtn}
+        style={styles.searchButtonWrapper}
       >
-        {searching ? (
-          <ActivityIndicator color="#FFFFFF" size="small" />
-        ) : (
-          <View style={styles.searchBtnInner}>
-            <Ionicons name="search" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-            <Text style={styles.searchBtnText}>SEARCH FLIGHTS</Text>
-          </View>
-        )}
+        <LinearGradient colors={["#CB2E33", "#B0242A"]} style={styles.searchButtonGradient}>
+          {searching ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <View style={styles.searchButtonContent}>
+              <Search size={16} color="#FFFFFF" />
+              <Text style={styles.searchButtonText}>Search flights</Text>
+            </View>
+          )}
+        </LinearGradient>
       </TouchableOpacity>
     </View>
   );
@@ -205,13 +209,13 @@ export default function MultiCityCard({
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginVertical: 12,
+    marginVertical: 8,
   },
   flightCard: {
     backgroundColor: CARD_BG,
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
@@ -224,16 +228,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
+    marginBottom: 5,
   },
   flightBadge: {
     backgroundColor: "#FEE2E2",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
   flightBadgeText: {
-    fontSize: 11,
+    fontSize: 8,
     fontWeight: "900",
     color: PRIMARY_RED,
     letterSpacing: 0.5,
@@ -250,29 +254,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   arrowContainer: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
   },
   fieldLabel: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: "800",
     color: LABEL_MUTED,
     letterSpacing: 0.5,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   airportCodeRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: 6,
+    gap: 4,
   },
   airportCodeText: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: "900",
     color: TEXT_DARK,
   },
   cityNameText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "600",
     color: TEXT_MUTED,
     maxWidth: 90,
@@ -280,7 +284,7 @@ const styles = StyleSheet.create({
   innerDivider: {
     height: 1,
     backgroundColor: "#F1F5F9",
-    marginVertical: 12,
+    marginVertical: 6,
   },
   dateRow: {
     flexDirection: "row",
@@ -292,19 +296,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   dateValText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "800",
     color: TEXT_DARK,
-    marginTop: 2,
+    marginTop: 1,
   },
   addLegBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingVertical: 14,
-    marginBottom: 14,
+    borderRadius: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
     borderWidth: 1.5,
     borderColor: "#FECDD3",
     shadowColor: "#000",
@@ -314,58 +318,68 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   addLegBtnText: {
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: "800",
     color: PRIMARY_RED,
   },
   bottomSelectorsRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 16,
+    gap: 8,
+    marginBottom: 9,
   },
   selectorBox: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    minHeight: 44,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderWidth: 1,
-    borderColor: BORDER_COLOR,
+    borderColor: "#D9DEE7",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 2,
   },
+  selectorLabel: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: LABEL_MUTED,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
   selectorText: {
     fontSize: 13,
-    fontWeight: "800",
-    color: TEXT_DARK,
-    marginTop: 2,
+    fontWeight: "600",
+    color: "#1F2937",
   },
-  searchBtn: {
-    backgroundColor: PRIMARY_RED,
-    borderRadius: 14,
-    paddingVertical: 14,
+  searchButtonWrapper: {
+    marginTop: 1,
+    shadowColor: "rgba(192,39,45,0.25)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 9,
+    elevation: 3,
+  },
+  searchButtonGradient: {
+    width: "100%",
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  searchBtnInner: {
+  searchButtonContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 5,
   },
-  searchBtnText: {
+  searchButtonText: {
     color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "900",
-    letterSpacing: 0.5,
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

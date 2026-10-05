@@ -11,6 +11,12 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, GRADIENT_RED } from "../constants/colors";
 import { RADIUS, SPACING } from "../constants/spacing";
+import { normalizeCityName } from "../screens/dashboard/bottomTabScreens/flights/utils/flightUtils";
+
+const getAirportCity = (airport, fallback) => {
+  const code = airport?.airportCode || airport?.iataCode;
+  return normalizeCityName(code || airport?.cityName || airport?.city || fallback);
+};
 
 export const AirportCard = React.memo(function AirportCard({
   origin,
@@ -71,7 +77,7 @@ export const AirportCard = React.memo(function AirportCard({
         >
           <Text style={styles.monoLabel}>FROM</Text>
           <Text style={styles.cityName} numberOfLines={1}>
-            {origin?.cityName || origin?.city || "Delhi"}
+            {getAirportCity(origin, "Delhi")}
           </Text>
           <Text style={styles.airportCode}>
             {origin?.airportCode || origin?.iataCode || "DEL"}
@@ -106,7 +112,7 @@ export const AirportCard = React.memo(function AirportCard({
         >
           <Text style={styles.monoLabel}>TO</Text>
           <Text style={styles.cityName} numberOfLines={1}>
-            {destination?.cityName || destination?.city || "Mumbai"}
+            {getAirportCity(destination, "Mumbai")}
           </Text>
           <Text style={styles.airportCode}>
             {destination?.airportCode || destination?.iataCode || "BOM"}

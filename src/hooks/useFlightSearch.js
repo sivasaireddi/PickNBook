@@ -1,54 +1,30 @@
 import { useState, useCallback } from "react";
 import { validateFlightSearch } from "../utils/flightValidation";
 
-const DEFAULT_ORIGIN = {
-  cityName: "Delhi",
-  airportCode: "DEL",
-  airportName: "Indira Gandhi International Airport",
-  airportId: "DEL",
-};
-
-const DEFAULT_DESTINATION = {
-  cityName: "Mumbai",
-  airportCode: "BOM",
-  airportName: "Chhatrapati Shivaji Maharaj Airport",
-  airportId: "BOM",
-};
-
 const DEFAULT_MULTICITY_SEGMENTS = [
   {
     id: 1,
-    origin: DEFAULT_ORIGIN,
-    from: DEFAULT_ORIGIN,
-    destination: DEFAULT_DESTINATION,
-    to: DEFAULT_DESTINATION,
+    origin: null,
+    from: null,
+    destination: null,
+    to: null,
     date: new Date(),
     departureDate: new Date(),
   },
   {
     id: 2,
-    origin: DEFAULT_DESTINATION,
-    from: DEFAULT_DESTINATION,
-    destination: {
-      cityName: "Bengaluru",
-      airportCode: "BLR",
-      airportName: "Kempegowda International Airport",
-      airportId: "BLR",
-    },
-    to: {
-      cityName: "Bengaluru",
-      airportCode: "BLR",
-      airportName: "Kempegowda International Airport",
-      airportId: "BLR",
-    },
+    origin: null,
+    from: null,
+    destination: null,
+    to: null,
     date: new Date(Date.now() + 86400000 * 2),
     departureDate: new Date(Date.now() + 86400000 * 2),
   },
 ];
 
 export function useFlightSearch() {
-  const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
-  const [destination, setDestination] = useState(DEFAULT_DESTINATION);
+  const [origin, setOrigin] = useState(null);
+  const [destination, setDestination] = useState(null);
   const [departureDate, setDepartureDate] = useState(new Date());
   const [returnDate, setReturnDate] = useState(null);
   const [multiCitySegments, setMultiCitySegments] = useState(DEFAULT_MULTICITY_SEGMENTS);
@@ -92,7 +68,7 @@ export function useFlightSearch() {
     setMultiCitySegments((prev) => {
       if (prev.length >= 6) return prev;
       const lastSeg = prev[prev.length - 1];
-      const lastDest = lastSeg?.destination || lastSeg?.to || DEFAULT_DESTINATION;
+      const lastDest = lastSeg?.destination || lastSeg?.to || null;
 
       const prevDate = new Date(lastSeg?.date || lastSeg?.departureDate || Date.now());
       const nextDate = new Date(prevDate);

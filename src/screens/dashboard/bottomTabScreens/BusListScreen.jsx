@@ -3,7 +3,6 @@ import { StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import FilterModal from "./FilterModal";
-import BottomBar from "./BottomBar";
 import RouteHeader from "./RouteHeader";
 
 import BusCards from "./BusCards";
@@ -67,9 +66,6 @@ export default function BusListScreen({ route }) {
           onResultsCountChange={handleResultsCountChange}
         />
       </View>
-
-      {/* BOTTOM BAR */}
-      <BottomBar onOpenFilters={() => setShowFilters(true)} />
 
       {/* FILTER MODAL */}
       <FilterModal

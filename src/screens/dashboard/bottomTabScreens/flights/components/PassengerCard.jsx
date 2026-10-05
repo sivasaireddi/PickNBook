@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons, FontAwesome5 } from "@expo/vector-icons";
 import { COLORS, RADII, SHADOWS } from "../theme/passengerDetailsTheme";
 import SegmentControl from "./SegmentControl";
@@ -12,6 +12,7 @@ export const PassengerCard = React.memo(({
   errors,
   onUpdatePassenger,
 }) => {
+  const { width } = useWindowDimensions();
   const passengerIndex = index + 1;
   const isAdult = passenger.passengerType === "Adult";
 
@@ -34,7 +35,12 @@ export const PassengerCard = React.memo(({
 
         <View style={styles.passportBadge}>
           <FontAwesome5 name="id-card" size={14} color={COLORS.primaryRed} />
-          <Text style={styles.passportBadgeText}>
+          <Text
+            style={styles.passportBadgeText}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+          >
             {isInternational ? "Passport Req." : "ID Verified"}
           </Text>
         </View>
@@ -49,7 +55,7 @@ export const PassengerCard = React.memo(({
       />
 
       {/* Names Row */}
-      <View style={styles.row}>
+      <View style={[styles.row, width < 430 && styles.rowStacked]}>
         <InputField
           label="FIRST NAME"
           value={passenger.firstName}
@@ -74,13 +80,13 @@ export const PassengerCard = React.memo(({
       {/* Gender Segmented Selection */}
       <SegmentControl
         label="GENDER"
-        options={["Male", "Female", "Transgender"]}
+        options={["Male", "Female", "Others"]}
         selectedValue={passenger.gender}
         onSelect={(gOpt) => onUpdatePassenger(index, "gender", gOpt)}
       />
 
       {/* DOB & Nationality Row */}
-      <View style={styles.row}>
+      <View style={[styles.row, width < 430 && styles.rowStacked]}>
         <InputField
           label={isInternational ? "DATE OF BIRTH" : "DATE OF BIRTH (OPTIONAL)"}
           value={passenger.dob}
@@ -106,7 +112,7 @@ export const PassengerCard = React.memo(({
       {isInternational && (
         <View style={styles.passportContainer}>
           <Text style={styles.sectionDividerText}>PASSPORT INFORMATION</Text>
-          <View style={styles.row}>
+          <View style={[styles.row, width < 430 && styles.rowStacked]}>
             <InputField
               label="PASSPORT NUMBER"
               value={passenger.passportNo}
@@ -130,7 +136,7 @@ export const PassengerCard = React.memo(({
             />
           </View>
           
-          <View style={styles.row}>
+          <View style={[styles.row, width < 430 && styles.rowStacked]}>
             <InputField
               label="ISSUE DATE"
               value={passenger.passportIssueDate}
@@ -163,10 +169,10 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: COLORS.cardBg,
     borderRadius: RADII.card,
-    padding: 20,
+    padding: 10,
     borderWidth: 1,
     borderColor: COLORS.borderLight,
-    gap: 18,
+    gap: 8,
     ...SHADOWS.glassCard,
   },
   cardHeader: {
@@ -177,46 +183,58 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 9,
+    flex: 1,
   },
   avatarBadge: {
-    width: 40,
-    height: 40,
+    width: 30,
+    height: 30,
     borderRadius: RADII.cardSmall,
     backgroundColor: COLORS.badgeBg,
     justifyContent: "center",
     alignItems: "center",
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "900",
     color: COLORS.textDark,
     letterSpacing: -0.2,
+    flexShrink: 1,
   },
   passportBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     backgroundColor: COLORS.badgeBg,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    width: 112,
+    minHeight: 26,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    flexShrink: 0,
+    justifyContent: "center",
     borderRadius: RADII.pill,
   },
   passportBadgeText: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "800",
     color: COLORS.primaryRed,
+    flex: 1,
+    textAlign: "center",
   },
   row: {
     flexDirection: "row",
-    gap: 12,
+    gap: 8,
+  },
+  rowStacked: {
+    flexDirection: "column",
+    gap: 6,
   },
   flex1: {
     flex: 1,
   },
   passportContainer: {
-    gap: 12,
-    paddingTop: 8,
+    gap: 8,
+    paddingTop: 6,
     borderTopWidth: 1,
     borderTopColor: COLORS.borderLight,
   },

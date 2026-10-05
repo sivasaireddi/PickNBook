@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { ArrowUp, Bus, Clock, Coins, Armchair } from "lucide-react-native";
+import { ArrowUp, Bus, Clock, Coins, Armchair, SlidersHorizontal } from "lucide-react-native";
 
 const BORDER_COLOR = "#F4A3A3";
 const PRIMARY_RED = "#D11A2A";
@@ -77,6 +77,7 @@ export default function SortBar({
   value = "arrival",
   direction = "asc",
   onChange = () => {},
+  onOpenFilters = () => {},
 }) {
   const animOpacity = useRef(new Animated.Value(0)).current;
   const animTranslateY = useRef(new Animated.Value(12)).current;
@@ -129,7 +130,14 @@ export default function SortBar({
                 <Text style={styles.countText}>{resultCount} Buses</Text>
               </View>
             )}
-            <Text style={styles.sortByLabel}>SORT BY:</Text>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={onOpenFilters}
+              style={styles.filterSortButton}
+            >
+              <SlidersHorizontal size={13} color="#4B5563" />
+              <Text style={styles.filterSortText}>Filter & Sort</Text>
+            </TouchableOpacity>
 
             <ScrollView
               horizontal
@@ -192,6 +200,23 @@ const styles = StyleSheet.create({
     color: "#111827",
     marginRight: 8,
     letterSpacing: 0.3,
+  },
+  filterSortButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    marginRight: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  filterSortText: {
+    color: "#374151",
+    fontSize: 10,
+    fontWeight: "700",
   },
   scrollContainer: {
     alignItems: "center",

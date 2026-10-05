@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   Alert,
   TouchableOpacity,
@@ -12,9 +12,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { clearFlightBookingFlowState, saveConfirmedFlightBookingLocally } from "./services/flightBookingFlowStore";
-import { ticketLCC, holdGDS, ticketGDS, getFlightFareQuote, saveFlightBooking } from "./services/flightBookingService";
-import { validateCoupon, calculateFareBreakdown, getDefaultAvailableOffers } from "./services/flightCouponService";
+import { clearFlightBookingFlowState } from "./services/flightBookingFlowStore";
+import { getFlightFareQuote } from "./services/flightBookingService";
+import { calculateFareBreakdown } from "./services/flightCouponService";
+import { createCashfreeOrder, validateFlightCoupon, getFlightCoupons } from "../../../../services/cashfreeService";
 
 import { formatCurrency } from "./utils/flightUtils";
 
@@ -61,7 +62,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
   const [loading, setLoading] = useState(false);
   const [couponLoading, setCouponLoading] = useState(false);
 
-  // State Management according to specification:
+  // State Management
   // appliedCoupon: { code, discountAmount, type, maxDiscountCap } | null
   const [appliedCoupon, setAppliedCoupon] = useState(
     flowState.appliedCouponObj || (flowState.appliedCoupon ? { code: flowState.appliedCoupon, discountAmount: Number(flowState.fareSummary?.discount || 500) } : null)
@@ -69,6 +70,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
   const [couponInputValue, setCouponInputValue] = useState(flowState.couponCode || "");
   const [couponError, setCouponError] = useState(null);
 
+  // Available offers: first try what came with FareQuote, then fetch from server
   const initialOffers =
     (Array.isArray(flowState.fareQuote?.PickNBookAvailableOffers) && flowState.fareQuote.PickNBookAvailableOffers.length > 0
       ? flowState.fareQuote.PickNBookAvailableOffers
@@ -78,7 +80,20 @@ export default function FlightPaymentScreen({ route, navigation }) {
       : null) ||
     [];
 
-  const [availableOffers] = useState(initialOffers);
+  const [availableOffers, setAvailableOffers] = useState(initialOffers);
+
+  // Fetch server coupons if no local offers available
+  useEffect(() => {
+    if (initialOffers.length === 0) {
+      getFlightCoupons()
+        .then((coupons) => {
+          if (Array.isArray(coupons) && coupons.length > 0) {
+            setAvailableOffers(coupons);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   const traceId = flowState.traceId || flowState.flight?.traceId;
   const resultIndex = flowState.resultIndex || flowState.flight?.resultIndex;
@@ -191,7 +206,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
     Alert.alert("Coupon Removed", "Promo code removed. Fare breakdown reset to original amount.");
   }, []);
 
-  // 3. Validation Logic (client + server)
+  // 3. Coupon Validation — calls new server-side POST /api/Coupons/validate
   const handleApplyCoupon = async (codeToApply) => {
     const targetCode = String(codeToApply || couponInputValue || "").trim().toUpperCase();
     if (!targetCode) {
@@ -203,41 +218,29 @@ export default function FlightPaymentScreen({ route, navigation }) {
     setCouponLoading(true);
 
     try {
-      console.log(`[FlightPaymentScreen] Validating coupon '${targetCode}'...`);
+      console.log(`[FlightPaymentScreen] Validating coupon '${targetCode}' via POST /api/Coupons/validate...`);
 
-      // First run client/server validation against cart total
-      const cartTotal = displayBaseFare + displayTax;
-      const validationResult = await validateCoupon({ code: targetCode, cartTotal, availableOffers });
+      // Call server-side validation endpoint per spec
+      const cartTotal = displayBaseFare + displayTax + seatSurcharge + ssrSurcharge;
+      const result = await validateFlightCoupon({
+        serviceType: "flight",
+        couponCode: targetCode,
+        totalAmount: cartTotal,
+      });
 
-      if (!validationResult.valid) {
-        const errReason = validationResult.reason || `Coupon '${targetCode}' is invalid or expired.`;
-        setCouponError(errReason);
-        Alert.alert("Invalid Coupon", errReason);
+      if (!result.isValid) {
+        const errMsg = result.message || `Coupon '${targetCode}' is invalid or does not meet minimum requirements.`;
+        setCouponError(errMsg);
+        Alert.alert("Coupon Not Applied", errMsg);
         return;
-      }
-
-      // Call supplier /FareQuote endpoint with CouponCode
-      if (traceId && resultIndex) {
-        try {
-          const fareQuoteRes = await getFlightFareQuote({
-            traceId,
-            resultIndex,
-            srdvType,
-            srdvIndex,
-            couponCode: targetCode,
-          });
-          console.log("[FlightPaymentScreen] Live FareQuote with coupon response:", JSON.stringify(fareQuoteRes, null, 2));
-        } catch (apiErr) {
-          console.warn("[FlightPaymentScreen] FareQuote API coupon warning:", apiErr?.message);
-        }
       }
 
       const nextCouponObj = {
         code: targetCode,
-        discountAmount: validationResult.discountAmount,
-        type: validationResult.type || "flat",
-        maxDiscountCap: validationResult.maxDiscountCap || null,
-        title: validationResult.title || targetCode,
+        discountAmount: result.discountAmount,
+        type: "flat",
+        maxDiscountCap: null,
+        title: targetCode,
       };
 
       setAppliedCoupon(nextCouponObj);
@@ -246,16 +249,74 @@ export default function FlightPaymentScreen({ route, navigation }) {
 
       Alert.alert(
         "Coupon Applied! 🎉",
-        `Promo code '${targetCode}' applied successfully! You saved ${formatCurrency(validationResult.discountAmount)}!`
+        `'${targetCode}' applied! You save ₹${result.discountAmount.toLocaleString("en-IN")}.`
       );
     } catch (err) {
       console.error("[FlightPaymentScreen] Apply coupon error:", err?.message);
-      const msg = err?.message || "Failed to apply promo code. Please check the code.";
+      const msg = err?.message || "Failed to validate coupon. Please try again.";
       setCouponError(msg);
       Alert.alert("Invalid Coupon", msg);
     } finally {
       setCouponLoading(false);
     }
+  };
+
+  // ─── Build the bookingPayloadJson that goes into create-order ───────────────
+  const buildBookingPayloadJson = (apiPassengers) => {
+    // Gather totals from the confirmed fare breakdown
+    const totalSeatCharges = apiPassengers.reduce((sum, p) =>
+      sum + (p.Seat || []).reduce((s, seat) => s + Number(seat.Amount || seat.Price || 0), 0), 0);
+    const totalMealCharges = apiPassengers.reduce((sum, p) =>
+      sum + (p.MealDynamic || []).reduce((s, m) => s + Number(m.Price || 0), 0), 0);
+    const totalBaggageCharges = apiPassengers.reduce((sum, p) =>
+      sum + (p.Baggage || []).reduce((s, b) => s + Number(b.Price || 0), 0), 0);
+
+    // Pull segment info from flow state
+    const firstFlight = multiCityFlightsList[0] || {};
+    const segments = multiCityFlightsList.map((leg, i) => ({
+      AirlineCode: leg.airlineCode || flowState.flight?.airlineCode || "",
+      Airline: {
+        AirlineCode: leg.airlineCode || flowState.flight?.airlineCode || "",
+        AirlineName: leg.airlineName || leg.airline || flowState.flight?.airlineName || "",
+      },
+      FlightNumber: leg.flightNumber || leg.flightNo || flowState.flight?.flightNumber || "",
+      Origin: {
+        AirportCode: String(leg.fromCity || leg.from || "").substring(0, 3).toUpperCase(),
+        CityCode: String(leg.fromCity || leg.from || "").substring(0, 3).toUpperCase(),
+      },
+      Destination: {
+        AirportCode: String(leg.toCity || leg.to || "").substring(0, 3).toUpperCase(),
+        CityCode: String(leg.toCity || leg.to || "").substring(0, 3).toUpperCase(),
+      },
+      DepartureTime: leg.departureTime || leg.depTime || "",
+      ArrivalTime: leg.arrivalTime || leg.arrTime || "",
+    }));
+
+    const payload = {
+      TraceId: traceId,
+      ResultIndex: resultIndex,
+      SrdvType: srdvType,
+      SrdvIndex: srdvIndex,
+      Module: "b2c",
+      JourneyType: flowState.isMultiCity ? 3 : isRoundTripFallback ? 2 : 1,
+      IsLCC: isLCC,
+      CouponCode: appliedCoupon?.code || "",
+      Fare: {
+        Currency: "INR",
+        BaseFare: displayBaseFare,
+        Tax: displayTax,
+        OfferedFare: displayBaseFare + displayTax,
+        PublishedFare: displayBaseFare + displayTax,
+        TotalSeatCharges: totalSeatCharges,
+        TotalMealCharges: totalMealCharges,
+        TotalBaggageCharges: totalBaggageCharges,
+        TotalSpecialServiceCharges: 0,
+      },
+      Segments: segments,
+      Passengers: apiPassengers,
+    };
+
+    return JSON.stringify(payload);
   };
 
   const handleConfirmBooking = async () => {
@@ -471,160 +532,111 @@ export default function FlightPaymentScreen({ route, navigation }) {
     const apiPassengers = mapPassengersForApi(flowState.passengers, flowState.selectedSeatLabels);
 
     console.log("================================================================================");
-    console.log("✈️ [FLIGHT_BOOKING_STARTED] Executing direct supplier ticketing without payment gateway");
-    console.log(`⚡ Carrier Mode: ${isLCC ? "TicketLCC (Low-Cost Carrier)" : "HoldGDS + TicketGDS (GDS Carrier)"}`);
-    console.log(`💰 Grand Total Amount: ₹${totalFare}`);
-
-    // Log the exact SSR items to verify dynamic WayType matching
-    const leadPax = apiPassengers[0] || {};
-
-    console.log(`🎒 Final Baggage Items Payload:`);
-    (leadPax.Baggage || []).forEach((b, i) => {
-      console.log(`  [Bag ${i + 1}] Code: ${b.Code} | Airline: ${b.AirlineCode} | Flight: ${b.FlightNumber} | Final WayType: ${b.WayType}`);
-    });
-
-    console.log(`🍔 Final MealDynamic Items Payload:`);
-    (leadPax.MealDynamic || []).forEach((m, i) => {
-      console.log(`  [Meal ${i + 1}] Code: ${m.Code} | Airline: ${m.AirlineCode} | Flight: ${m.FlightNumber} | Final WayType: ${m.WayType}`);
-    });
-
-    console.log(`🏷️ Applied Coupon: ${appliedCoupon ? JSON.stringify(appliedCoupon) : "None"}`);
+    console.log("💳 [CASHFREE_FLOW] Building Cashfree order for flight booking");
+    console.log(`💰 Final Payable Amount: ₹${totalFare}`);
+    console.log(`🏷️ Applied Coupon: ${appliedCoupon?.code || "None"}`);
+    console.log(`⚡ Carrier: ${isLCC ? "LCC" : "GDS"} | TraceId: ${traceId}`);
     console.log("================================================================================");
 
     setLoading(true);
 
-    // Execute Supplier Ticketing (POST /api/flight/srdv/TicketLCC or HoldGDS + TicketGDS)
-    console.log("========================================");
-    console.log("✈️ [CONFIRM BOOKING] IsLCC:", isLCC);
-    console.log("✈️ [CONFIRM BOOKING] IsLCC Type:", typeof isLCC);
-    console.log(
-      "✈️ [CONFIRM BOOKING] Booking Type:",
-      isLCC ? "LCC" : "NON-LCC"
-    );
-    console.log("========================================");
-    console.log(`[TICKETING_STARTED] Executing supplier ticketing | Carrier: ${isLCC ? "TicketLCC" : "HoldGDS+TicketGDS"} | TraceId: ${traceId}`);
-    let bookingRes = null;
-    let pnr = "";
-    let bookingId = "";
-    let ticketStatus = "Confirmed";
-
     try {
-      if (isLCC) {
-        bookingRes = await ticketLCC({
-          traceId,
-          resultIndex,
-          journeyType: flowState.isMultiCity ? 3 : flowState.isRoundTrip ? 2 : 1,
-          srdvType,
-          srdvIndex,
-          couponCode: appliedCoupon?.code,
-          passengers: apiPassengers,
-        });
+      // Step 1: Build the full booking payload JSON (stringified) as per spec
+      const bookingPayloadJson = buildBookingPayloadJson(apiPassengers);
 
-        const resData = bookingRes?.Response || bookingRes?.Results || bookingRes;
-        pnr = String(resData?.PNR || resData?.pnr || resData?.FlightItinerary?.PNR || resData?.BookingRefNo || "").trim();
-        bookingId = String(resData?.BookingId || resData?.bookingId || resData?.FlightItinerary?.BookingId || resData?.TicketId || "").trim();
-        ticketStatus = String(resData?.TicketStatus === "1" || resData?.Status === "1" ? "Confirmed" : resData?.TicketStatus || resData?.Status || "Confirmed");
-      } else {
-        const holdRes = await holdGDS({
-          traceId,
-          resultIndex,
-          journeyType: flowState.isMultiCity ? 3 : flowState.isRoundTrip ? 2 : 1,
-          srdvType,
-          srdvIndex,
-          couponCode: appliedCoupon?.code,
-          passengers: apiPassengers,
-        });
+      // Step 2: Resolve customer info
+      const leadPax = flowState.passengers?.[0] || {};
+      const customerName = `${leadPax.firstName || ""} ${leadPax.lastName || ""}`.trim() || "Passenger";
+      const customerEmail = flowState.contact?.email || leadPax.email || "";
+      const customerPhone = String(flowState.contact?.mobile || leadPax.mobile || "").replace(/[^0-9]/g, "").slice(-10);
 
-        const holdData = holdRes?.Response || holdRes?.Results || holdRes;
-        pnr = String(holdData?.PNR || holdData?.pnr || holdData?.BookingRefNo || "").trim();
-        bookingId = String(holdData?.BookingId || holdData?.bookingId || "").trim();
+      // Extract stored customerId (from auth profile if available)
+      const customerId = String(
+        flowState.customerId ||
+        flowState.userId ||
+        flowState.contact?.userId ||
+        leadPax.id ||
+        Date.now()
+      );
 
-        const ticketRes = await ticketGDS({ pnr, bookingId, traceId, resultIndex, srdvType, srdvIndex, passengers: apiPassengers });
-        const ticketData = ticketRes?.Response || ticketRes?.Results || ticketRes;
-        ticketStatus = String(ticketData?.TicketStatus || ticketData?.Status || "Confirmed");
+      // Step 3: POST /api/cashfree/create-order
+      console.log("[CASHFREE] POSTing to /api/cashfree/create-order...");
+      const orderRes = await createCashfreeOrder({
+        orderAmount: totalFare,
+        orderCurrency: "INR",
+        customerId,
+        customerName,
+        customerEmail,
+        customerPhone,
+        bookingType: "Flight",
+        couponCode: appliedCoupon?.code || null,
+        promotionId: null,
+        useWallet: false,
+        bookingPayloadJson,
+      });
+
+      console.log("[CASHFREE] Order created successfully:", orderRes.cashfreeOrderId);
+      console.log("[CASHFREE] Order status:", orderRes.orderStatus);
+      console.log("[CASHFREE] Session ID present:", Boolean(orderRes.paymentSessionId));
+
+      if (!orderRes.cashfreeOrderId || !orderRes.paymentSessionId) {
+        throw new Error("Invalid order response from server. Missing orderId or sessionId.");
       }
 
-      const isTicketConfirmed = Boolean(pnr && bookingId && pnr.length > 0 && String(ticketStatus).toLowerCase() !== "failed");
-
-      if (!isTicketConfirmed) {
-        console.error("[TICKETING_FAILED] Supplier ticketing failed.");
-        Alert.alert(
-          "Booking Request Pending",
-          `Airline ticketing response: PNR ${pnr || "Pending"}. Status: ${ticketStatus}.\n\nPlease check My Bookings or contact support with Trace ID: ${traceId}.`,
-          [{ text: "OK", onPress: () => navigation.navigate("DashBoard") }]
-        );
+      // Step 4: Launch Cashfree SDK
+      // The SDK is launched via the native module. If payment is fully wallet-paid,
+      // skip SDK and navigate directly to processing screen.
+      if (orderRes.isWalletFullyPaid) {
+        console.log("[CASHFREE] Wallet fully covers amount. Skipping SDK.");
+        await clearFlightBookingFlowState();
+        navigation.navigate("FlightPaymentProcessingScreen", {
+          ...flowState,
+          cashfreeOrderId: orderRes.cashfreeOrderId,
+          paymentSessionId: orderRes.paymentSessionId,
+          totalFare,
+          appliedCoupon,
+          apiPassengers,
+        });
         return;
       }
 
-      console.log("================================================================================");
-      console.log("================================================================================");
-
-      const nextState = {
-        ...flowState,
-        pnr,
-        bookingId,
-        bookingReference: bookingId || pnr,
-        ticketStatus,
-        payableAmount: totalFare,
-        appliedCoupon,
-      };
-
-      // Save Confirmed Booking to Database & Local SecureStore
-      console.log("[BOOKING_SAVED] Persisting confirmed booking to database & local SecureStore...");
-      const confirmedBookingRecord = {
-        id: bookingId || pnr || `flt-${Date.now()}`,
-        pnr: pnr || `FLT${Date.now()}`,
-        bookingId: bookingId || pnr,
-        bookingReference: bookingId || pnr,
-        from: flowState.flight?.fromCity || flowState.flight?.from || flowState.searchContext?.from || "",
-        to: flowState.flight?.toCity || flowState.flight?.to || flowState.searchContext?.to || "",
-        agencyName: flowState.flight?.airlineName || flowState.flight?.airlineCode ? `${flowState.flight.airlineName || flowState.flight.airlineCode}${flowState.flight.flightNumber ? ` • ${flowState.flight.flightNumber}` : ""}` : "",
-        airline: flowState.flight?.airlineName || flowState.flight?.airlineCode || "",
-        flightNumber: flowState.flight?.flightNumber || "",
-        date: flowState.flight?.departureDate || flowState.searchContext?.date || "",
-        departTime: flowState.flight?.departureTime || flowState.flight?.depTime || "",
-        arriveTime: flowState.flight?.arrivalTime || flowState.flight?.arrTime || "",
-        duration: flowState.flight?.duration || "",
-        seats: (flowState.selectedSeatLabels || []).filter(Boolean).join(", ") || "Seat Auto-assigned",
-        totalAmount: `₹${totalFare.toLocaleString("en-IN")}`,
-        totalPrice: totalFare,
-        totalPriceInr: totalFare,
-        busType: flowState.searchContext?.travelClass || "Economy",
-        travelClass: flowState.searchContext?.travelClass || "Economy",
-        status: "Upcoming",
-        canCancel: true,
-        isFlight: true,
-        passengers: apiPassengers,
-        flightDetails: flowState.flight || {},
-        multiCityFlights: flowState.multiCityFlights || [],
-        createdAt: new Date().toISOString(),
-      };
-
-      await saveConfirmedFlightBookingLocally(confirmedBookingRecord);
-
+      // Try to launch Cashfree SDK (react-native-cashfree-pg-sdk or flutter)
+      // The SDK calls are wrapped in a try-catch — if the package is not yet
+      // installed, we still navigate to the processing screen so polling works.
       try {
-        await saveFlightBooking({
-          bookingId,
-          pnr,
-          ticketStatus,
-          amountPaid: totalFare,
-          passengers: apiPassengers,
-          flightDetails: flowState.flight || {},
-          createdAt: new Date().toISOString(),
-        });
-      } catch (dbErr) {
-        console.warn("[FlightPaymentScreen] Remote database save warning:", dbErr?.message);
+        const { CFPaymentGatewayService, CFSession, CFEnvironment } =
+          require("react-native-cashfree-pg-sdk");
+
+        const session = new CFSession(
+          orderRes.paymentSessionId,
+          orderRes.cashfreeOrderId,
+          CFEnvironment.PRODUCTION
+        );
+
+        console.log("[CASHFREE] Launching native payment SDK...");
+        await CFPaymentGatewayService.doPayment(session);
+        console.log("[CASHFREE] SDK doPayment returned. Navigating to processing screen.");
+      } catch (sdkErr) {
+        // SDK not installed yet or user closed sheet — still navigate to verify
+        console.warn("[CASHFREE] SDK launch warning (may not be installed yet):", sdkErr?.message);
       }
 
-      console.log("[BOOKING_CONFIRMED] Navigating to FlightConfirmationScreen");
+      // Step 5: Navigate to polling/processing screen regardless
       await clearFlightBookingFlowState();
-      navigation.navigate("FlightConfirmationScreen", nextState);
+      navigation.navigate("FlightPaymentProcessingScreen", {
+        ...flowState,
+        cashfreeOrderId: orderRes.cashfreeOrderId,
+        paymentSessionId: orderRes.paymentSessionId,
+        totalFare,
+        appliedCoupon,
+        apiPassengers,
+      });
 
-    } catch (ticketingErr) {
-      console.error("[TICKETING_FAILED] Supplier ticketing exception:", ticketingErr?.message);
+    } catch (err) {
+      console.error("[CASHFREE] Order creation / SDK launch failed:", err?.message);
       Alert.alert(
-        "Booking Failed",
-        `Airline Ticketing Error: ${ticketingErr?.message || "Unable to complete booking with airline supplier. Please try again."}`,
+        "Payment Failed",
+        err?.message || "Unable to initiate payment. Please try again.",
         [{ text: "OK" }]
       );
     } finally {
@@ -932,7 +944,7 @@ export default function FlightPaymentScreen({ route, navigation }) {
             </View>
           </View>
 
-          {/* Confirm Booking Action Button */}
+          {/* Proceed to Payment Action Button */}
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={handleConfirmBooking}
@@ -940,11 +952,20 @@ export default function FlightPaymentScreen({ route, navigation }) {
             style={[styles.payBtn, loading && styles.payBtnDisabled]}
           >
             {loading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <ActivityIndicator color="#FFFFFF" size="small" />
+                <Text style={styles.payBtnText}>Creating Order...</Text>
+              </View>
             ) : (
-              <Text style={styles.payBtnText}>Confirm Booking {formatINR(finalPayable)}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+                <Text style={styles.payBtnText}>Pay {formatINR(finalPayable)} Securely</Text>
+              </View>
             )}
           </TouchableOpacity>
+          <Text style={{ textAlign: "center", fontSize: 11, color: TEXT_MUTED, marginTop: 4, fontWeight: "500" }}>
+            🔒 Secured by Cashfree Payments
+          </Text>
 
         </View>
       </ScrollView>

@@ -3,6 +3,12 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme/tokens';
 import { scale } from '../../utils/responsive';
+import { normalizeCityName } from '../../screens/dashboard/bottomTabScreens/flights/utils/flightUtils';
+
+const getAirportCity = (airport, fallback) => {
+  const code = airport?.airportCode || airport?.iataCode;
+  return normalizeCityName(code || airport?.cityName || airport?.city || fallback);
+};
 
 // A simple dashed line component using flex boxes
 const DashedLine = () => {
@@ -44,7 +50,7 @@ export default function TicketCard({
         <TouchableOpacity style={styles.airportBlock} onPress={onPressOrigin}>
           <Text style={styles.eyebrow}>FROM</Text>
           <Text style={styles.cityName} numberOfLines={1}>
-            {origin?.city || 'Delhi'}
+            {getAirportCity(origin, 'Delhi')}
           </Text>
           <Text style={styles.airportCode}>{origin?.airportCode || 'DEL'}</Text>
         </TouchableOpacity>
@@ -64,7 +70,7 @@ export default function TicketCard({
         <TouchableOpacity style={[styles.airportBlock, { alignItems: 'flex-end' }]} onPress={onPressDestination}>
           <Text style={styles.eyebrow}>TO</Text>
           <Text style={styles.cityName} numberOfLines={1}>
-            {destination?.city || 'Mumbai'}
+            {getAirportCity(destination, 'Mumbai')}
           </Text>
           <Text style={styles.airportCode}>{destination?.airportCode || 'BOM'}</Text>
         </TouchableOpacity>

@@ -3,8 +3,8 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  Image,
   ImageBackground,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -15,21 +15,12 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import RedDatePickerModal from "../../../components/RedDatePickerModal";
+import OffersCarousel from "../../../components/OffersCarousel";
 import { getBannerHeight } from "../../../utils/responsive";
+import { BUS_FLOW_COLORS } from "../../../constants/colors";
 
-const COLORS = {
-  background: "#F8F9FC",
-  surface: "#FFFFFF",
-  border: "#EFEFEF",
-  text: "#1F2937",
-  textSecondary: "#6B7280",
-  textMuted: "#8E8E93",
-  primary: "#E52332",
-  accentLight: "#FFE8EB",
-  shadow: "#0F172A",
-};
+const COLORS = BUS_FLOW_COLORS;
 
 const SHADOWS = {
   soft: {
@@ -126,6 +117,19 @@ export default function BusBookingSection({ navigation, route }) {
   const lastLocationSelection = useRef(null);
 
   useEffect(() => {
+    // Dismiss the keyboard whenever this screen loses focus (e.g. the user
+    // taps the Home tab while a TextInput is focused). This is a
+    // defence-in-depth layer: the tabPress listener in BottomTabNavigation
+    // already calls Keyboard.dismiss(), but the blur event fires at the
+    // precise moment the screen begins its exit transition, guaranteeing
+    // the keyboard is gone before HomeScreen ever lays out.
+    const unsubscribe = navigation.addListener('blur', () => {
+      Keyboard.dismiss();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  useEffect(() => {
     const selectionId = route?.params?.busLocationSelectionRequestId;
     const selection = route?.params?.busLocationSelection;
     const selectionType = route?.params?.busLocationSelectionType;
@@ -199,12 +203,12 @@ export default function BusBookingSection({ navigation, route }) {
         const sameLocError = "Source and destination cannot be the same.";
         const destErr = prev.destination === sameLocError &&
           source.cityName.trim().toLowerCase() !== destination.cityName.trim().toLowerCase()
-            ? ""
-            : prev.destination;
+          ? ""
+          : prev.destination;
         const srcErr = prev.source === sameLocError &&
           source.cityName.trim().toLowerCase() !== destination.cityName.trim().toLowerCase()
-            ? ""
-            : "";
+          ? ""
+          : "";
         return { ...prev, source: srcErr, destination: destErr };
       });
     }
@@ -217,12 +221,12 @@ export default function BusBookingSection({ navigation, route }) {
         const sameLocError = "Source and destination cannot be the same.";
         const srcErr = prev.source === sameLocError &&
           source.cityName.trim().toLowerCase() !== destination.cityName.trim().toLowerCase()
-            ? ""
-            : prev.source;
+          ? ""
+          : prev.source;
         const destErr = prev.destination === sameLocError &&
           source.cityName.trim().toLowerCase() !== destination.cityName.trim().toLowerCase()
-            ? ""
-            : "";
+          ? ""
+          : "";
         return { ...prev, source: srcErr, destination: destErr };
       });
     }
@@ -345,7 +349,7 @@ export default function BusBookingSection({ navigation, route }) {
         >
           {/* Top Back Button */}
           <View style={styles.topBar}>
-            <Pressable 
+            <Pressable
               style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.8 }]}
               onPress={() => navigation.goBack()}
             >
@@ -461,67 +465,8 @@ export default function BusBookingSection({ navigation, route }) {
           </Animated.View>
         </Animated.View>
 
-        {/* TRUST / FEATURE CARDS SECTION */}
-        <View style={styles.trustSection}>
-          <View style={styles.trustCard}>
-            <View style={styles.trustIconContainer}>
-              <Ionicons name="shield-checkmark-outline" size={20} color={COLORS.primary} />
-            </View>
-            <Text style={styles.trustTitle}>Safe & Secure</Text>
-            <Text style={styles.trustSubtitle}>Your safety is{"\n"}our priority</Text>
-          </View>
+        <OffersCarousel serviceType="bus" />
 
-          <View style={styles.trustCard}>
-            <View style={styles.trustIconContainer}>
-              <Ionicons name="ticket-outline" size={20} color={COLORS.primary} />
-            </View>
-            <Text style={styles.trustTitle}>Easy{"\n"}Cancellation</Text>
-            <Text style={styles.trustSubtitle}>Flexible cancellation{"\n"}options</Text>
-          </View>
-
-          <View style={styles.trustCard}>
-            <View style={styles.trustIconContainer}>
-              <Ionicons name="time-outline" size={20} color={COLORS.primary} />
-            </View>
-            <Text style={styles.trustTitle}>Real-time{"\n"}Updates</Text>
-            <Text style={styles.trustSubtitle}>Live tracking &{"\n"}status updates</Text>
-          </View>
-        </View>
-
-        {/* PROMOTIONAL BANNER */}
-        <View style={styles.promoSectionWrap}>
-          <LinearGradient
-            colors={["#FFF0F2", "#FFECEF", "#FFE5E9"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.promoCardContainer}
-          >
-            <View style={styles.promoLeftContent}>
-              <Text style={styles.promoHeadline}>
-                Reliable Rides{"\n"}for Every Journey
-              </Text>
-              <Text style={styles.promoSubtext}>
-                Explore top routes at best prices
-              </Text>
-              <Pressable
-                style={({ pressed }) => [styles.promoCtaBtn, pressed && { opacity: 0.85 }]}
-                onPress={() => {
-                  if (canSearch) handleSearch();
-                }}
-              >
-                <Text style={styles.promoCtaText}>Explore Now</Text>
-                <Ionicons name="arrow-forward" size={14} color={COLORS.primary} />
-              </Pressable>
-            </View>
-            <View style={styles.promoRightImageWrap}>
-              <Image
-                source={{ uri: "https://images.unsplash.com/photo-1570125909232-eb263c188f7e?w=500&q=80" }}
-                style={styles.promoBusImage}
-                resizeMode="cover"
-              />
-            </View>
-          </LinearGradient>
-        </View>
       </ScrollView>
     </View>
   );
@@ -530,7 +475,7 @@ export default function BusBookingSection({ navigation, route }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   contentContainer: { paddingBottom: 24, flexGrow: 0 },
-  
+
   heroContainer: {
     width: "100%",
   },
@@ -693,110 +638,4 @@ const styles = StyleSheet.create({
   buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800", letterSpacing: 0.2 },
   buttonArrow: { marginTop: 1 },
 
-  trustSection: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginHorizontal: 16,
-    marginTop: 20,
-    gap: 8,
-  },
-  trustCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 4,
-    alignItems: "center",
-    textAlign: "center",
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  trustIconContainer: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#FFE8EB",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  trustTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#1F2937",
-    textAlign: "center",
-  },
-  trustSubtitle: {
-    fontSize: 10,
-    fontWeight: "500",
-    color: "#6B7280",
-    textAlign: "center",
-    marginTop: 2,
-    lineHeight: 13,
-  },
-
-  promoSectionWrap: {
-    marginTop: 20,
-    marginHorizontal: 16,
-  },
-  promoCardContainer: {
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: "#FFE0E3",
-  },
-  promoLeftContent: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  promoHeadline: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#1F2937",
-    lineHeight: 20,
-  },
-  promoSubtext: {
-    fontSize: 11,
-    fontWeight: "500",
-    color: "#6B7280",
-    marginTop: 3,
-  },
-  promoCtaBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#E52332",
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginTop: 10,
-    alignSelf: "flex-start",
-    gap: 4,
-  },
-  promoCtaText: {
-    color: "#E52332",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  promoRightImageWrap: {
-    width: 110,
-    height: 72,
-    borderRadius: 14,
-    overflow: "hidden",
-  },
-  promoBusImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 14,
-  },
 });

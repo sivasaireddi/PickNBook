@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react'
+import React, { useCallback, useContext, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -19,8 +19,11 @@ import * as SecureStore from 'expo-secure-store'
 import * as ImagePicker from 'expo-image-picker'
 import AuthContext from '../../../context/AuthContext'
 import { requireAuthToken, clearAuthSession } from '../../../utils/authSession'
-import { useNavigation } from '@react-navigation/native'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import { API_BASE_URL } from '../../../constants/config'
+import { getWalletSummary } from '../../../services/WalletService'
+import { BUS_FLOW_COLORS } from '../../../constants/colors'
+import AppHeader from '../../../components/AppHeader'
 
 const PROFILE_API_URL = `${API_BASE_URL}/api/profile`
 
@@ -101,6 +104,8 @@ const ProfileScreen = () => {
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [paymentModalVisible, setPaymentModalVisible] = useState(false)
   const [settingsModalVisible, setSettingsModalVisible] = useState(false)
+  const [walletSummary, setWalletSummary] = useState(null)
+  const [walletLoading, setWalletLoading] = useState(true)
 
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -116,6 +121,25 @@ const ProfileScreen = () => {
   useEffect(() => {
     loadUser()
   }, [])
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true
+      setWalletLoading(true)
+      getWalletSummary()
+        .then((summary) => {
+          if (active) setWalletSummary(summary)
+        })
+        .catch((error) => {
+          console.warn('[ProfileScreen] wallet summary failed:', error.message)
+          if (active) setWalletSummary(null)
+        })
+        .finally(() => {
+          if (active) setWalletLoading(false)
+        })
+      return () => { active = false }
+    }, [])
+  )
 
   const safeFetchJSON = async (response) => {
     const text = await response.text()
@@ -304,19 +328,12 @@ const ProfileScreen = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <AppHeader title="Account" />
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Title Section */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Account</Text>
-          <Text style={styles.headerSubtitle}>
-            Manage your profile and preferences
-          </Text>
-        </View>
-
         {/* Profile Card */}
         <TouchableOpacity
           style={styles.profileCard}
@@ -342,6 +359,29 @@ const ProfileScreen = () => {
           </View>
 
           <Ionicons name="chevron-forward" size={20} color="#64748B" />
+        </TouchableOpacity>
+
+        {/* Wallet */}
+        <TouchableOpacity
+          style={styles.walletMenuItem}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('WalletScreen')}
+        >
+          <View style={styles.walletIconBox}>
+            <Ionicons name="wallet-outline" size={22} color={BUS_FLOW_COLORS.primary} />
+          </View>
+          <View style={styles.menuTextContainer}>
+            <Text style={styles.menuTitle}>Wallet</Text>
+            <Text style={styles.menuSubtitle}>Manage your wallet balance and transactions</Text>
+            <Text style={styles.walletBalanceText}>
+              {walletLoading
+                ? 'Loading balance...'
+                : walletSummary
+                  ? `₹${walletSummary.availableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} available`
+                  : 'Wallet'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
         </TouchableOpacity>
 
         {/* Main Menu Options Group */}
@@ -695,6 +735,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 16,
+  },
+  walletMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  walletIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFE8EB',
+  },
+  walletBalanceText: {
+    fontSize: 12,
+    color: '#E52332',
+    fontWeight: '700',
+    marginTop: 4,
   },
   iconBox: {
     width: 44,

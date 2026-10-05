@@ -47,10 +47,10 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: COLORS.cardBg,
     borderRadius: RADII.card,
-    padding: 20,
+    padding: 14,
     borderWidth: 1,
     borderColor: COLORS.borderLight,
-    gap: 16,
+    gap: 10,
     ...SHADOWS.glassCard,
   },
   cardHeader: {
@@ -59,8 +59,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   iconBadge: {
-    width: 44,
-    height: 44,
+    width: 38,
+    height: 38,
     borderRadius: RADII.cardSmall,
     backgroundColor: COLORS.badgeBg,
     justifyContent: "center",
@@ -70,13 +70,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: "900",
     color: COLORS.textDark,
     letterSpacing: -0.2,
   },
   cardSubtitle: {
-    fontSize: 12,
+    fontSize: 9,
     color: COLORS.textMuted,
     fontWeight: "600",
     marginTop: 2,

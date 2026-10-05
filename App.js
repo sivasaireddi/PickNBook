@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
 import { HotelBookingProvider } from "./src/context/HotelBookingContext";
+import { NotificationProvider } from "./src/context/NotificationContext";
 
 import {
   useFonts,
@@ -47,9 +48,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
         <HotelBookingProvider>
-          <NavigationContainer>
-            <StackNavigation />
-          </NavigationContainer>
+          <NotificationProvider>
+            <NavigationContainer>
+              <StackNavigation />
+            </NavigationContainer>
+          </NotificationProvider>
         </HotelBookingProvider>
       </BottomSheetModalProvider>
     </GestureHandlerRootView>

@@ -80,10 +80,10 @@ export const InputField = React.memo(({
 
 const styles = StyleSheet.create({
   wrapper: {
-    gap: 6,
+    gap: 3,
   },
   label: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "800",
     color: COLORS.textMuted,
     letterSpacing: 0.8,
@@ -95,8 +95,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.inputBg,
     borderRadius: RADII.input,
     borderWidth: 1.5,
-    paddingHorizontal: 14,
-    height: 52,
+    paddingHorizontal: 9,
+    height: 37,
   },
   inputFocused: {
     backgroundColor: COLORS.inputBgFocused,
@@ -107,18 +107,18 @@ const styles = StyleSheet.create({
     borderColor: COLORS.errorRed,
   },
   icon: {
-    marginRight: 10,
+    marginRight: 7,
   },
   textInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: "700",
     color: COLORS.textDark,
     paddingVertical: 0,
   },
   errorText: {
     color: COLORS.errorRed,
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "700",
     marginTop: 2,
   },

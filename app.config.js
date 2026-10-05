@@ -59,10 +59,9 @@ const baseExpoConfig = {
   ],
   "extra": {
     "eas": {
-      "projectId": "a33e12df-a948-4dd8-8da8-015371c078bf"
+      "projectId": "da0b7bca-5e66-408e-a791-cadfb95f1661"
     }
-  },
-  "owner": "saireddyvenkata"
+  }
 };
 
 module.exports = {

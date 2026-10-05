@@ -1,5 +1,6 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, SafeAreaView } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { formatCurrency } from "./utils/flightUtils";
@@ -61,12 +62,13 @@ function isNextDay(startStr, endStr) {
 }
 
 export default function FlightDetailsScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const flight = route?.params?.flight;
   const onSelect = route?.params?.onSelect;
 
   if (!flight) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["top", "left", "right", "bottom"]}>
         <Text style={{ padding: 20 }}>Flight details not found.</Text>
       </SafeAreaView>
     );
@@ -225,13 +227,19 @@ export default function FlightDetailsScreen({ route, navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={8}
+        >
           <Ionicons name="arrow-back" size={24} color={TEXT_DARK} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Flight Details</Text>
-        <View style={{ width: 24 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -260,7 +268,7 @@ export default function FlightDetailsScreen({ route, navigation }) {
         </View>
       </ScrollView>
 
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.bottomPriceLabel}>Total Fare</Text>
           <Text style={styles.bottomPrice}>{formatCurrency(price)}</Text>
@@ -286,20 +294,31 @@ const styles = StyleSheet.create({
     backgroundColor: BACKGROUND_COLOR,
   },
   header: {
+    height: 58,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
+    position: "relative",
   },
   backBtn: {
-    padding: 4,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
+  },
+  headerSpacer: {
+    width: 44,
   },
   headerTitle: {
-    fontSize: 18,
+    position: "absolute",
+    left: 56,
+    right: 56,
+    textAlign: "center",
+    fontSize: 22,
     fontWeight: "800",
     color: TEXT_DARK,
   },
@@ -307,13 +326,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 28,
   },
   itineraryContainer: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    padding: 16,
+    padding: 18,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -327,7 +347,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   journeyTitle: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: "800",
     color: TEXT_DARK,
     letterSpacing: 0.5,
@@ -349,7 +369,7 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   timeText: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "800",
     color: TEXT_DARK,
   },
@@ -405,18 +425,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   airportCodeText: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: "800",
     color: TEXT_DARK,
   },
   airportNameText: {
-    fontSize: 12,
+    fontSize: 15,
     color: TEXT_MUTED,
     fontWeight: "500",
     marginTop: 2,
   },
   flightNumberText: {
-    fontSize: 12,
+    fontSize: 15,
     color: TEXT_DARK,
     fontWeight: "700",
     marginTop: 4,
@@ -470,7 +490,7 @@ const styles = StyleSheet.create({
   section: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    padding: 16,
+    padding: 18,
     borderWidth: 1,
     borderColor: "#E5E7EB",
     shadowColor: "#000",
@@ -480,7 +500,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: "800",
     color: TEXT_DARK,
     marginBottom: 12,
@@ -489,15 +509,15 @@ const styles = StyleSheet.create({
   detailsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   detailsLabel: {
-    fontSize: 13,
+    fontSize: 15,
     color: TEXT_MUTED,
     fontWeight: "600",
   },
   detailsValue: {
-    fontSize: 13,
+    fontSize: 15,
     color: TEXT_DARK,
     fontWeight: "700",
   },
@@ -506,8 +526,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 30,
+    paddingTop: 14,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
   },

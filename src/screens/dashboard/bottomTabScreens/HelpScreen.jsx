@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +23,14 @@ const COLORS = {
 
 export default function HelpScreen() {
   const [expandedFaq, setExpandedFaq] = useState(null);
+
+  const handleContactPress = (id) => {
+    if (id === "call") {
+      Linking.openURL("tel:+919876543210");
+    } else if (id === "email") {
+      Linking.openURL("mailto:picknbook.support@gmail.com");
+    }
+  };
 
   const faqs = [
     {
@@ -60,14 +69,6 @@ export default function HelpScreen() {
       bgColor: "#EFF6FF",
     },
     {
-      id: "chat",
-      title: "Live Chat",
-      subtitle: "Instant assistance",
-      icon: "chatbubbles-outline",
-      color: "#059669",
-      bgColor: "#ECFDF5",
-    },
-    {
       id: "email",
       title: "Email Support",
       subtitle: "Get reply in 2 hrs",
@@ -78,13 +79,14 @@ export default function HelpScreen() {
   ];
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <AppHeader />
+    <SafeAreaView style={styles.safeArea} edges={["left", "right", "bottom"]}>
+      <AppHeader title="Help" />
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <View style={{ display: "none" }}>
         {/* Banner Section */}
         <View style={styles.banner}>
           <Text style={styles.bannerTitle}>How can we help you today? 🎧</Text>
@@ -100,12 +102,18 @@ export default function HelpScreen() {
           </View>
         </View>
 
+        </View>
+
         {/* Contact Us Bar */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Contact Support</Text>
           <View style={styles.contactGrid}>
             {contactOptions.map((opt) => (
-              <TouchableOpacity key={opt.id} style={styles.contactCard} activeOpacity={0.8}>
+              <TouchableOpacity
+                key={opt.id}
+                style={styles.contactCard}
+                activeOpacity={0.8}
+                onPress={() => handleContactPress(opt.id)}
+              >
                 <View style={[styles.contactIcon, { backgroundColor: opt.bgColor }]}>
                   <Ionicons name={opt.icon} size={22} color={opt.color} />
                 </View>

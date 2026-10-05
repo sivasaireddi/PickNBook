@@ -73,10 +73,10 @@ const SegmentItem = React.memo(({ option, isActive, onPress }) => {
 
 const styles = StyleSheet.create({
   container: {
-    gap: 8,
+    gap: 6,
   },
   label: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
     color: COLORS.textMuted,
     letterSpacing: 0.8,
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   segmentBtn: {
-    height: 44,
+    height: 32,
     borderRadius: RADII.input - 4,
     justifyContent: "center",
     alignItems: "center",
@@ -109,13 +109,13 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: COLORS.white,
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: "800",
     letterSpacing: 0.2,
   },
   segmentTextInactive: {
     color: COLORS.textDark,
-    fontSize: 14,
+    fontSize: 11,
     fontWeight: "700",
   },
 });

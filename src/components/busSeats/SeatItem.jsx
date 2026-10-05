@@ -78,7 +78,9 @@ const SeatItem = ({
           borderColor: BUS_SEAT_COLORS.femaleBookedBorder,
           stripColor: BUS_SEAT_COLORS.femaleBookedStrip,
           pillowColor: BUS_SEAT_COLORS.femaleBookedStrip,
-          bottomStripColor: BUS_SEAT_COLORS.femaleBookedStrip,
+          // Keep the female-booked top pillow pink, but remove the pink
+          // indicator from the bottom of the seat.
+          bottomStripColor: BUS_SEAT_COLORS.femaleBookedBg,
           textColor: BUS_SEAT_COLORS.femaleBookedText,
           priceColor: BUS_SEAT_COLORS.femaleBookedText,
           borderWidth: 1.8,

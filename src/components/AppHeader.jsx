@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { StyleSheet, Text, View, Image, Animated, Platform, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-export default function AppHeader({ title = "Travel", rightComponent = null }) {
+export default function AppHeader({ title = null, rightComponent = null }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-10)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
@@ -51,13 +51,16 @@ export default function AppHeader({ title = "Travel", rightComponent = null }) {
             />
           </Animated.View>
 
-          {/* Brand Info */}
-          <View style={styles.brandInfo}>
-            <View style={styles.row}>
-              <Text style={styles.brandName}>PickNBook</Text>
+          {title ? (
+            <Text style={styles.screenTitle}>{title}</Text>
+          ) : (
+            <View style={styles.brandInfo}>
+              <View style={styles.row}>
+                <Text style={styles.brandName}>PickNBook</Text>
+              </View>
+              <Text style={styles.brandSubtitle}>Your Smart Travel Companion</Text>
             </View>
-            <Text style={styles.brandSubtitle}>Your Smart Travel Companion</Text>
-          </View>
+          )}
         </View>
 
         {rightComponent}
@@ -124,6 +127,12 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     letterSpacing: 0.1,
     marginTop: 0.5,
+  },
+  screenTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.3,
   },
 
 });
