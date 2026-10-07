@@ -607,6 +607,16 @@ export default function FlightPaymentScreen({ route, navigation }) {
         const { CFPaymentGatewayService, CFSession, CFEnvironment } =
           require("react-native-cashfree-pg-sdk");
 
+        // Register SDK callbacks
+        CFPaymentGatewayService.setCallback({
+          onVerify: (orderId) => {
+            console.log("[CASHFREE] SDK onVerify callback triggered for order:", orderId);
+          },
+          onError: (err, orderId) => {
+            console.error("[CASHFREE] SDK onError callback triggered:", err, orderId);
+          }
+        });
+
         const session = new CFSession(
           orderRes.paymentSessionId,
           orderRes.cashfreeOrderId,
