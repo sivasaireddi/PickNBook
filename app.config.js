@@ -12,16 +12,11 @@ const baseExpoConfig = {
     "backgroundColor": "#ffffff"
   },
   "ios": {
-    "supportsTablet": true,
-    "infoPlist": {
-      "UIBackgroundModes": [
-        "location",
-        "fetch"
-      ]
-    }
+    "supportsTablet": true
   },
   "android": {
     "package": "com.picknbook.com",
+    "versionCode": 5,
     "config": {
       "googleMaps": {
         "apiKey": "AIzaSyB9xc0jsXjB47ClikNaJ4Po0cQRLYaONio"
@@ -34,10 +29,12 @@ const baseExpoConfig = {
     "permissions": [
       "INTERNET",
       "ACCESS_COARSE_LOCATION",
-      "ACCESS_FINE_LOCATION",
-      "ACCESS_BACKGROUND_LOCATION",
-      "FOREGROUND_SERVICE",
-      "FOREGROUND_SERVICE_LOCATION"
+      "ACCESS_FINE_LOCATION"
+    ],
+    "blockedPermissions": [
+      "android.permission.ACCESS_BACKGROUND_LOCATION",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_LOCATION"
     ]
   },
   "web": {
@@ -49,11 +46,9 @@ const baseExpoConfig = {
     [
       "expo-location",
       {
-        "locationAlwaysAndWhenInUsePermission": "Allow PickNbook to access your location even in the background.",
-        "locationAlwaysPermission": "Allow PickNbook to access your location always.",
         "locationWhenInUsePermission": "Allow PickNbook to access your location while using the app.",
-        "isAndroidBackgroundLocationEnabled": true,
-        "isAndroidForegroundServiceEnabled": true
+        "isAndroidBackgroundLocationEnabled": false,
+        "isAndroidForegroundServiceEnabled": false
       }
     ]
   ],
