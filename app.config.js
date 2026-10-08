@@ -1,6 +1,6 @@
 const baseExpoConfig = {
   "name": "PickNbook",
-  "slug": "PickNBook",
+  "slug": "picknbook-in",
   "scheme": "picknbook",
   "version": "1.0.0",
   "orientation": "portrait",
@@ -15,7 +15,7 @@ const baseExpoConfig = {
     "supportsTablet": true
   },
   "android": {
-    "package": "com.picknbook.com",
+    "package": "picknbook.in",
     "versionCode": 5,
     "config": {
       "googleMaps": {
@@ -54,7 +54,7 @@ const baseExpoConfig = {
   ],
   "extra": {
     "eas": {
-      "projectId": "da0b7bca-5e66-408e-a791-cadfb95f1661"
+      "projectId": "8ac4ec9a-4bfa-46de-8e26-5de197440392"
     }
   }
 };

@@ -2,24 +2,15 @@ import React, { useContext, useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   StyleSheet,
-  ImageBackground,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  ScrollView,
-  Keyboard,
   Platform,
   NativeModules,
   Animated,
-  Image,
 } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
-import { FontAwesome, MaterialIcons, Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+import { MaterialIcons, Ionicons } from "@expo/vector-icons";
 
 
 import AuthContext from "../../../context/AuthContext";
@@ -32,6 +23,10 @@ import {
   AUTH_API_BASE_URL,
   requestAuth,
 } from "../../../services/authService";
+import AuthScreenLayout from "../../../components/auth/AuthScreenLayout";
+import AuthTextInput from "../../../components/auth/AuthTextInput";
+import AuthPrimaryButton from "../../../components/auth/AuthPrimaryButton";
+import { authTheme } from "../../../components/auth/authStyles";
 
 const buildFullName = (firstName, lastName) =>
   [firstName, lastName].filter(Boolean).join(" ").trim();
@@ -117,39 +112,7 @@ const UserLoginScreen = ({ navigation }) => {
   const [apiMessage, setApiMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [emailFocused, setEmailFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
-  const [captchaFocused, setCaptchaFocused] = useState(false);
-
-  // Animated refs
-  const cardFade = useRef(new Animated.Value(0)).current;
-  const cardTranslateY = useRef(new Animated.Value(30)).current;
   const spinValue = useRef(new Animated.Value(0)).current;
-  const buttonScale = useRef(new Animated.Value(1)).current;
-
-  // Logo Scale & Fade
-  const logoScale = useRef(new Animated.Value(0.8)).current;
-  const logoFade = useRef(new Animated.Value(0)).current;
-
-  // Input Focus Scales
-  const emailScale = useRef(new Animated.Value(1)).current;
-  const passwordScale = useRef(new Animated.Value(1)).current;
-  const captchaInputScale = useRef(new Animated.Value(1)).current;
-
-  // Background Blob Float Positions
-  const blob1XY = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  const blob2XY = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  const blob3XY = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-
-  // Sequential inputs animations
-  const emailAnimFade = useRef(new Animated.Value(0)).current;
-  const emailAnimY = useRef(new Animated.Value(15)).current;
-  const passAnimFade = useRef(new Animated.Value(0)).current;
-  const passAnimY = useRef(new Animated.Value(15)).current;
-  const captchaAnimFade = useRef(new Animated.Value(0)).current;
-  const captchaAnimY = useRef(new Animated.Value(15)).current;
-  const buttonAnimFade = useRef(new Animated.Value(0)).current;
-  const buttonAnimY = useRef(new Animated.Value(15)).current;
 
   const refreshCaptcha = () => {
     setGeneratedCaptcha(generateMixedCaptcha());
@@ -170,111 +133,8 @@ const UserLoginScreen = ({ navigation }) => {
     outputRange: ["0deg", "360deg"],
   });
 
-  const handleFocus = (animVal) => {
-    Animated.timing(animVal, {
-      toValue: 1.015,
-      duration: 150,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handleBlur = (animVal) => {
-    Animated.timing(animVal, {
-      toValue: 1.0,
-      duration: 150,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressIn = () => {
-    Animated.spring(buttonScale, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(buttonScale, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
   useEffect(() => {
     refreshCaptcha();
-
-    const loopFloat = (animVal, targetX, targetY, duration) => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(animVal, {
-            toValue: { x: targetX, y: targetY },
-            duration: duration,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animVal, {
-            toValue: { x: -targetX, y: -targetY },
-            duration: duration * 1.2,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animVal, {
-            toValue: { x: 0, y: 0 },
-            duration: duration,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    };
-
-    // Slower continuous floating animations (10-15 seconds)
-    loopFloat(blob1XY, 55, -45, 12000);
-    loopFloat(blob2XY, -45, 55, 14000);
-    loopFloat(blob3XY, 35, 35, 13000);
-
-    // Sequence card fade/slide up, logo animation, and then sequential field fades
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(cardFade, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardTranslateY, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(logoScale, {
-          toValue: 1.0,
-          duration: 650,
-          useNativeDriver: true,
-        }),
-        Animated.timing(logoFade, {
-          toValue: 1.0,
-          duration: 650,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.stagger(100, [
-        Animated.parallel([
-          Animated.timing(emailAnimFade, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(emailAnimY, { toValue: 0, duration: 300, useNativeDriver: true }),
-        ]),
-        Animated.parallel([
-          Animated.timing(passAnimFade, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(passAnimY, { toValue: 0, duration: 300, useNativeDriver: true }),
-        ]),
-        Animated.parallel([
-          Animated.timing(captchaAnimFade, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(captchaAnimY, { toValue: 0, duration: 300, useNativeDriver: true }),
-        ]),
-        Animated.parallel([
-          Animated.timing(buttonAnimFade, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(buttonAnimY, { toValue: 0, duration: 300, useNativeDriver: true }),
-        ]),
-      ]),
-    ]).start();
   }, []);
 
   const validate = () => {
@@ -413,548 +273,75 @@ const UserLoginScreen = ({ navigation }) => {
     }
   };
 
-  return (
-    <View style={styles.container}>
-      {/* Background Floating Blobs */}
-      <Animated.View style={[styles.bgBlob, styles.blob1, { transform: blob1XY.getTranslateTransform() }]} />
-      <Animated.View style={[styles.bgBlob, styles.blob2, { transform: blob2XY.getTranslateTransform() }]} />
-      <Animated.View style={[styles.bgBlob, styles.blob3, { transform: blob3XY.getTranslateTransform() }]} />
+  const success = apiMessage.includes("Successful") || apiMessage.includes("successful");
 
-      {/* Subtle curved background track/road decorator */}
-      <View style={styles.decorLineContainer} pointerEvents="none">
-        <View style={styles.decorCircle} />
-        <View style={styles.decorCircle2} />
+  return (
+    <AuthScreenLayout eyebrow="WELCOME BACK" title="Continue your journey" subtitle="Sign in to manage your trips, travellers, and bookings.">
+      {!!apiMessage && (
+        <View style={[premiumStyles.messageBox, success ? premiumStyles.successBox : premiumStyles.errorBox]}>
+          <Ionicons name={success ? "checkmark-circle-outline" : "alert-circle-outline"} size={18} color={success ? authTheme.colors.good : authTheme.colors.error} />
+          <Text style={[premiumStyles.messageText, success ? premiumStyles.successText : premiumStyles.errorText]}>{apiMessage}</Text>
+        </View>
+      )}
+
+      <AuthTextInput label="Email address" icon="mail-outline" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} value={email} error={errors.email} onChangeText={(text) => { setEmail(text); setErrors((prev) => ({ ...prev, email: text ? validateLowercaseEmail(text) : "" })); }} />
+      <View>
+        <AuthTextInput label="Password" icon="lock-closed-outline" placeholder="Enter your password" secureTextEntry={!showPassword} value={password} error={errors.password} rightIcon={showPassword ? "eye-off-outline" : "eye-outline"} onRightPress={() => setShowPassword(!showPassword)} containerStyle={premiumStyles.passwordField} onChangeText={(text) => { setPassword(text); setErrors((prev) => ({ ...prev, password: text ? validatePasswordNoSpaces(text) : "" })); }} />
+        <TouchableOpacity onPress={() => navigation.navigate("ForgotPassword")} style={premiumStyles.forgotPasswordHit}><Text style={premiumStyles.inlineLink}>Forgot password?</Text></TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <Animated.View 
-              style={[
-                styles.card,
-                { 
-                  opacity: cardFade,
-                  transform: [{ translateY: cardTranslateY }]
-                }
-              ]}
-            >
-              {/* Header */}
-              <View style={styles.headerContainer}>
-                <Text style={styles.title}>Sign In</Text>
-                <Text style={styles.subtitle}>
-                  Welcome back! Continue your journey with PickNBook.
-                </Text>
-              </View>
+      <View style={premiumStyles.captchaSection}>
+        <View style={premiumStyles.captchaHeading}><View><Text style={premiumStyles.captchaKicker}>SECURITY CHECK</Text><Text style={premiumStyles.captchaHelper}>Type the code shown below</Text></View><Ionicons name="shield-checkmark-outline" size={21} color={authTheme.colors.redDeep} /></View>
+        <View style={premiumStyles.captchaDisplay}>
+          <Text style={premiumStyles.captchaCode}>{generatedCaptcha}</Text>
+          <TouchableOpacity onPress={handleCaptchaRefresh} activeOpacity={0.7} style={premiumStyles.refreshButton} accessibilityRole="button" accessibilityLabel="Refresh captcha">
+            <Animated.View style={{ transform: [{ rotate: spin }] }}><MaterialIcons name="refresh" size={19} color={authTheme.colors.redDeep} /></Animated.View>
+            <Text style={premiumStyles.refreshText}>New code</Text>
+          </TouchableOpacity>
+        </View>
+        <AuthTextInput icon="key-outline" placeholder="Enter captcha" autoCapitalize="none" autoCorrect={false} value={captcha} error={errors.captcha} containerStyle={premiumStyles.captchaInput} onChangeText={(text) => { setCaptcha(text); setErrors((prev) => ({ ...prev, captcha: text ? validateCaptcha(text, generatedCaptcha) : "" })); }} />
+      </View>
 
-              {apiMessage ? (
-                <View style={[
-                  styles.messageContainer,
-                  apiMessage.includes("Successful")
-                    ? styles.successContainer
-                    : styles.errorContainer,
-                ]}>
-                  <Ionicons 
-                    name={apiMessage.includes("Successful") ? "checkmark-circle-outline" : "alert-circle-outline"} 
-                    size={16} 
-                    color={apiMessage.includes("Successful") ? "#16A34A" : "#D11A2A"} 
-                  />
-                  <Text
-                    style={[
-                      styles.message,
-                      apiMessage.includes("Successful")
-                        ? styles.success
-                        : styles.errorText,
-                    ]}
-                  >
-                    {apiMessage}
-                  </Text>
-                </View>
-              ) : null}
+      <AuthPrimaryButton title="Sign In" onPress={handleLogin} loading={loading} />
 
-              {/* Email Field */}
-              <Animated.View style={{ opacity: emailAnimFade, transform: [{ translateY: emailAnimY }] }}>
-                <Text style={styles.fieldLabel}>EMAIL ADDRESS</Text>
-                <Animated.View style={[
-                  styles.inputRow, 
-                  emailFocused && styles.inputRowFocused,
-                  { transform: [{ scale: emailScale }] }
-                ]}>
-                  <Ionicons name="mail-outline" size={20} color={emailFocused ? "#D11A2A" : "#94A3B8"} style={styles.prefixIcon} />
-                  <TextInput
-                    placeholder="Enter your email"
-                    placeholderTextColor="#94A3B8"
-                    style={styles.inputField}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    value={email}
-                    onFocus={() => {
-                      setEmailFocused(true);
-                      handleFocus(emailScale);
-                    }}
-                    onBlur={() => {
-                      setEmailFocused(false);
-                      handleBlur(emailScale);
-                    }}
-                    onChangeText={(text) => {
-                      setEmail(text);
-                      setErrors((prev) => ({
-                        ...prev,
-                        email: text ? validateLowercaseEmail(text) : "",
-                      }));
-                    }}
-                  />
-                </Animated.View>
-                {errors.email && <Text style={styles.error}>{errors.email}</Text>}
-              </Animated.View>
-
-              {/* Password Field */}
-              <Animated.View style={[styles.marginField, { opacity: passAnimFade, transform: [{ translateY: passAnimY }] }]}>
-                <Text style={styles.fieldLabel}>PASSWORD</Text>
-                <Animated.View style={[
-                  styles.inputRow, 
-                  passwordFocused && styles.inputRowFocused,
-                  { transform: [{ scale: passwordScale }] }
-                ]}>
-                  <Ionicons name="lock-closed-outline" size={20} color={passwordFocused ? "#D11A2A" : "#94A3B8"} style={styles.prefixIcon} />
-                  <TextInput
-                    placeholder="Enter password"
-                    placeholderTextColor="#94A3B8"
-                    style={styles.inputField}
-                    secureTextEntry={!showPassword}
-                    value={password}
-                    onFocus={() => {
-                      setPasswordFocused(true);
-                      handleFocus(passwordScale);
-                    }}
-                    onBlur={() => {
-                      setPasswordFocused(false);
-                      handleBlur(passwordScale);
-                    }}
-                    onChangeText={(text) => {
-                      setPassword(text);
-                      setErrors((prev) => ({
-                        ...prev,
-                        password: text ? validatePasswordNoSpaces(text) : "",
-                      }));
-                    }}
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    activeOpacity={0.7}
-                    style={styles.eyeBtn}
-                  >
-                    <FontAwesome
-                      name={showPassword ? "eye-slash" : "eye"}
-                      size={18}
-                      color="#64748B"
-                    />
-                  </TouchableOpacity>
-                </Animated.View>
-                {errors.password && (
-                  <Text style={styles.error}>{errors.password}</Text>
-                )}
-              </Animated.View>
-
-              {/* Captcha Section */}
-              <Animated.View style={[styles.marginField, { opacity: captchaAnimFade, transform: [{ translateY: captchaAnimY }] }]}>
-                <Text style={styles.fieldLabel}>CAPTCHA VERIFICATION</Text>
-                
-                {/* Single Horizontal Captcha Display Bar */}
-                <View style={styles.captchaDisplayBar}>
-                  <Text style={styles.captchaText}>{generatedCaptcha}</Text>
-                  <TouchableOpacity 
-                    onPress={handleCaptchaRefresh}
-                    activeOpacity={0.7}
-                    style={styles.refreshBarBtn}
-                  >
-                    <Animated.View style={{ transform: [{ rotate: spin }] }}>
-                      <MaterialIcons name="refresh" size={18} color="#D11A2A" />
-                    </Animated.View>
-                    <Text style={styles.refreshBarBtnText}>Refresh</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Animated.View style={[
-                  styles.inputRow, 
-                  captchaFocused && styles.inputRowFocused,
-                  { transform: [{ scale: captchaInputScale }] }
-                ]}>
-                  <Ionicons name="shield-checkmark-outline" size={20} color={captchaFocused ? "#D11A2A" : "#94A3B8"} style={styles.prefixIcon} />
-                  <TextInput
-                    placeholder="Enter captcha"
-                    placeholderTextColor="#94A3B8"
-                    style={styles.inputField}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    value={captcha}
-                    onFocus={() => {
-                      setCaptchaFocused(true);
-                      handleFocus(captchaInputScale);
-                    }}
-                    onBlur={() => {
-                      setCaptchaFocused(false);
-                      handleBlur(captchaInputScale);
-                    }}
-                    onChangeText={(text) => {
-                      setCaptcha(text);
-                      setErrors((prev) => ({
-                        ...prev,
-                        captcha: text
-                          ? validateCaptcha(text, generatedCaptcha)
-                          : "",
-                      }));
-                    }}
-                  />
-                </Animated.View>
-                {errors.captcha && (
-                  <Text style={styles.error}>{errors.captcha}</Text>
-                )}
-              </Animated.View>
-
-              {/* Sign In Button */}
-              <Animated.View style={{ opacity: buttonAnimFade, transform: [{ translateY: buttonAnimY }] }}>
-                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-                  <TouchableOpacity
-                    onPress={handleLogin}
-                    disabled={loading}
-                    onPressIn={handlePressIn}
-                    onPressOut={handlePressOut}
-                    activeOpacity={0.9}
-                  >
-                    <LinearGradient
-                      colors={["#E53935", "#B71C1C"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.buttonGradient}
-                    >
-                      {loading ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <Text style={styles.buttonText}>Sign In</Text>
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </Animated.View>
-              </Animated.View>
-
-              {/* Navigation Links to Forgot Password & Create Account */}
-              <View style={styles.authLinksContainer}>
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("ForgotPassword")}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.authLinkText}>Forgot Password?</Text>
-                </TouchableOpacity>
-
-                <View style={styles.authDotSeparator} />
-
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("CreateAccount")}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.authLinkTextBold}>Create Account</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={{ marginTop: 24, alignItems: "center" }}>
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("MobileLoginScreen")}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.authLinkTextBold}>Login with Mobile OTP</Text>
-                </TouchableOpacity>
-              </View>
-            </Animated.View>
-          </ScrollView>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
-    </View>
+      <View style={premiumStyles.dividerRow}><View style={premiumStyles.divider} /><Text style={premiumStyles.dividerText}>OR CONTINUE WITH</Text><View style={premiumStyles.divider} /></View>
+      <TouchableOpacity style={premiumStyles.mobileButton} onPress={() => navigation.navigate("MobileLoginScreen")} activeOpacity={0.76} accessibilityRole="button"><View style={premiumStyles.mobileIcon}><Ionicons name="phone-portrait-outline" size={19} color={authTheme.colors.redDeep} /></View><View style={premiumStyles.mobileCopy}><Text style={premiumStyles.mobileTitle}>Mobile OTP</Text><Text style={premiumStyles.mobileSubtitle}>A quick, password-free sign in</Text></View><Ionicons name="chevron-forward" size={19} color={authTheme.colors.slate} /></TouchableOpacity>
+      <View style={premiumStyles.createRow}><Text style={premiumStyles.createText}>New to Pick&Book?</Text><TouchableOpacity onPress={() => navigation.navigate("CreateAccount")} style={premiumStyles.createHit}><Text style={premiumStyles.createLink}>Create account</Text></TouchableOpacity></View>
+    </AuthScreenLayout>
   );
 };
 
 export default UserLoginScreen;
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FAFAFC",
-  },
-  bgBlob: {
-    position: "absolute",
-    borderRadius: 200,
-    opacity: 0.03,
-  },
-  blob1: {
-    width: 320,
-    height: 320,
-    backgroundColor: "#E53935",
-    top: -80,
-    left: -60,
-  },
-  blob2: {
-    width: 260,
-    height: 260,
-    backgroundColor: "#C62828",
-    bottom: -60,
-    right: -60,
-  },
-  blob3: {
-    width: 180,
-    height: 180,
-    backgroundColor: "#EF5350",
-    top: "45%",
-    right: -80,
-  },
-  decorLineContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    overflow: "hidden",
-  },
-  decorCircle: {
-    position: "absolute",
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    borderWidth: 1.5,
-    borderColor: "rgba(229, 57, 53, 0.03)",
-    top: "12%",
-    left: "-15%",
-  },
-  decorCircle2: {
-    position: "absolute",
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    borderWidth: 1.5,
-    borderColor: "rgba(229, 57, 53, 0.02)",
-    bottom: "8%",
-    right: "-20%",
-  },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingVertical: 32,
-  },
-  card: {
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.7)",
-    width: "90%",
-    alignSelf: "center",
-    paddingHorizontal: 26,
-    paddingVertical: 32,
-    borderRadius: 30,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.05,
-    shadowRadius: 24,
-    elevation: 8,
-  },
-  backButton: {
-    position: "absolute",
-    top: 50,
-    left: 20,
-    zIndex: 10,
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
-  },
-  headerContainer: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: "900",
-    color: "#0F172A",
-    letterSpacing: -0.5,
-  },
-  subtitle: {
-    marginTop: 6,
-    fontSize: 13,
-    color: "#64748B",
-    fontWeight: "600",
-    textAlign: "center",
-    lineHeight: 18,
-  },
-  fieldLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#64748B",
-    marginBottom: 6,
-    letterSpacing: 0.6,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    height: 54,
-  },
-  inputRowFocused: {
-    borderColor: "#D11A2A",
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#D11A2A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  prefixIcon: {
-    marginRight: 10,
-  },
-  inputField: {
-    flex: 1,
-    height: "100%",
-    fontSize: 14,
-    color: "#0F172A",
-    fontWeight: "600",
-  },
-  eyeBtn: {
-    padding: 6,
-  },
-  marginField: {
-    marginTop: 16,
-  },
-  captchaDisplayBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FFF5F5",
-    borderWidth: 1,
-    borderColor: "#FEE2E2",
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    height: 52,
-    marginBottom: 12,
-  },
-  captchaText: {
-    fontWeight: "900",
-    fontSize: 20,
-    color: "#D11A2A",
-    letterSpacing: 4,
-  },
-  refreshBarBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#FEF2F2",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: "#FEE2E2",
-  },
-  refreshBarBtnText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#D11A2A",
-  },
-  buttonGradient: {
-    height: 56,
-    borderRadius: 18,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#D11A2A",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 5,
-    marginTop: 12,
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  links: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 18,
-  },
-  error: {
-    color: "#D11A2A",
-    fontSize: 11,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  messageContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-    gap: 6,
-  },
-  successContainer: {
-    backgroundColor: "#F0FDF4",
-    borderWidth: 1,
-    borderColor: "#BBF7D0",
-  },
-  errorContainer: {
-    backgroundColor: "#FEF2F2",
-    borderWidth: 1,
-    borderColor: "#FCA5A5",
-  },
-  success: {
-    color: "#16A34A",
-    fontSize: 13,
-    fontWeight: "600",
-    marginLeft: 6,
-    flex: 1,
-  },
-  errorText: {
-    color: "#D11A2A",
-    fontSize: 13,
-    fontWeight: "600",
-    marginLeft: 6,
-    flex: 1,
-  },
-  message: {
-    fontSize: 13,
-  },
-  authLinksContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 22,
-    gap: 12,
-  },
-  authLinkText: {
-    color: "#64748B",
-    fontSize: 13.5,
-    fontWeight: "600",
-  },
-  authDotSeparator: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#94A3B8",
-  },
-  authLinkTextBold: {
-    color: "#D11A2A",
-    fontSize: 14,
-    fontWeight: "800",
-  },
+const premiumStyles = StyleSheet.create({
+  messageBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 14, marginBottom: 17, borderWidth: 1 },
+  successBox: { backgroundColor: authTheme.colors.successSoft, borderColor: "#C8EBDD" },
+  errorBox: { backgroundColor: authTheme.colors.errorSoft, borderColor: "#F5CDD2" },
+  messageText: { flex: 1, fontFamily: "Inter_500Medium", fontSize: 12.5, lineHeight: 18 },
+  successText: { color: "#147A58" },
+  errorText: { color: authTheme.colors.error },
+  passwordField: { marginBottom: 0 },
+  forgotPasswordHit: { minHeight: 30, alignSelf: "flex-end", justifyContent: "center", paddingLeft: 12, marginBottom: 4 },
+  inlineLink: { fontFamily: "Inter_600SemiBold", fontSize: 12, color: authTheme.colors.redDeep },
+  captchaSection: { backgroundColor: authTheme.colors.surfaceSoft, borderRadius: 18, borderWidth: 1, borderColor: "#F3DDDE", padding: 14, marginBottom: 18 },
+  captchaHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  captchaKicker: { fontFamily: "Inter_600SemiBold", fontSize: 10, letterSpacing: 1.25, color: authTheme.colors.redDeep },
+  captchaHelper: { fontFamily: "Inter_400Regular", fontSize: 11.5, color: authTheme.colors.slate, marginTop: 3 },
+  captchaDisplay: { height: 52, borderRadius: 14, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#EED4D6", flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingLeft: 16, paddingRight: 8 },
+  captchaCode: { fontFamily: "SpaceGrotesk_700Bold", fontSize: 20, letterSpacing: 4.5, color: authTheme.colors.ink },
+  refreshButton: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#FFF0F1", borderRadius: 10, paddingHorizontal: 10 },
+  refreshText: { fontFamily: "Inter_600SemiBold", fontSize: 11, color: authTheme.colors.redDeep },
+  captchaInput: { marginTop: 10, marginBottom: 0 },
+  dividerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 20 },
+  divider: { flex: 1, height: 1, backgroundColor: authTheme.colors.line },
+  dividerText: { fontFamily: "Inter_600SemiBold", fontSize: 9.5, letterSpacing: 1, color: authTheme.colors.slate },
+  mobileButton: { minHeight: 64, flexDirection: "row", alignItems: "center", borderRadius: 16, borderWidth: 1, borderColor: authTheme.colors.line, paddingHorizontal: 12, backgroundColor: "#FAFAFC" },
+  mobileIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#FFF0F1", marginRight: 11 },
+  mobileCopy: { flex: 1 },
+  mobileTitle: { fontFamily: "Inter_600SemiBold", color: authTheme.colors.ink, fontSize: 13.5 },
+  mobileSubtitle: { fontFamily: "Inter_400Regular", color: authTheme.colors.slate, fontSize: 11.5, marginTop: 2 },
+  createRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", flexWrap: "wrap", marginTop: 16, gap: 3 },
+  createText: { fontFamily: "Inter_400Regular", color: authTheme.colors.slate, fontSize: 13 },
+  createHit: { minHeight: 44, justifyContent: "center", paddingHorizontal: 4 },
+  createLink: { fontFamily: "Inter_600SemiBold", color: authTheme.colors.redDeep, fontSize: 13 },
 });

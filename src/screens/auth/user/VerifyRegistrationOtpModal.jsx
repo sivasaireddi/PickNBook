@@ -9,10 +9,9 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  TouchableWithoutFeedback,
-  Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { authTheme } from "../../../components/auth/authStyles";
 import {
   verifyRegistrationOtp,
   registerUser,
@@ -62,28 +61,12 @@ export default function VerifyRegistrationOtpModal({
     setResendCooldown(30);
 
     const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    const cooldownTimer = setInterval(() => {
-      setResendCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(cooldownTimer);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+      setResendCooldown((prev) => Math.max(0, prev - 1));
     }, 1000);
 
     return () => {
       clearInterval(timer);
-      clearInterval(cooldownTimer);
     };
   }, [visible]);
 
@@ -164,10 +147,10 @@ export default function VerifyRegistrationOtpModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.backdrop}>
+      <View style={styles.backdrop}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            enabled={Platform.OS === "ios"}
             style={styles.keyboardContainer}
           >
             <View style={styles.card}>
@@ -295,8 +278,7 @@ export default function VerifyRegistrationOtpModal({
               </View>
             </View>
           </KeyboardAvoidingView>
-        </View>
-      </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
 }
@@ -305,7 +287,7 @@ export default function VerifyRegistrationOtpModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    backgroundColor: "rgba(17, 22, 43, 0.58)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 20,
@@ -318,7 +300,7 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     backgroundColor: "#FFFFFF",
-    borderRadius: 24,
+    borderRadius: 26,
     paddingHorizontal: 24,
     paddingTop: 28,
     paddingBottom: 28,
@@ -343,14 +325,15 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: "700",
-    color: "#0F172A",
+    fontFamily: "SpaceGrotesk_700Bold",
+    color: authTheme.colors.ink,
     letterSpacing: -0.4,
     marginBottom: 6,
   },
   subtitle: {
     fontSize: 14,
-    color: "#64748B",
+    fontFamily: "Inter_400Regular",
+    color: authTheme.colors.slate,
     lineHeight: 20,
     marginBottom: 18,
   },
@@ -430,10 +413,10 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#F8F8FB",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 14,
+    borderColor: authTheme.colors.line,
+    borderRadius: 16,
     paddingHorizontal: 14,
     height: 52,
   },
@@ -490,12 +473,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   primaryBtn: {
-    backgroundColor: "#9E104D",
-    borderRadius: 14,
-    height: 50,
+    backgroundColor: authTheme.colors.redDeep,
+    borderRadius: 16,
+    height: 54,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#9E104D",
+    shadowColor: authTheme.colors.redDeep,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
@@ -524,6 +507,6 @@ const styles = StyleSheet.create({
   secondaryBtnText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#0284C7",
+    color: authTheme.colors.redDeep,
   },
 });
