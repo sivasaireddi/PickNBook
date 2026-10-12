@@ -134,8 +134,8 @@ export default function VerifyOtp() {
         </>
       ) : (
         <>
-          <AuthTextInput label="New password" icon="lock-closed-outline" placeholder="Enter new password" secureTextEntry={!showPassword} value={password} rightIcon={showPassword ? "eye-off-outline" : "eye-outline"} onRightPress={() => setShowPassword(!showPassword)} onChangeText={(v) => { setPassword(v); setErrorMsg(""); }} />
-          <AuthTextInput label="Confirm password" icon="shield-checkmark-outline" placeholder="Re-enter new password" secureTextEntry={!showConfirmPassword} value={confirmPassword} rightIcon={showConfirmPassword ? "eye-off-outline" : "eye-outline"} onRightPress={() => setShowConfirmPassword(!showConfirmPassword)} onChangeText={(v) => { setConfirmPassword(v); setErrorMsg(""); }} />
+          <AuthTextInput label="New password" icon="lock-closed-outline" placeholder="Enter new password" secureTextEntry={!showPassword} value={password} rightIcon={showPassword ? "eye-outline" : "eye-off-outline"} onRightPress={() => setShowPassword((visible) => !visible)} onChangeText={(v) => { setPassword(v); setErrorMsg(""); }} />
+          <AuthTextInput label="Confirm password" icon="shield-checkmark-outline" placeholder="Re-enter new password" secureTextEntry={!showConfirmPassword} value={confirmPassword} rightIcon={showConfirmPassword ? "eye-outline" : "eye-off-outline"} onRightPress={() => setShowConfirmPassword((visible) => !visible)} onChangeText={(v) => { setConfirmPassword(v); setErrorMsg(""); }} />
           <AuthPrimaryButton title="Reset Password" onPress={handleResetPassword} loading={loading} icon="checkmark" />
         </>
       )}

@@ -116,7 +116,7 @@
 //                     }
 //                   >
 //                     <Ionicons
-//                       name={passwordVisible ? "eye-off" : "eye"}
+//                       name={passwordVisible ? "eye-outline" : "eye-off-outline"}
 //                       size={20}
 //                     />
 //                   </TouchableOpacity>
@@ -467,10 +467,10 @@ export default function LoginScreen() {
           />
 
           <TouchableOpacity
-            onPress={() => setShowPassword(!showPassword)}
+            onPress={() => setShowPassword((visible) => !visible)}
           >
             <Ionicons
-              name={showPassword ? "eye-off" : "eye"}
+              name={showPassword ? "eye-outline" : "eye-off-outline"}
               size={22}
               color="black"
             />

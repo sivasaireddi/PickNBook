@@ -52,7 +52,7 @@ const VerifyMobileOtpScreen = ({ navigation, route }) => {
   const [error, setError] = useState("");
   const [apiMessage, setApiMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(297); // 04:57
+  const [timeLeft, setTimeLeft] = useState(120); // 02:00
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -130,7 +130,7 @@ const VerifyMobileOtpScreen = ({ navigation, route }) => {
   const success = apiMessage.includes("Successful") || apiMessage.includes("successful");
 
   return (
-    <AuthScreenLayout eyebrow="VERIFY YOUR NUMBER" title="Enter your secure code" subtitle={`We sent a 6-digit OTP to ${phoneNumber}.`} onBack={goBack}>
+    <AuthScreenLayout topAligned eyebrow="VERIFY YOUR NUMBER" title="Enter your secure code" subtitle={`We sent a 6-digit OTP to ${phoneNumber}.`} onBack={goBack}>
       <View style={otpStyles.iconWrap}><Ionicons name="shield-checkmark-outline" size={30} color={authTheme.colors.redDeep} /></View>
       {!!apiMessage && <View style={[otpStyles.messageBox, success ? otpStyles.successBox : otpStyles.errorBox]}><Ionicons name={success ? "checkmark-circle-outline" : "alert-circle-outline"} size={18} color={success ? authTheme.colors.good : authTheme.colors.error} /><Text style={[otpStyles.messageText, { color: success ? "#147A58" : authTheme.colors.error }]}>{apiMessage}</Text></View>}
       <AuthTextInput label="One-time password" icon="keypad-outline" placeholder="Enter 6-digit OTP" keyboardType="number-pad" maxLength={6} value={otp} error={error} inputStyle={otpStyles.otpInput} returnKeyType="done" onSubmitEditing={handleVerifyOtp} onChangeText={(text) => { setOtp(text.replace(/[^0-9]/g, "")); setError(""); }} />

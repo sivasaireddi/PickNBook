@@ -15,6 +15,14 @@ const NAME_REGEX = /^[A-Za-z\s]+$/;
 const EMAIL_REGEX = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
 const PHONE_REGEX = /^[6-9]\d{9}$/;
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()_+\-=\[\]{};':"\\|,.<>\/?]).{8,64}$/;
+const KEYBOARD_OFFSETS = {
+  firstName: -210,
+  lastName: -210,
+  mobile: -170,
+  email: -130,
+  password: -30,
+  confirmPassword: 0,
+};
 
 const validateForm = (form) => {
   const errors = {};
@@ -43,6 +51,7 @@ export default function CreateAccount() {
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState("");
   const [showOtpModal, setShowOtpModal] = useState(false);
+  const [focusedField, setFocusedField] = useState("firstName");
   const validationErrors = useMemo(() => validateForm(form), [form]);
 
   const handleChange = (name, value) => {
@@ -74,13 +83,13 @@ export default function CreateAccount() {
   const goBack = () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate("Login");
 
   return (
-    <AuthScreenLayout compact eyebrow="JOIN THE JOURNEY" title="Create your account" subtitle="One secure profile for bookings, updates, and smoother trips." onBack={goBack}>
+    <AuthScreenLayout compact keyboardSafe keyboardVerticalOffset={KEYBOARD_OFFSETS[focusedField]} eyebrow="JOIN THE JOURNEY" title="Create your account" subtitle="One secure profile for bookings, updates, and smoother trips." onBack={goBack}>
       {!!apiError && <View style={styles.messageBox}><Ionicons name="alert-circle-outline" size={18} color={authTheme.colors.error} /><Text style={styles.messageText}>{apiError}</Text></View>}
 
       <Text style={styles.sectionLabel}>PERSONAL DETAILS</Text>
       <View style={styles.nameRow}>
-        <AuthTextInput dense label="First name" placeholder="First name" autoCapitalize="words" value={form.firstName} onChangeText={(v) => handleChange("firstName", v)} error={errors.firstName} containerStyle={styles.nameField} />
-        <AuthTextInput dense label="Last name" placeholder="Last name" autoCapitalize="words" value={form.lastName} onChangeText={(v) => handleChange("lastName", v)} error={errors.lastName} containerStyle={styles.nameField} />
+        <AuthTextInput dense label="First name" placeholder="First name" autoCapitalize="words" value={form.firstName} onFocus={() => setFocusedField("firstName")} onChangeText={(v) => handleChange("firstName", v)} error={errors.firstName} containerStyle={styles.nameField} />
+        <AuthTextInput dense label="Last name" placeholder="Last name" autoCapitalize="words" value={form.lastName} onFocus={() => setFocusedField("lastName")} onChangeText={(v) => handleChange("lastName", v)} error={errors.lastName} containerStyle={styles.nameField} />
       </View>
 
       <Text style={styles.sectionLabel}>CONTACT & VERIFICATION</Text>
@@ -91,9 +100,9 @@ export default function CreateAccount() {
             {COUNTRY_CODE_OPTIONS.map((c) => <Picker.Item key={c.value} label={c.label} value={c.value} />)}
           </Picker>
         </View>
-        <View style={styles.mobileField}><AuthTextInput dense placeholder="10-digit number" keyboardType="number-pad" maxLength={10} value={form.mobile} onChangeText={(v) => handleChange("mobile", v)} error={errors.mobile} /></View>
+        <View style={styles.mobileField}><AuthTextInput dense placeholder="10-digit number" keyboardType="number-pad" maxLength={10} value={form.mobile} onFocus={() => setFocusedField("mobile")} onChangeText={(v) => handleChange("mobile", v)} error={errors.mobile} /></View>
       </View>
-      <AuthTextInput dense label="Email address" icon="mail-outline" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} value={form.email} onChangeText={(v) => handleChange("email", v)} error={errors.email} />
+      <AuthTextInput dense label="Email address" icon="mail-outline" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none" autoCorrect={false} value={form.email} onFocus={() => setFocusedField("email")} onChangeText={(v) => handleChange("email", v)} error={errors.email} />
 
       <Text style={styles.fieldLabel}>Receive verification OTP via</Text>
       <View style={styles.segmentedControl}>
@@ -104,8 +113,8 @@ export default function CreateAccount() {
       </View>
 
       <Text style={[styles.sectionLabel, styles.securitySection]}>SECURE YOUR ACCOUNT</Text>
-      <AuthTextInput dense label="Password" icon="lock-closed-outline" placeholder="Create a strong password" secureTextEntry={!showPassword} value={form.password} onChangeText={(v) => handleChange("password", v)} error={errors.password} rightIcon={showPassword ? "eye-off-outline" : "eye-outline"} onRightPress={() => setShowPassword(!showPassword)} />
-      <AuthTextInput dense label="Confirm password" icon="shield-checkmark-outline" placeholder="Repeat your password" secureTextEntry={!showConfirmPassword} value={form.confirmPassword} onChangeText={(v) => handleChange("confirmPassword", v)} error={errors.confirmPassword} rightIcon={showConfirmPassword ? "eye-off-outline" : "eye-outline"} onRightPress={() => setShowConfirmPassword(!showConfirmPassword)} />
+      <AuthTextInput dense label="Password" icon="lock-closed-outline" placeholder="Create a strong password" secureTextEntry={!showPassword} value={form.password} onFocus={() => setFocusedField("password")} onChangeText={(v) => handleChange("password", v)} error={errors.password} rightIcon={showPassword ? "eye-outline" : "eye-off-outline"} onRightPress={() => setShowPassword((visible) => !visible)} />
+      <AuthTextInput dense label="Confirm password" icon="shield-checkmark-outline" placeholder="Repeat your password" secureTextEntry={!showConfirmPassword} value={form.confirmPassword} onFocus={() => setFocusedField("confirmPassword")} onChangeText={(v) => handleChange("confirmPassword", v)} error={errors.confirmPassword} rightIcon={showConfirmPassword ? "eye-outline" : "eye-off-outline"} onRightPress={() => setShowConfirmPassword((visible) => !visible)} />
 
       <TouchableOpacity activeOpacity={0.78} onPress={() => handleChange("agree", !form.agree)} style={styles.checkboxRow} accessibilityRole="checkbox" accessibilityState={{ checked: form.agree }}>
         <Ionicons name={form.agree ? "checkbox" : "square-outline"} size={22} color={form.agree ? authTheme.colors.red : authTheme.colors.slate} />

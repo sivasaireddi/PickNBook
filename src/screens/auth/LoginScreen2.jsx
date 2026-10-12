@@ -206,10 +206,10 @@ const handleSubmit = async () => {
               onChangeText={(text) => handleChange("password", text)}
             />
             <TouchableOpacity
-              onPress={() => setShowPassword(!showPassword)}
+              onPress={() => setShowPassword((visible) => !visible)}
             >
               <Ionicons
-                name={showPassword ? "eye-off" : "eye"}
+                name={showPassword ? "eye-outline" : "eye-off-outline"}
                 size={22}
                 color="#333"
               />

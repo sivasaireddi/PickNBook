@@ -281,7 +281,7 @@ function ChangePassword({ navigation }) {
                   }
                 >
                   <Ionicons
-                    name={showCurrent ? "eye-off" : "eye"}
+                    name={showCurrent ? "eye-outline" : "eye-off-outline"}
                     size={22}
                     color="#555"
                   />
@@ -322,7 +322,7 @@ function ChangePassword({ navigation }) {
                   onPress={() => setShowNew(!showNew)}
                 >
                   <Ionicons
-                    name={showNew ? "eye-off" : "eye"}
+                    name={showNew ? "eye-outline" : "eye-off-outline"}
                     size={22}
                     color="#555"
                   />
@@ -367,7 +367,7 @@ function ChangePassword({ navigation }) {
                   }
                 >
                   <Ionicons
-                    name={showConfirm ? "eye-off" : "eye"}
+                    name={showConfirm ? "eye-outline" : "eye-off-outline"}
                     size={22}
                     color="#555"
                   />
