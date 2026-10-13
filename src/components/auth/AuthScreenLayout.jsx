@@ -39,6 +39,7 @@ const AuthVideoBackground = React.memo(function AuthVideoBackground() {
 
 export default function AuthScreenLayout({
   children,
+  footer,
   eyebrow = "PICK&BOOK",
   title,
   subtitle,
@@ -104,6 +105,7 @@ export default function AuthScreenLayout({
                 )}
               </View>}
               <View style={[styles.surface, compact && styles.surfaceCompact, login && styles.loginSurface]}>{children}</View>
+              {!!footer && <View style={[styles.footerSlot, login && styles.loginFooterSlot]}>{footer}</View>}
             </View>
           </KeyboardAvoidingView>
         ) : (
@@ -123,6 +125,7 @@ export default function AuthScreenLayout({
               )}
             </View>}
             <View style={[styles.surface, compact && styles.surfaceCompact, login && styles.loginSurface]}>{children}</View>
+            {!!footer && <View style={[styles.footerSlot, login && styles.loginFooterSlot]}>{footer}</View>}
           </View>
           </AndroidKeyboardContainer>
         )}
@@ -245,5 +248,12 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
+  },
+  footerSlot: { paddingTop: 16 },
+  loginFooterSlot: {
+    flex: 1,
+    minHeight: 58,
+    justifyContent: "flex-end",
+    paddingBottom: 2,
   },
 });

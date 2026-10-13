@@ -14,6 +14,7 @@ import AuthMethodTabs from "../../../components/auth/AuthMethodTabs";
 import PhoneLoginForm from "../../../components/auth/PhoneLoginForm";
 import ForgotPasswordForm from "../../../components/auth/ForgotPasswordForm";
 import { authTheme } from "../../../components/auth/authStyles";
+import LegalEntityFooter from "../../../components/common/LegalEntityFooter";
 
 const buildFullName = (firstName, lastName) =>
   [firstName, lastName].filter(Boolean).join(" ").trim();
@@ -162,7 +163,11 @@ const UserLoginScreen = ({ navigation }) => {
   const success = /successful/i.test(apiMessage);
 
   return (
-    <AuthScreenLayout login subtitle="Sign in to manage your trips, travels and bookings">
+    <AuthScreenLayout
+      login
+      subtitle="Sign in to manage your trips, travels and bookings"
+      footer={<LegalEntityFooter variant="overlay" />}
+    >
       <View style={authView === "login" ? undefined : styles.hidden}>
         <AuthMethodTabs
           value={loginMethod}

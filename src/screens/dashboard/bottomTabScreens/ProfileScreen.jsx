@@ -24,6 +24,7 @@ import { API_BASE_URL } from '../../../constants/config'
 import { getWalletSummary } from '../../../services/WalletService'
 import { BUS_FLOW_COLORS } from '../../../constants/colors'
 import AppHeader from '../../../components/AppHeader'
+import LegalEntityFooter from '../../../components/common/LegalEntityFooter'
 
 const PROFILE_API_URL = `${API_BASE_URL}/api/profile`
 
@@ -460,7 +461,7 @@ const ProfileScreen = () => {
           </View>
         </TouchableOpacity>
 
-
+        <LegalEntityFooter style={styles.legalFooter} />
       </ScrollView>
 
       {/* Modal 1: Edit Profile Modal */}
@@ -797,7 +798,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     paddingVertical: 10,
     paddingHorizontal: 16,
-    marginBottom: 24,
+    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
@@ -816,6 +817,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#EF4444',
+  },
+  legalFooter: {
+    marginBottom: 4,
   },
   versionText: {
     textAlign: 'center',
