@@ -111,6 +111,41 @@ export async function searchCities(query = "") {
   }
 }
 
+const getSuggestionCityName = (item) => {
+  const direct = item?.city || item?.cityName || "";
+  if (direct) return String(direct).split(",")[0].trim();
+
+  const description = item?.description || item?.label || item?.name || "";
+  const parts = String(description).split(",").map((part) => part.trim()).filter(Boolean);
+  return parts.length >= 2 ? parts[1] : (parts[0] || "");
+};
+
+export async function resolveBusCity(cityName) {
+  const requestedName = String(cityName || "").trim();
+  if (!requestedName) return null;
+
+  const suggestions = await searchCities(requestedName);
+  const exactMatch = suggestions.find((item) =>
+    getSuggestionCityName(item).toLowerCase() === requestedName.toLowerCase()
+  );
+  const match = exactMatch || suggestions[0];
+  if (!match) return null;
+
+  const resolvedName = getSuggestionCityName(match) || requestedName;
+  const cityId = String(
+    match?.cityCode || match?.cityId || match?.code || match?.place_id || match?.id || ""
+  ).trim();
+
+  if (!cityId) return null;
+
+  return {
+    cityId,
+    cityName: resolvedName,
+    label: resolvedName,
+    stateName: String(match?.stateName || match?.state || "").trim(),
+  };
+}
+
 /**
  * Resolves a city object or name/code string to a numeric city code.
  * If it's a name, it queries the search-cities API to find the corresponding code.

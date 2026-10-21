@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import RedDatePickerModal from "../../../components/RedDatePickerModal";
 import OffersCarousel from "../../../components/OffersCarousel";
 import { getBannerHeight } from "../../../utils/responsive";
+import { createBusSearchNavigationParams, formatBusDisplayDate } from "../../../utils/busSearchParams";
 import { BUS_FLOW_COLORS } from "../../../constants/colors";
 
 const COLORS = BUS_FLOW_COLORS;
@@ -185,14 +186,6 @@ export default function BusBookingSection({ navigation, route }) {
     ]).start();
   }, []);
 
-  const formatDate = (value) =>
-    value.toLocaleDateString("en-IN", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-
   const canSearch = source.cityName.trim().length > 0 && destination.cityName.trim().length > 0;
 
   // Dynamic error clearing: source
@@ -320,13 +313,11 @@ export default function BusBookingSection({ navigation, route }) {
 
     if (hasError) return;
 
-    navigation?.navigate?.("BusListScreen", {
+    navigation?.navigate?.("BusListScreen", createBusSearchNavigationParams({
       from: source,
       to: destination,
-      date: formatDate(date),
-      dateValue: date.toISOString(),
-      passengers: 1,
-    });
+      date,
+    }));
     console.log("[BusFlow] NAVIGATING TO BUS RESULTS");
   };
 
@@ -424,7 +415,7 @@ export default function BusBookingSection({ navigation, route }) {
           <TravelField
             label="DATE OF JOURNEY"
             icon="calendar-outline"
-            value={formatDate(date)}
+            value={formatBusDisplayDate(date)}
             placeholder="Select date"
             error={!!errors.date}
             errorMessage={errors.date}
