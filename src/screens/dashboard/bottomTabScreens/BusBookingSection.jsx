@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
-  ImageBackground,
   Keyboard,
   Platform,
   Pressable,
@@ -12,26 +11,17 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import RedDatePickerModal from "../../../components/RedDatePickerModal";
 import OffersCarousel from "../../../components/OffersCarousel";
-import { getBannerHeight } from "../../../utils/responsive";
+import { AssuranceStrip, SearchPanelHeading, TravelPrimaryButton, TravelSearchHero } from "../../../components/travelSearch/TravelSearchChrome";
 import { createBusSearchNavigationParams, formatBusDisplayDate } from "../../../utils/busSearchParams";
 import { BUS_FLOW_COLORS } from "../../../constants/colors";
+import { theme } from "../../../theme/tokens";
 
 const COLORS = BUS_FLOW_COLORS;
-
-const SHADOWS = {
-  soft: {
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-};
 
 const TravelField = ({
   label,
@@ -104,17 +94,17 @@ const TravelField = ({
 };
 
 export default function BusBookingSection({ navigation, route }) {
-  const { height: screenHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [source, setSource] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
   const [destination, setDestination] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({ source: "", destination: "", date: "" });
   const swapMotion = useRef(new Animated.Value(0)).current;
   const swapRotation = useRef(new Animated.Value(0)).current;
   const swapScale = useRef(new Animated.Value(1)).current;
-  const searchScale = useRef(new Animated.Value(1)).current;
   const lastLocationSelection = useRef(null);
 
   useEffect(() => {
@@ -159,14 +149,6 @@ export default function BusBookingSection({ navigation, route }) {
     });
   }, [navigation, route?.params?.busLocationSelectionRequestId]);
 
-  const handleSearchPressIn = () => {
-    Animated.spring(searchScale, { toValue: 0.96, useNativeDriver: true }).start();
-  };
-
-  const handleSearchPressOut = () => {
-    Animated.spring(searchScale, { toValue: 1, friction: 3, tension: 40, useNativeDriver: true }).start();
-  };
-
   const mountFade = useRef(new Animated.Value(0)).current;
   const mountTranslateY = useRef(new Animated.Value(20)).current;
 
@@ -185,8 +167,6 @@ export default function BusBookingSection({ navigation, route }) {
       }),
     ]).start();
   }, []);
-
-  const canSearch = source.cityName.trim().length > 0 && destination.cityName.trim().length > 0;
 
   // Dynamic error clearing: source
   useEffect(() => {
@@ -272,6 +252,7 @@ export default function BusBookingSection({ navigation, route }) {
   };
 
   const handleSearch = () => {
+    if (isSubmitting) return;
     console.log("[BusFlow] SEARCH FORM SUBMITTED:", {
       from: source,
       to: destination,
@@ -313,11 +294,13 @@ export default function BusBookingSection({ navigation, route }) {
 
     if (hasError) return;
 
+    setIsSubmitting(true);
     navigation?.navigate?.("BusListScreen", createBusSearchNavigationParams({
       from: source,
       to: destination,
       date,
     }));
+    setTimeout(() => setIsSubmitting(false), 900);
     console.log("[BusFlow] NAVIGATING TO BUS RESULTS");
   };
 
@@ -327,28 +310,17 @@ export default function BusBookingSection({ navigation, route }) {
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[
+          styles.contentContainer,
+          { paddingBottom: (Platform.OS === "ios" ? 84 : 64) + insets.bottom + 24 },
+        ]}
       >
-        {/* HERO IMAGE BACKGROUND */}
-        <ImageBackground
-          source={require("../../../../assets/busBanner.jpg")}
-          style={[
-            styles.heroContainer,
-            { height: getBannerHeight(screenHeight) },
-          ]}
-          resizeMode="cover"
-        >
-          {/* Top Back Button */}
-          <View style={styles.topBar}>
-            <Pressable
-              style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.8 }]}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="chevron-back" size={22} color="#1F2937" />
-            </Pressable>
-          </View>
-
-        </ImageBackground>
+        <TravelSearchHero
+          image={require("../../../../assets/busBanner.jpg")}
+          title="Where are you heading?"
+          subtitle="Search trusted routes and choose the journey that fits your day."
+          onBack={() => navigation.goBack()}
+        />
 
         {/* COMPACT & RESPONSIVE FLOATING SEARCH CARD */}
         <Animated.View
@@ -360,7 +332,13 @@ export default function BusBookingSection({ navigation, route }) {
             },
           ]}
         >
+          <SearchPanelHeading title="Plan your bus journey" subtitle="Choose your cities and travel date." />
           <View style={styles.swapSection}>
+            <View style={styles.routeGuide}>
+              <View style={styles.routeGuideDot} />
+              <View style={styles.routeGuideLine} />
+              <View style={[styles.routeGuideDot, styles.routeGuideDotEnd]} />
+            </View>
             <Animated.View style={[styles.animatedField, { opacity: fieldFade, transform: [{ translateY: fromTranslateY }] }]}>
               <TravelField
                 label="FROM"
@@ -381,6 +359,22 @@ export default function BusBookingSection({ navigation, route }) {
                 }}
               />
             </Animated.View>
+
+            <View style={styles.swapConnectorRow}>
+              <View style={styles.swapConnectorLine} />
+              <Animated.View style={[styles.swapButtonWrap, { transform: [{ scale: swapScale }, { rotate: rotateInterpolate }] }]}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Swap source and destination"
+                  onPress={handleSwap}
+                  disabled={isSwapping}
+                  style={({ pressed }) => [styles.swapButton, pressed && styles.swapButtonPressed]}
+                >
+                  <Ionicons name="swap-vertical" size={17} color={COLORS.primary} />
+                </Pressable>
+              </Animated.View>
+              <View style={styles.swapConnectorLine} />
+            </View>
 
             <Animated.View style={[styles.animatedField, { opacity: fieldFade, transform: [{ translateY: toTranslateY }] }]}>
               <TravelField
@@ -403,12 +397,6 @@ export default function BusBookingSection({ navigation, route }) {
               />
             </Animated.View>
 
-            {/* FLOATING SWAP BUTTON (COMPACT) */}
-            <Animated.View style={[styles.swapButtonWrap, { transform: [{ scale: swapScale }, { rotate: rotateInterpolate }] }]}>
-              <Pressable onPress={handleSwap} disabled={isSwapping} style={({ pressed }) => [styles.swapButton, pressed && styles.swapButtonPressed]}>
-                <Ionicons name="swap-vertical" size={17} color={COLORS.primary} />
-              </Pressable>
-            </Animated.View>
           </View>
 
           {/* DATE FIELD */}
@@ -437,25 +425,10 @@ export default function BusBookingSection({ navigation, route }) {
             onCancel={() => setShowPicker(false)}
           />
 
-          {/* SEARCH BUTTON (COMPACT 48PX HEIGHT) */}
-          <Animated.View style={[styles.buttonShadow, { transform: [{ scale: searchScale }] }]}>
-            <Pressable
-              onPress={handleSearch}
-              onPressIn={handleSearchPressIn}
-              onPressOut={handleSearchPressOut}
-              style={({ pressed }) => [
-                styles.buttonPressable,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <View style={styles.buttonGradient}>
-                <Text style={styles.buttonText}>Search Buses</Text>
-                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={styles.buttonArrow} />
-              </View>
-            </Pressable>
-          </Animated.View>
+          <TravelPrimaryButton label="Search Buses" onPress={handleSearch} loading={isSubmitting} disabled={isSubmitting} />
         </Animated.View>
 
+        <AssuranceStrip items={["Clear journey details", "Secure booking", "Trips saved in My Bookings"]} />
         <OffersCarousel serviceType="bus" />
 
       </ScrollView>
@@ -465,35 +438,14 @@ export default function BusBookingSection({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  contentContainer: { paddingBottom: 24, flexGrow: 0 },
-
-  heroContainer: {
-    width: "100%",
-  },
-  topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === "android" ? 40 : 48,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    ...SHADOWS.soft,
-  },
+  contentContainer: { paddingBottom: 32 },
   /* Compact Booking Container (15-20% height reduction) */
   searchCard: {
-    marginHorizontal: 16,
-    marginTop: -24,
+    marginHorizontal: theme.spacing.md,
+    marginTop: -32,
     backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
+    borderRadius: 26,
+    padding: theme.spacing.lg,
     zIndex: 20,
     elevation: 6,
     shadowColor: "#0F172A",
@@ -501,9 +453,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 14,
   },
-  swapSection: { position: "relative", gap: 0 },
+  swapSection: { position: "relative", paddingLeft: 18 },
+  routeGuide: { position: "absolute", left: 2, top: 34, bottom: 22, width: 10, alignItems: "center" },
+  routeGuideDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.redDeep, borderWidth: 2, borderColor: "#FAD7DC", zIndex: 2 },
+  routeGuideLine: { flex: 1, width: 1, marginVertical: 3, backgroundColor: "#E8B7BF" },
+  routeGuideDotEnd: { backgroundColor: theme.colors.ink, borderColor: "#DDE1EB" },
   animatedField: { position: "relative" },
-  fieldGroup: { position: "relative", marginBottom: 8 },
+  fieldGroup: { position: "relative", marginBottom: 12 },
   fieldError: {
     borderColor: "#DC2626",
     borderWidth: 1.5,
@@ -520,9 +476,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FEE2E2",
   },
   bookingMiniLabel: {
+    fontFamily: theme.typography.fontFamily.body.semiBold,
     fontSize: 10,
-    fontWeight: "800",
-    color: "#8E8E93",
+    color: theme.colors.slate,
     textTransform: "uppercase",
     letterSpacing: 0.6,
     marginBottom: 4,
@@ -532,12 +488,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 44,
-    borderRadius: 12,
+    minHeight: 58,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#EFEFEF",
-    backgroundColor: "#FAFBFD",
-    paddingHorizontal: 12,
+    backgroundColor: theme.colors.cloud,
+    paddingHorizontal: 14,
   },
   fieldPressed: {
     backgroundColor: "#F1F5F9",
@@ -562,7 +518,8 @@ const styles = StyleSheet.create({
   },
   bookingValueText: {
     flex: 1,
-    color: "#1F2937",
+    color: theme.colors.ink,
+    fontFamily: theme.typography.fontFamily.body.semiBold,
     fontSize: 16,
     fontWeight: "700",
   },
@@ -581,24 +538,30 @@ const styles = StyleSheet.create({
 
   /* Compact Swap Button */
   swapButtonWrap: {
-    position: "absolute",
-    right: 12,
-    top: 43,
-    zIndex: 30,
-    elevation: 30,
+    marginHorizontal: 9,
   },
+  swapConnectorRow: {
+    height: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: -6,
+    marginBottom: 6,
+    paddingHorizontal: 26,
+  },
+  swapConnectorLine: { flex: 1, height: 1, backgroundColor: "#E8B7BF" },
   swapButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#FFE8EB",
-    borderWidth: 2.5,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.card,
+    borderWidth: 1.5,
     borderColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 5,
     elevation: 5,
   },

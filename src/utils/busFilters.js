@@ -41,7 +41,7 @@ const normalizeText = (value) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
-const toNumber = (value) => {
+export const getNumericBusFare = (value) => {
   const text = stringify(value);
 
   if (!text) return null;
@@ -131,27 +131,43 @@ const parseDateLike = (value) => {
   return Number.isNaN(forcedUtc.getTime()) ? null : forcedUtc;
 };
 
-const getTimeBand = (value) => {
+export const getBusTimeMinutes = (value) => {
   const text = stringify(value);
 
-  if (!text) return "";
+  if (!text) return null;
 
-  const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
-
-  let hours = null;
+  const timeMatch = text.match(/(?:T|\b)(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i);
 
   if (timeMatch) {
-    hours = Number(timeMatch[1]);
-  } else {
-    const parsedDate = parseDateLike(text);
+    let hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2]);
+    const meridiem = timeMatch[3]?.toUpperCase();
 
-    if (!parsedDate) return "";
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    if (meridiem === "PM" && hours < 12) hours += 12;
 
-    hours =
-      text.includes("T") || text.includes("Z")
-        ? parsedDate.getUTCHours()
-        : parsedDate.getHours();
+    if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+      return hours * 60 + minutes;
+    }
   }
+
+  const parsedDate = parseDateLike(text);
+  if (!parsedDate) return null;
+
+  const hours =
+    text.includes("T") || text.includes("Z")
+      ? parsedDate.getUTCHours()
+      : parsedDate.getHours();
+
+  return hours * 60 + parsedDate.getMinutes();
+};
+
+export const getBusTimeBand = (value) => {
+  const minutes = getBusTimeMinutes(value);
+
+  if (minutes === null) return "";
+
+  const hours = Math.floor(minutes / 60);
 
   if (hours >= 6 && hours < 12) return "morning";
 
@@ -165,22 +181,22 @@ const getTimeBand = (value) => {
 const matchesBusTypeLabel = (busType, label) => {
   const normalizedBusType = normalizeText(busType);
   const normalizedLabel = normalizeText(label);
+  const compactBusType = normalizedBusType.replace(/\s+/g, "");
+  const isNonAc = compactBusType.includes("nonac") || normalizedBusType.includes("non air conditioned");
+  const isAc = !isNonAc && (
+    compactBusType.includes("ac") ||
+    normalizedBusType.includes("air conditioned") ||
+    normalizedBusType.includes("airconditioned")
+  );
 
   if (!normalizedBusType || !normalizedLabel) return false;
 
   if (normalizedLabel === "ac") {
-    return (
-      normalizedBusType.includes("ac") &&
-      !normalizedBusType.includes("non ac") &&
-      !normalizedBusType.includes("nonac")
-    );
+    return isAc;
   }
 
   if (normalizedLabel === "non ac") {
-    return (
-      normalizedBusType.includes("non ac") ||
-      normalizedBusType.includes("nonac")
-    );
+    return isNonAc;
   }
 
   if (normalizedLabel === "seater") {
@@ -196,6 +212,14 @@ const matchesBusTypeLabel = (busType, label) => {
     normalizedBusType.includes(normalizedLabel) ||
     normalizedLabel.includes(normalizedBusType)
   );
+};
+
+const matchesBusTypeSelections = (busType, selectedValues) => {
+  const selections = uniqueLabels((selectedValues || []).filter(Boolean));
+
+  if (!selections.length) return true;
+
+  return selections.some((selection) => matchesBusTypeLabel(busType, selection));
 };
 
 const matchesSelection = (itemValues, selectedValues) => {
@@ -254,7 +278,7 @@ const matchesPriceRange = (item, priceMin, priceMax) => {
     return true;
   }
 
-  const price = toNumber(item?.priceInr ?? item?.price ?? item?.fare);
+  const price = getNumericBusFare(item?.priceInr ?? item?.price ?? item?.fare);
 
   if (price === null) {
     return false;
@@ -275,7 +299,7 @@ const matchesPriceRange = (item, priceMin, priceMax) => {
 export const buildBusFilterOptions = (items = []) => {
   const buses = Array.isArray(items) ? items : [];
   const priceValues = buses
-    .map((item) => toNumber(item?.priceInr ?? item?.price ?? item?.fare))
+    .map((item) => getNumericBusFare(item?.priceInr ?? item?.price ?? item?.fare))
     .filter((value) => value !== null);
 
   const priceBounds = priceValues.length
@@ -344,20 +368,38 @@ export const buildBusFilterOptions = (items = []) => {
 };
 
 export const matchesBusFilters = (item, filters = createDefaultBusFilters()) => {
-  const priceMin = toNumber(filters?.priceMin);
-  const priceMax = toNumber(filters?.priceMax);
+  const priceMin = getNumericBusFare(filters?.priceMin);
+  const priceMax = getNumericBusFare(filters?.priceMax);
+  const selectedBusTypes = filters?.busTypes ?? [];
+  const climateTypes = selectedBusTypes.filter((value) =>
+    value === "AC" || value === "Non AC",
+  );
+  const layoutTypes = selectedBusTypes.filter((value) =>
+    value === "Seater" || value === "Sleeper",
+  );
+  const otherBusTypes = selectedBusTypes.filter((value) =>
+    !["AC", "Non AC", "Seater", "Sleeper"].includes(value),
+  );
 
   if (!matchesPriceRange(item, priceMin, priceMax)) {
     return false;
   }
 
-  if (!matchesSelection([item?.busType], filters?.busTypes)) {
+  if (!matchesBusTypeSelections(item?.busType, climateTypes)) {
+    return false;
+  }
+
+  if (!matchesBusTypeSelections(item?.busType, layoutTypes)) {
+    return false;
+  }
+
+  if (!matchesBusTypeSelections(item?.busType, otherBusTypes)) {
     return false;
   }
 
   if (
     !matchesSelection(
-      [getTimeBand(item?.departureTimeUtc ?? item?.departureTime)],
+      [getBusTimeBand(item?.departureTimeUtc ?? item?.departureTime)],
       filters?.departureTimes,
     )
   ) {
@@ -366,7 +408,7 @@ export const matchesBusFilters = (item, filters = createDefaultBusFilters()) => 
 
   if (
     !matchesSelection(
-      [getTimeBand(item?.arrivalTimeUtc ?? item?.arrivalTime)],
+      [getBusTimeBand(item?.arrivalTimeUtc ?? item?.arrivalTime)],
       filters?.arrivalTimes,
     )
   ) {

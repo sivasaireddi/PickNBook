@@ -29,6 +29,14 @@ const COLORS = {
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
+const SORT_OPTIONS = [
+  { value: "departure", label: "Departure" },
+  { value: "duration", label: "Duration" },
+  { value: "arrival", label: "Arrival" },
+  { value: "fare", label: "Fare" },
+  { value: "seats", label: "Seats available" },
+];
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const normalize = (value) =>
@@ -263,6 +271,8 @@ export default function FilterModal({
   setFilters = () => { },
   options = {},
   resultCount,
+  sortState = { field: "arrival", direction: "asc" },
+  onSortChange = () => {},
 }) {
   const [boardingQuery, setBoardingQuery] = useState("");
   const [droppingQuery, setDroppingQuery] = useState("");
@@ -323,6 +333,16 @@ export default function FilterModal({
 
   const clearAll = () => {
     setFilters(createDefaultBusFilters());
+    onSortChange("arrival", "asc");
+  };
+
+  const handleSortPress = (value) => {
+    if (sortState?.field === value) {
+      onSortChange(value, sortState.direction === "asc" ? "desc" : "asc");
+      return;
+    }
+
+    onSortChange(value, "asc");
   };
 
   const selectedMin = parsePriceInput(filters?.priceMin) ?? minimumPrice;
@@ -422,7 +442,7 @@ export default function FilterModal({
           <View style={styles.header}>
             <View style={styles.headerTitleWrap}>
               <Feather name="filter" size={16} color="#fff" />
-              <Text style={styles.headerTitle}>FILTERS</Text>
+              <Text style={styles.headerTitle}>SORT & FILTERS</Text>
             </View>
             <TouchableOpacity style={styles.closeButton} onPress={onClose} activeOpacity={0.88}>
               <Feather name="x" size={18} color="#fff" />
@@ -435,6 +455,40 @@ export default function FilterModal({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
+            <FilterCard title="Sort by">
+              <View style={styles.sortOptionsWrap}>
+                {SORT_OPTIONS.map((option) => {
+                  const selected = sortState?.field === option.value;
+                  const directionLabel = selected
+                    ? sortState.direction === "asc" ? "Ascending" : "Descending"
+                    : "";
+
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`${option.label}${directionLabel ? `, ${directionLabel}` : ""}`}
+                      style={[styles.sortOption, selected && styles.sortOptionActive]}
+                      onPress={() => handleSortPress(option.value)}
+                      activeOpacity={0.86}
+                    >
+                      <Text style={[styles.sortOptionText, selected && styles.sortOptionTextActive]}>
+                        {option.label}
+                      </Text>
+                      {selected ? (
+                        <Feather
+                          name={sortState.direction === "asc" ? "arrow-up" : "arrow-down"}
+                          size={14}
+                          color={COLORS.primary}
+                        />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </FilterCard>
+
             {/* ── Price Range ── */}
             <FilterCard title="₹ Price Range">
               <PriceSlider
@@ -603,6 +657,21 @@ const styles = StyleSheet.create({
   },
   cardTitle: { marginBottom: 10, color: "#1f2f4d", fontSize: 16, fontWeight: "800" },
   emptyStrip: { minHeight: 8 },
+  sortOptionsWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  sortOption: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D9E1EE",
+    backgroundColor: "#FFFFFF",
+  },
+  sortOptionActive: { borderColor: "#E5A5AF", backgroundColor: "#FFF0F2" },
+  sortOptionText: { color: "#475569", fontSize: 12, fontWeight: "700" },
+  sortOptionTextActive: { color: COLORS.primary, fontWeight: "800" },
 
   // Price slider
   priceHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 },

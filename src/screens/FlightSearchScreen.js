@@ -5,20 +5,15 @@ import {
   ScrollView,
   StyleSheet,
   Animated,
-  Easing,
   Platform,
   Alert,
   ToastAndroid,
   TouchableOpacity,
-  ImageBackground,
   Pressable,
-  useWindowDimensions,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Search, ArrowRight } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useFlightSearch } from "../hooks/useFlightSearch";
 import { searchFlights } from "./dashboard/bottomTabScreens/flights/services/flightBookingService";
@@ -29,9 +24,10 @@ import TravellerBottomSheet from "../bottomSheets/TravellerBottomSheet";
 import CabinBottomSheet from "../bottomSheets/CabinBottomSheet";
 import AirportSearchModal from "../components/AirportSearchModal";
 import OffersCarousel from "../components/OffersCarousel";
+import { AssuranceStrip, SearchPanelHeading, TravelPrimaryButton, TravelSearchHero } from "../components/travelSearch/TravelSearchChrome";
 
 import { theme } from "../theme/tokens";
-import { scale, getBannerHeight } from "../utils/responsive";
+import { scale } from "../utils/responsive";
 import { normalizeCityName } from "../screens/dashboard/bottomTabScreens/flights/utils/flightUtils";
 
 const getAirportCity = (airport, fallback) => {
@@ -64,6 +60,7 @@ const TRIPS = [
 ];
 
 export default function FlightSearchScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const {
     origin, setOrigin,
     destination, setDestination,
@@ -77,14 +74,10 @@ export default function FlightSearchScreen({ navigation }) {
     swapAirports, validate,
   } = useFlightSearch();
 
-  const { height: screenHeight } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-
   // Entrance animations — identical to HotelsScreen
   const cardTranslateY = useRef(new Animated.Value(35)).current;
   const cardOpacity   = useRef(new Animated.Value(0)).current;
   const cardScale     = useRef(new Animated.Value(0.98)).current;
-  const ctaArrowTranslateX = useRef(new Animated.Value(0)).current;
 
   // Modal & Sheet states
   const [showOriginModal, setShowOriginModal]           = useState(false);
@@ -102,11 +95,6 @@ export default function FlightSearchScreen({ navigation }) {
   const [searching, setSearching] = useState(false);
 
   useEffect(() => {
-    // Arrow idle loop
-    Animated.loop(Animated.sequence([
-      Animated.timing(ctaArrowTranslateX, { toValue: 4,  duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(ctaArrowTranslateX, { toValue: 0,  duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-    ])).start();
     Animated.parallel([
       Animated.timing(cardOpacity,    { toValue: 1, duration: 500, useNativeDriver: true }),
       Animated.spring(cardTranslateY, { toValue: 0, friction: 7, tension: 40, useNativeDriver: true }),
@@ -153,7 +141,9 @@ export default function FlightSearchScreen({ navigation }) {
     setSearching(true);
     try {
       const depDateString = departureDate ? (departureDate instanceof Date ? departureDate.toISOString().slice(0, 10) : String(departureDate)) : "";
-      const retDateString = returnDate    ? (returnDate    instanceof Date ? returnDate.toISOString().slice(0, 10)    : String(returnDate))    : null;
+      const retDateString = tripType === "roundtrip" && returnDate
+        ? (returnDate instanceof Date ? returnDate.toISOString().slice(0, 10) : String(returnDate))
+        : null;
       const isMultiCity   = String(tripType).toLowerCase() === "multicity";
       const formattedSegments = multiCitySegments.map((s) => ({
         origin: s.origin?.airportCode || "", destination: s.destination?.airportCode || "",
@@ -198,33 +188,31 @@ export default function FlightSearchScreen({ navigation }) {
   };
 
   const totalTravellers = travellers.adults + travellers.children + travellers.infants;
-  const bannerHeight    = getBannerHeight(screenHeight);
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" bounces={false} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: (Platform.OS === "ios" ? 84 : 64) + insets.bottom + 24 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+      >
 
         {/* Hero Banner — identical treatment to HotelsScreen */}
-        <View style={styles.headerBannerContainer}>
-          <ImageBackground
-            source={require("../../assets/flightBanner.png")}
-            style={[styles.headerBackground, { height: bannerHeight }]}
-            imageStyle={styles.headerBackgroundImage}
-            resizeMode="cover"
-          >
-            <LinearGradient colors={["rgba(15,23,42,0.15)", "rgba(15,23,42,0.50)"]} style={styles.headerGradient}>
-              <View style={[styles.headerRow, { paddingTop: Math.max(scale(12), insets.top + scale(8)) }]}>
-                <AnimatedPressable style={styles.backButton} activeScale={0.9} onPress={() => { if (navigation?.canGoBack?.()) navigation.goBack(); else navigation.navigate?.("DashBoard"); }}>
-                  <Ionicons name="chevron-back" size={22} color="#1F2937" />
-                </AnimatedPressable>
-              </View>
-            </LinearGradient>
-          </ImageBackground>
-        </View>
+        <TravelSearchHero
+          image={require("../../assets/flightBanner.png")}
+          title="Your next destination starts here."
+          subtitle="Compare fares and plan your journey."
+          onBack={() => navigation?.canGoBack?.() ? navigation.goBack() : navigation.navigate?.("DashBoard")}
+        />
 
         {/* Search Card — overlaps banner by 24px, identical to HotelsScreen */}
         <View style={styles.cardContainer}>
           <Animated.View style={[styles.card, { opacity: cardOpacity, transform: [{ translateY: cardTranslateY }, { scale: cardScale }] }]}>
+            <SearchPanelHeading title="Search flights" subtitle="Build your itinerary in a few simple steps." />
 
             {/* Trip Type segmented control */}
             <View style={styles.segmentedRow}>
@@ -264,7 +252,7 @@ export default function FlightSearchScreen({ navigation }) {
 
                   {/* Swap button column — sits between FROM and TO */}
                   <AnimatedPressable style={styles.swapButton} activeScale={0.88} onPress={swapAirports}>
-                    <Ionicons name="swap-horizontal" size={scale(18)} color="#FFFFFF" />
+                    <Ionicons name="swap-horizontal" size={scale(19)} color={theme.colors.redDeep} />
                   </AnimatedPressable>
 
                   {/* TO column */}
@@ -276,12 +264,6 @@ export default function FlightSearchScreen({ navigation }) {
                 </View>
 
                 {/* Boarding-pass perforation divider */}
-                <View style={styles.perforationDivider}>
-                  <View style={styles.perforationHoleLeft} />
-                  <View style={styles.dashedLine} />
-                  <View style={styles.perforationHoleRight} />
-                </View>
-
                 {/* DEPARTURE / RETURN */}
                 <View style={styles.dateRow}>
                   <AnimatedPressable style={styles.dateBlock} activeScale={0.96} onPress={handleOpenDepartureDate}>
@@ -318,25 +300,12 @@ export default function FlightSearchScreen({ navigation }) {
                 </AnimatedPressable>
 
                 {/* Search Flights button — same gradient / height / radius / shadow as HotelsScreen */}
-                <AnimatedPressable onPress={handleSearchFlights} disabled={searching} wrapperStyle={styles.searchButtonWrapper} activeScale={0.97}>
-                  <LinearGradient colors={["#CB2E33", "#B0242A"]} style={styles.searchButtonGradient}>
-                    {searching ? (
-                      <View style={styles.searchButtonContent}><Text style={styles.searchButtonText}>Searching...</Text></View>
-                    ) : (
-                      <View style={styles.searchButtonContent}>
-                        <Search size={scale(16)} color="#FFFFFF" />
-                        <Text style={styles.searchButtonText}>Search flights</Text>
-                        <Animated.View style={{ transform: [{ translateX: ctaArrowTranslateX }] }}>
-                          <ArrowRight size={scale(16)} color="#FFFFFF" />
-                        </Animated.View>
-                      </View>
-                    )}
-                  </LinearGradient>
-                </AnimatedPressable>
+                <TravelPrimaryButton label="Search Flights" onPress={handleSearchFlights} loading={searching} disabled={searching} />
               </>
             )}
           </Animated.View>
 
+          <AssuranceStrip items={["One-way, return and multi-city", "Traveller options", "Secure booking"]} />
           <OffersCarousel serviceType="flight" />
         </View>
       </ScrollView>
@@ -368,7 +337,7 @@ export default function FlightSearchScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   // Outer container
-  container:     { flex: 1, backgroundColor: "#F4F3F1" },
+  container:     { flex: 1, backgroundColor: theme.colors.cloud },
   scrollContent: { paddingBottom: scale(32) },
 
   // Banner — mirrors HotelsScreen exactly
@@ -382,27 +351,27 @@ const styles = StyleSheet.create({
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#0F172A", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
 
   // Card container — negative marginTop overlaps banner (identical to HotelsScreen)
-  cardContainer: { marginHorizontal: scale(16), marginTop: -scale(24) },
-  card: { backgroundColor: "#FFFFFF", borderRadius: scale(17), paddingHorizontal: scale(10), paddingTop: scale(10), paddingBottom: scale(10), shadowColor: "rgba(0,0,0,0.04)", shadowOffset: { width: 0, height: scale(5) }, shadowOpacity: 1, shadowRadius: scale(13), elevation: 2 },
+  cardContainer: { marginHorizontal: scale(16), marginTop: -scale(32) },
+  card: { backgroundColor: "#FFFFFF", borderRadius: scale(26), padding: scale(20), shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: scale(7) }, shadowOpacity: 0.08, shadowRadius: scale(16), elevation: 4 },
 
   // Segmented trip-type control
-  segmentedRow:  { flexDirection: "row", backgroundColor: "#F4F3F1", borderRadius: scale(10), padding: scale(2), marginBottom: scale(9), borderWidth: 1, borderColor: "#E7E9F2" },
-  segTab:        { flex: 1, paddingVertical: scale(7), alignItems: "center", justifyContent: "center", borderRadius: scale(8), minHeight: scale(34) },
-  segTabActive:  { backgroundColor: "#11162B", shadowColor: "#11162B", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4, elevation: 2 },
+  segmentedRow:  { flexDirection: "row", backgroundColor: theme.colors.cloud, borderRadius: scale(14), padding: scale(4), marginBottom: scale(16), borderWidth: 1, borderColor: theme.colors.line },
+  segTab:        { flex: 1, paddingHorizontal: 2, alignItems: "center", justifyContent: "center", borderRadius: scale(11), minHeight: scale(42) },
+  segTabActive:  { backgroundColor: theme.colors.card, borderWidth: 1, borderColor: "#F1D5DA", shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 2 },
   segLabel:      { fontSize: scale(12), fontWeight: "500", color: "#8992A9" },
-  segLabelActive:{ fontWeight: "600", color: "#FFFFFF" },
+  segLabelActive:{ fontWeight: "700", color: theme.colors.redDeep },
 
   // FROM / TO route row — 3-column flex (no absolute positioning)
-  routeCard:        { flexDirection: "row", alignItems: "center", paddingHorizontal: scale(3), paddingVertical: scale(8) },
-  airportBlock:     { flex: 1, minHeight: scale(50) },
+  routeCard:        { flexDirection: "row", alignItems: "center", padding: scale(14), borderRadius: scale(18), backgroundColor: theme.colors.cloud, borderWidth: 1, borderColor: theme.colors.line, marginBottom: scale(12) },
+  airportBlock:     { flex: 1, flexBasis: 0, minWidth: 0, minHeight: scale(64), justifyContent: "center" },
   airportBlockRight:{ alignItems: "flex-end" },
   fieldLabel:       { fontSize: scale(9), fontWeight: "800", color: "#94A3B8", letterSpacing: 0.7, textTransform: "uppercase", marginBottom: scale(2) },
-  cityName:         { fontSize: scale(12), fontWeight: "600", color: "#6B7280", marginBottom: scale(1) },
+  cityName:         { fontSize: scale(14), fontWeight: "700", color: theme.colors.ink, marginBottom: scale(1) },
   emptyField:       { color: "#9CA3AF", fontWeight: "500" },
   airportCode:      { fontSize: scale(22), fontWeight: "900", color: "#0F172A", lineHeight: scale(26) },
 
   // Swap button — inline flex item, no absolute positioning
-  swapButton: { width: scale(34), height: scale(34), borderRadius: scale(17), backgroundColor: "#11162B", justifyContent: "center", alignItems: "center", marginHorizontal: scale(6), shadowColor: "#11162B", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 4 },
+  swapButton: { width: scale(42), height: scale(42), borderRadius: scale(21), backgroundColor: theme.colors.card, borderWidth: 1, borderColor: "#F1CDD3", justifyContent: "center", alignItems: "center", marginHorizontal: scale(8), shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
 
   // Boarding-pass perforation divider
   perforationDivider:  { flexDirection: "row", alignItems: "center", height: scale(16), position: "relative", overflow: "hidden", marginBottom: scale(2) },
@@ -411,16 +380,16 @@ const styles = StyleSheet.create({
   dashedLine:          { flex: 1, height: 1, borderStyle: "dashed", borderWidth: 1, borderColor: "#E7E9F2", marginHorizontal: scale(12) },
 
   // Date row
-  dateRow:      { flexDirection: "row", marginBottom: scale(8), paddingHorizontal: scale(3) },
-  dateBlock:    { flex: 1, minHeight: scale(44), justifyContent: "center" },
+  dateRow:      { flexDirection: "row", marginBottom: scale(12), padding: scale(4), borderRadius: scale(16), backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.line },
+  dateBlock:    { flex: 1, minHeight: scale(58), justifyContent: "center", paddingHorizontal: scale(10) },
   dateDivider:  { width: 1, backgroundColor: "#E7E9F2", marginHorizontal: scale(9), alignSelf: "stretch" },
   dateValue:    { fontSize: scale(13), fontWeight: "700", color: "#0F172A" },
   datePlaceholder:{ color: "#9CA3AF", fontWeight: "500" },
   addReturnText:  { fontSize: scale(13), fontWeight: "700", color: "#B4182A" },
 
   // Option rows (Travellers / Cabin) — mirrors HotelsScreen input rows
-  optionRow:          { flexDirection: "row", alignItems: "center", minHeight: scale(44), backgroundColor: "#F9FAFB", borderWidth: 1, borderColor: "#D9DEE7", borderRadius: scale(12), paddingHorizontal: scale(10), marginBottom: scale(7) },
-  optionIconCircle:   { width: scale(28), height: scale(28), backgroundColor: "#FEE2E2", borderRadius: scale(8), justifyContent: "center", alignItems: "center", marginRight: scale(8) },
+  optionRow:          { flexDirection: "row", alignItems: "center", minHeight: scale(60), backgroundColor: theme.colors.cloud, borderWidth: 1, borderColor: theme.colors.line, borderRadius: scale(16), paddingHorizontal: scale(14), marginBottom: scale(10) },
+  optionIconCircle:   { width: scale(38), height: scale(38), backgroundColor: "#FFF0F2", borderRadius: scale(13), justifyContent: "center", alignItems: "center", marginRight: scale(10) },
   optionTextContainer:{ flex: 1 },
   optionValue:        { fontSize: scale(13), fontWeight: "600", color: "#1F2937" },
 

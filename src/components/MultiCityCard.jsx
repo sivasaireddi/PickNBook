@@ -4,11 +4,10 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import { Search } from "lucide-react-native";
+import { TravelPrimaryButton } from "./travelSearch/TravelSearchChrome";
+import { theme } from "../theme/tokens";
 
 const PRIMARY_RED = "#E53935";
 const CARD_BG = "#FFFFFF";
@@ -186,41 +185,25 @@ export default function MultiCityCard({
       </View>
 
       {/* SEARCH FLIGHTS Button */}
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={onSearch}
-        disabled={searching}
-        style={styles.searchButtonWrapper}
-      >
-        <LinearGradient colors={["#CB2E33", "#B0242A"]} style={styles.searchButtonGradient}>
-          {searching ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <View style={styles.searchButtonContent}>
-              <Search size={16} color="#FFFFFF" />
-              <Text style={styles.searchButtonText}>Search flights</Text>
-            </View>
-          )}
-        </LinearGradient>
-      </TouchableOpacity>
+      <TravelPrimaryButton label="Search Flights" onPress={onSearch} loading={searching} disabled={searching} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginVertical: 8,
+    marginTop: 2,
   },
   flightCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 14,
-    padding: 10,
-    marginBottom: 6,
+    backgroundColor: theme.colors.cloud,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
     shadowRadius: 12,
-    elevation: 3,
+    elevation: 1,
     borderWidth: 1,
     borderColor: BORDER_COLOR,
   },
@@ -323,26 +306,25 @@ const styles = StyleSheet.create({
     color: PRIMARY_RED,
   },
   bottomSelectorsRow: {
-    flexDirection: "row",
     gap: 8,
-    marginBottom: 9,
+    marginBottom: 2,
   },
   selectorBox: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 44,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    minHeight: 58,
+    backgroundColor: theme.colors.cloud,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: "#D9DEE7",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
-    elevation: 2,
+    elevation: 0,
   },
   selectorLabel: {
     fontSize: 9,

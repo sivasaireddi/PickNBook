@@ -354,7 +354,11 @@ export default function RouteHeader({
           onPress={openEditor}
           activeOpacity={0.9}
         >
-          <Text style={styles.routeText}>{`${from || "From"} -> ${to || "To"}`}</Text>
+          <View style={styles.routeTitleRow}>
+            <Text style={styles.routeText} numberOfLines={1}>{from || "From"}</Text>
+            <Ionicons name="arrow-forward" size={14} color="#64748B" />
+            <Text style={[styles.routeText, styles.routeTextRight]} numberOfLines={1}>{to || "To"}</Text>
+          </View>
           <Text style={styles.routeDate}>{formatHeaderDate(journeyDate)}</Text>
         </TouchableOpacity>
 
@@ -431,10 +435,13 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   routeText: {
+    flex: 1,
     color: "#111827",
     fontSize: 14,
     fontWeight: "700",
   },
+  routeTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  routeTextRight: { textAlign: "right" },
   routeDate: {
     marginTop: 1,
     color: "#6b7280",

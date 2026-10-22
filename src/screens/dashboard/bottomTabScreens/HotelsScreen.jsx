@@ -1,7 +1,6 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   ActivityIndicator,
-  ImageBackground,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,17 +9,12 @@ import {
   View,
   useWindowDimensions,
   Animated,
-  Easing,
+  Keyboard,
+  Platform,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getBannerHeight } from "../../../utils/responsive";
 import {
   Building2,
   CalendarDays,
-  Search,
-  ArrowRight,
   Plus,
   X,
   Minus,
@@ -28,20 +22,16 @@ import {
 } from "lucide-react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
-import { searchHotelOffers, resolveCityId, searchCities } from "../../../services/hotelService";
+import { searchHotelOffers, searchCities } from "../../../services/hotelService";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
 import { scale } from "../../../utils/responsive";
 import OffersCarousel from "../../../components/OffersCarousel";
+import { AssuranceStrip, SearchPanelHeading, TravelPrimaryButton, TravelSearchHero } from "../../../components/travelSearch/TravelSearchChrome";
+import { theme } from "../../../theme/tokens";
 
 const LAST_HOTEL_SEARCH_KEY = "LAST_HOTEL_SEARCH";
-
-const CITY_HINTS = [
-  { label: "New Delhi", value: "725862" },
-  { label: "Mumbai", value: "130443" },
-  { label: "Hyderabad", value: "118488" },
-  { label: "Bengaluru", value: "111124" },
-];
 
 const formatDisplayDate = (date) => {
   if (!date) return "";
@@ -85,9 +75,9 @@ const AnimatedPressable = ({ children, style, onPress, disabled, activeScale = 0
 
 const HotelsScreen = () => {
   const navigation = useNavigation();
-  const { setSearchSession } = useHotelBooking();
-  const { width, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { setSearchSession } = useHotelBooking();
+  const { width } = useWindowDimensions();
 
   const [destinationInput, setDestinationInput] = useState("");
   const [selectedCityId, setSelectedCityId] = useState("");
@@ -103,18 +93,9 @@ const HotelsScreen = () => {
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.98)).current;
   
-  const ctaArrowTranslateX = useRef(new Animated.Value(0)).current;
   const destinationIconScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // CTA Arrow idle loop
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(ctaArrowTranslateX, { toValue: 4, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(ctaArrowTranslateX, { toValue: 0, duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    ).start();
-
     // Entrance Animation Sequence
     Animated.parallel([
       Animated.timing(cardOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
@@ -159,6 +140,7 @@ const HotelsScreen = () => {
 
   const handleCityInput = (text) => {
     setDestinationInput(text);
+    setSelectedCityId("");
     if (text.trim().length < 1) {
       setCitySuggestions([]);
       setShowSuggestions(false);
@@ -343,42 +325,26 @@ const HotelsScreen = () => {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" bounces={false}>
-        {/* Header Banner */}
-        <View style={styles.headerBannerContainer}>
-          <ImageBackground
-            source={require("../../../../assets/HotelBanner1.jsx.jpg")}
-            style={[styles.headerBackground, { height: getBannerHeight(screenHeight) }]}
-            imageStyle={styles.headerBackgroundImage}
-            resizeMode="cover"
-          >
-            <LinearGradient
-              colors={["rgba(15,23,42,0.18)", "rgba(15,23,42,0.42)"]}
-              style={styles.headerGradient}
-            >
-              <View style={[styles.headerRow, { paddingTop: Math.max(scale(12), insets.top + scale(8)) }]}>
-                  <AnimatedPressable
-                    style={styles.backButton}
-                    activeScale={0.9}
-                    onPress={() => {
-                      if (navigation.canGoBack()) {
-                        navigation.goBack();
-                      } else {
-                        navigation.navigate("DashBoard");
-                      }
-                    }}
-                  >
-                    <Ionicons name="chevron-back" size={22} color="#1F2937" />
-                  </AnimatedPressable>
-              </View>
-            </LinearGradient>
-          </ImageBackground>
-        </View>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: (Platform.OS === "ios" ? 84 : 64) + insets.bottom + 24 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        bounces={false}
+      >
+        <TravelSearchHero
+          image={require("../../../../assets/HotelBanner1.jsx.jpg")}
+          title="Find your perfect stay."
+          subtitle="Choose a destination, dates and rooms for everyone travelling."
+          onBack={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate("DashBoard")}
+        />
 
         {/* Search Card */}
         <View style={styles.cardContainer}>
           <Animated.View style={[styles.card, { opacity: cardOpacity, transform: [{ translateY: cardTranslateY }, { scale: cardScale }] }]}>
-            <Text style={styles.label}>DESTINATION CITY</Text>
+            <SearchPanelHeading title="Plan your stay" subtitle="Tell us where and who is checking in." />
+            <Text style={styles.label}>WHERE ARE YOU STAYING?</Text>
             <View style={[styles.inputContainer, showSuggestions && styles.inputContainerActive]}>
               <Animated.View style={[styles.inputIconChip, { transform: [{ scale: destinationIconScale }] }]}>
                 <Building2 size={scale(16)} color="#C0272D" />
@@ -436,6 +402,7 @@ const HotelsScreen = () => {
                           setDestinationInput(item.cityName);
                           setSelectedCityId(item.cityId);
                           setShowSuggestions(false);
+                          Keyboard.dismiss();
                         }}
                       >
                         <Building2 size={scale(16)} color="#C0272D" />
@@ -506,7 +473,7 @@ const HotelsScreen = () => {
 
                   <View style={styles.guestRow}>
                     <View style={styles.guestControlBox}>
-                      <Text style={styles.guestSubLabel}>Adults (12+)</Text>
+                      <View><Text style={styles.guestSubLabel}>Adults</Text><Text style={styles.guestAgeLabel}>Ages 12+</Text></View>
                       <View style={styles.stepper}>
                         <AnimatedPressable
                           style={styles.stepperBtn}
@@ -527,7 +494,7 @@ const HotelsScreen = () => {
                     </View>
 
                     <View style={styles.guestControlBox}>
-                      <Text style={styles.guestSubLabel}>Children (0-11)</Text>
+                      <View><Text style={styles.guestSubLabel}>Children</Text><Text style={styles.guestAgeLabel}>Ages 0–11</Text></View>
                       <View style={styles.stepper}>
                         <AnimatedPressable
                           style={styles.stepperBtn}
@@ -573,26 +540,10 @@ const HotelsScreen = () => {
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-            <AnimatedPressable onPress={handleSearch} disabled={loading} wrapperStyle={styles.searchButtonWrapper} activeScale={0.97}>
-              <LinearGradient
-                colors={["#CB2E33", "#B0242A"]}
-                style={styles.searchButtonGradient}
-              >
-                {loading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <View style={styles.searchButtonContent}>
-                    <Search size={scale(16)} color="#ffffff" />
-                    <Text style={styles.searchButtonText}>Search hotels</Text>
-                    <Animated.View style={{ transform: [{ translateX: ctaArrowTranslateX }] }}>
-                      <ArrowRight size={scale(16)} color="#ffffff" />
-                    </Animated.View>
-                  </View>
-                )}
-              </LinearGradient>
-            </AnimatedPressable>
+            <TravelPrimaryButton label="Search Hotels" onPress={handleSearch} loading={loading} disabled={loading} />
           </Animated.View>
 
+          <AssuranceStrip items={["Flexible room setup", "Clear stay details", "Secure booking"]} />
           <OffersCarousel serviceType="hotel" />
         </View>
       </ScrollView>
@@ -634,54 +585,19 @@ export default HotelsScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F4F3F1",
+    backgroundColor: theme.colors.cloud,
   },
   scrollContent: {
     paddingBottom: scale(32),
   },
-  headerBannerContainer: {
-    overflow: "hidden",
-    borderBottomLeftRadius: scale(20),
-    borderBottomRightRadius: scale(20),
-  },
-  headerBackground: {
-    width: "100%",
-  },
-  headerBackgroundImage: {
-    resizeMode: "cover",
-  },
-  headerGradient: {
-    flex: 1,
-    paddingBottom: scale(24),
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: scale(16),
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-  },
   cardContainer: {
     marginHorizontal: scale(16),
-    marginTop: -scale(24),
+    marginTop: -scale(32),
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: scale(20),
-    paddingHorizontal: scale(10),
-    paddingTop: scale(10),
-    paddingBottom: scale(10),
+    borderRadius: scale(26),
+    padding: scale(20),
     shadowColor: "rgba(0, 0, 0, 0.04)",
     shadowOffset: { width: 0, height: scale(6) },
     shadowOpacity: 1,
@@ -690,22 +606,22 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: scale(10),
-    fontWeight: "800",
-    color: "#6B7280",
+    fontFamily: theme.typography.fontFamily.body.semiBold,
+    color: theme.colors.slate,
     letterSpacing: 0.8,
     marginBottom: scale(4),
     textTransform: "uppercase",
   },
   inputContainer: {
-    minHeight: scale(44),
-    backgroundColor: "#F9FAFB",
+    minHeight: scale(58),
+    backgroundColor: theme.colors.cloud,
     borderWidth: 1,
     borderColor: "#D9DEE7",
-    borderRadius: scale(13),
+    borderRadius: scale(16),
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: scale(10),
-    marginBottom: scale(8),
+    marginBottom: scale(16),
   },
   inputContainerActive: {
     borderColor: "#C0272D",
@@ -829,14 +745,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   dateInput: {
-    minHeight: scale(44),
+    minHeight: scale(62),
     borderWidth: 1,
     borderColor: "#D9DEE7",
-    borderRadius: scale(13),
+    borderRadius: scale(16),
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: scale(10),
-    backgroundColor: "#F9FAFB",
+    backgroundColor: theme.colors.cloud,
   },
   dateText: {
     flexShrink: 1,
@@ -853,7 +769,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: scale(8),
+    marginTop: scale(4),
+    marginBottom: scale(10),
   },
   roomsTitle: {
     flexShrink: 1,
@@ -872,8 +789,10 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     paddingVertical: scale(6),
     paddingHorizontal: scale(8),
-    backgroundColor: "#FEE2E2",
-    borderRadius: scale(10),
+    backgroundColor: "#FFF6F7",
+    borderRadius: scale(12),
+    borderWidth: 1,
+    borderColor: "#F3CDD3",
   },
   addRoomText: {
     color: "#C0272D",
@@ -881,12 +800,12 @@ const styles = StyleSheet.create({
     fontSize: scale(12),
   },
   roomCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: scale(13),
+    backgroundColor: theme.colors.cloud,
+    borderRadius: scale(18),
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    padding: scale(10),
-    marginBottom: scale(8),
+    padding: scale(14),
+    marginBottom: scale(12),
   },
   roomTitleRow: {
     flexDirection: "row",
@@ -895,50 +814,54 @@ const styles = StyleSheet.create({
     marginBottom: scale(7),
   },
   roomTitle: {
-    fontSize: scale(13),
-    fontWeight: "600",
-    color: "#1F2937",
+    fontFamily: theme.typography.fontFamily.body.semiBold,
+    fontSize: scale(11),
+    letterSpacing: 0.8,
+    color: theme.colors.redDeep,
+    textTransform: "uppercase",
   },
   removeRoomBtn: {
     padding: scale(4),
   },
   guestRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: scale(8),
+    gap: scale(2),
   },
   guestControlBox: {
-    flex: 1,
-  },
-  guestSubLabel: {
-    fontSize: scale(12),
-    fontWeight: "600",
-    color: "#6B7280",
-    marginBottom: scale(4),
-  },
-  stepper: {
-    height: scale(38),
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: scale(10),
+    minHeight: scale(58),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: scale(6),
-    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.line,
+  },
+  guestSubLabel: {
+    fontFamily: theme.typography.fontFamily.body.semiBold,
+    fontSize: scale(13),
+    color: theme.colors.ink,
+  },
+  guestAgeLabel: { marginTop: 2, fontFamily: theme.typography.fontFamily.body.regular, fontSize: scale(10), color: theme.colors.slate },
+  stepper: {
+    height: scale(40),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: scale(4),
   },
   stepperBtn: {
-    width: scale(30),
-    height: scale(30),
-    borderRadius: scale(8),
-    backgroundColor: "#FEE2E2",
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(12),
+    backgroundColor: "#FFF0F2",
+    borderWidth: 1,
+    borderColor: "#F3CDD3",
     alignItems: "center",
     justifyContent: "center",
   },
   stepperValue: {
     fontSize: scale(15),
     fontWeight: "600",
-    color: "#1F2937",
+    color: theme.colors.ink,
+    minWidth: scale(24),
+    textAlign: "center",
   },
   childAgesContainer: {
     marginTop: scale(8),

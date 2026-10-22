@@ -24,6 +24,8 @@ import { searchBuses, getSeatLayout } from "../../../services/busService";
 
 import {
   createDefaultBusFilters,
+  getBusTimeMinutes,
+  getNumericBusFare,
   matchesBusFilters,
 } from "../../../utils/busFilters";
 import BusPoliciesModal from "./BusPoliciesModal";
@@ -36,9 +38,6 @@ const BUS_BOOKINGS_API_BASE_URL = `${API_BASE_URL}/api/BusBookings`;
 const PRIMARY_RED = "#D11A2A";
 const BORDER_COLOR = "#F4A3A3";
 const SURFACE_BG = "#F8F9FB";
-
-// Fixed height of each BusCardItem container (Card height 170px + 6px vertical margin)
-const CARD_ITEM_HEIGHT = 176;
 
 /**
  * Requirement 5: Cache Search Results
@@ -493,6 +492,8 @@ const BusCards = ({
   sortDirection = "asc",
   onDataChange,
   onResultsCountChange,
+  hasActiveFilters = false,
+  onClearFilters = () => {},
 }) => {
   const navigation = useNavigation();
   const [data, setData] = useState([]);
@@ -508,14 +509,27 @@ const BusCards = ({
   const isFetchingRef = useRef(false);
   const lastFetchedKeyRef = useRef("");
 
-  const getBusId = useCallback((item) =>
-    item?.busId ??
-    item?.busID ??
-    item?.BusId ??
-    item?.id ??
-    item?.Id ??
-    item?.busBookingId,
-    []);
+  const getBusId = useCallback((item) => {
+    const directId =
+      item?.busId ??
+      item?.busID ??
+      item?.BusId ??
+      item?.id ??
+      item?.Id ??
+      item?.busBookingId;
+
+    if (directId !== null && directId !== undefined && directId !== "") {
+      return String(directId);
+    }
+
+    if (item?.resultIndex !== null && item?.resultIndex !== undefined) {
+      return `${item?.srdvIndex ?? "bus"}-${item.resultIndex}`;
+    }
+
+    return [item?.operatorName, item?.departureTime, item?.arrivalTime, item?.priceInr]
+      .filter((value) => value !== null && value !== undefined && value !== "")
+      .join("-") || null;
+  }, []);
 
   const getAnimatedValues = useCallback((key) => {
     if (!animatedValuesRef.current.has(key)) {
@@ -793,32 +807,37 @@ const BusCards = ({
     const items = [...filteredData];
 
     const getPrice = (item) => {
-      const raw = item?.priceInr ?? item?.price ?? item?.fare;
-      const parsed = Number(String(raw ?? "").replace(/[^0-9.-]/g, ""));
-      return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+      const parsed = getNumericBusFare(item?.priceInr ?? item?.price ?? item?.fare);
+      return parsed ?? Number.POSITIVE_INFINITY;
     };
 
     const getDeparture = (item) => {
       const value = item?.departureDateTime ?? item?.departureTimeUtc ?? item?.departureTime ?? "";
-      const time = new Date(`${value}Z`).getTime();
-      return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY;
+      return getBusTimeMinutes(value) ?? Number.POSITIVE_INFINITY;
     };
 
     const getArrival = (item) => {
       const value = item?.arrivalDateTime ?? item?.arrivalTimeUtc ?? item?.arrivalTime ?? "";
-      const time = new Date(`${value}Z`).getTime();
-      return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY;
+      return getBusTimeMinutes(value) ?? Number.POSITIVE_INFINITY;
     };
 
     const getDuration = (item) => {
-      const start = new Date(`${item?.departureDateTime ?? item?.departureTimeUtc ?? item?.departureTime ?? ""}Z`);
-      const end = new Date(`${item?.arrivalDateTime ?? item?.arrivalTimeUtc ?? item?.arrivalTime ?? ""}Z`);
+      const durationText = String(item?.duration ?? "");
+      const hoursMatch = durationText.match(/(\d+(?:\.\d+)?)\s*h/i);
+      const minutesMatch = durationText.match(/(\d+)\s*m/i);
 
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      if (hoursMatch || minutesMatch) {
+        return (Number(hoursMatch?.[1] ?? 0) * 60) + Number(minutesMatch?.[1] ?? 0);
+      }
+
+      const start = getDeparture(item);
+      const end = getArrival(item);
+
+      if (!Number.isFinite(start) || !Number.isFinite(end)) {
         return Number.POSITIVE_INFINITY;
       }
 
-      return end - start;
+      return end >= start ? end - start : (24 * 60 - start) + end;
     };
 
     const getSeats = (item) => {
@@ -882,19 +901,6 @@ const BusCards = ({
     [getBusId],
   );
 
-  /**
-   * Requirement 7: getItemLayout for FlatList
-   * Optimization to skip dynamic height layout measurements.
-   */
-  const getItemLayout = useCallback(
-    (dataArray, index) => ({
-      length: CARD_ITEM_HEIGHT,
-      offset: CARD_ITEM_HEIGHT * index,
-      index,
-    }),
-    [],
-  );
-
   const handleRetry = useCallback(() => {
     fetchBusData(true);
   }, [fetchBusData]);
@@ -907,7 +913,6 @@ const BusCards = ({
           data={sortedData}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
-          getItemLayout={getItemLayout}
           initialNumToRender={6}
           maxToRenderPerBatch={8}
           windowSize={5}
@@ -925,16 +930,23 @@ const BusCards = ({
               ) : (
                 <>
                   <Text style={styles.emptyText}>
-                    No buses found for this route.
+                    {hasActiveFilters
+                      ? "No buses match these filters."
+                      : "No buses found for this route."}
                   </Text>
+                  {hasActiveFilters ? (
+                    <Text style={styles.emptyHint}>Try changing or clearing a filter.</Text>
+                  ) : null}
                   <Pressable
                     style={({ pressed }) => [
                       styles.retryBtn,
                       pressed && styles.btnPrimaryPressed,
                     ]}
-                    onPress={handleRetry}
+                    onPress={hasActiveFilters ? onClearFilters : handleRetry}
                   >
-                    <Text style={styles.retryText}>Retry</Text>
+                    <Text style={styles.retryText}>
+                      {hasActiveFilters ? "Clear filters" : "Retry"}
+                    </Text>
                   </Pressable>
                 </>
               )}
@@ -1199,6 +1211,13 @@ const styles = StyleSheet.create({
     color: "#667085",
     fontWeight: "600",
     marginBottom: 12,
+  },
+  emptyHint: {
+    marginTop: -6,
+    marginBottom: 14,
+    color: "#94A3B8",
+    fontSize: 12,
+    textAlign: "center",
   },
   retryBtn: {
     paddingHorizontal: 16,

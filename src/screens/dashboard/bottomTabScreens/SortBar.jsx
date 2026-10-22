@@ -1,285 +1,171 @@
-import React, { useEffect, useRef } from "react";
+import React from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
-  Animated,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { ArrowUp, Bus, Clock, Coins, Armchair, SlidersHorizontal } from "lucide-react-native";
+  Armchair,
+  BedDouble,
+  Check,
+  IndianRupee,
+  Moon,
+  SlidersHorizontal,
+  Snowflake,
+  Sun,
+  Wind,
+} from "lucide-react-native";
 
-const BORDER_COLOR = "#F4A3A3";
-const PRIMARY_RED = "#D11A2A";
+const PRIMARY_RED = "#C8102E";
 
-const SORT_OPTIONS = [
-  { id: "departure", label: "Departure", Icon: Bus },
-  { id: "duration", label: "Duration", Icon: Clock },
-  { id: "arrival", label: "Arrival", Icon: Bus },
-  { id: "fare", label: "Fare", Icon: Coins },
-  { id: "seats", label: "Seats Available", Icon: Armchair },
+const QUICK_FILTERS = [
+  { id: "ac", label: "AC", Icon: Snowflake },
+  { id: "nonAc", label: "Non AC", Icon: Wind },
+  { id: "cheapest", label: "Cheapest First", Icon: IndianRupee },
+  { id: "seater", label: "Seater", Icon: Armchair },
+  { id: "sleeper", label: "Sleeper", Icon: BedDouble },
+  { id: "day", label: "Day Time", Icon: Sun },
+  { id: "night", label: "Night Time", Icon: Moon },
 ];
 
-const SortChip = ({ item, isSelected, direction, handlePress }) => {
-  const scaleAnim = useRef(new Animated.Value(isSelected ? 1.03 : 1)).current;
-
-  useEffect(() => {
-    Animated.timing(scaleAnim, {
-      toValue: isSelected ? 1.03 : 1,
-      duration: 180,
-      useNativeDriver: true,
-    }).start();
-  }, [isSelected, scaleAnim]);
-
-  const IconComponent = item.Icon;
+const QuickFilterChip = React.memo(({ item, selected, onToggle }) => {
+  const Icon = item.Icon;
 
   return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <TouchableOpacity
-        activeOpacity={0.88}
-        onPress={() => handlePress(item.id)}
-        style={[
-          styles.filterBadge,
-          isSelected ? styles.activeFilterBadge : styles.inactiveFilterBadge,
-        ]}
-      >
-        <IconComponent
-          size={16}
-          color={isSelected ? "#FFFFFF" : PRIMARY_RED}
-          style={styles.icon}
-        />
-
-        <Text
-          style={[
-            styles.filterText,
-            isSelected ? styles.activeFilterText : styles.inactiveFilterText,
-          ]}
-        >
-          {item.label}
-        </Text>
-
-        <ArrowUp
-          size={14}
-          color={isSelected ? "#FFFFFF" : PRIMARY_RED}
-          style={[
-            styles.arrowIcon,
-            isSelected && direction === "desc" && styles.arrowDesc,
-          ]}
-        />
-      </TouchableOpacity>
-    </Animated.View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${item.label} quick filter`}
+      accessibilityState={{ selected }}
+      onPress={() => onToggle(item.id)}
+      style={({ pressed }) => [
+        styles.quickChip,
+        selected && styles.quickChipSelected,
+        pressed && styles.pressed,
+      ]}
+    >
+      {selected ? (
+        <Check size={14} color={PRIMARY_RED} strokeWidth={3} />
+      ) : (
+        <Icon size={15} color="#64748B" strokeWidth={2} />
+      )}
+      <Text style={[styles.quickChipText, selected && styles.quickChipTextSelected]}>
+        {item.label}
+      </Text>
+    </Pressable>
   );
-};
+});
 
 export default function SortBar({
   resultCount = null,
-  value = "arrival",
-  direction = "asc",
-  onChange = () => {},
+  activeFilterCount = 0,
+  quickFilterStates = {},
+  onToggleQuickFilter = () => {},
   onOpenFilters = () => {},
 }) {
-  const animOpacity = useRef(new Animated.Value(0)).current;
-  const animTranslateY = useRef(new Animated.Value(12)).current;
-  const animScale = useRef(new Animated.Value(0.98)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(animOpacity, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.timing(animTranslateY, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-      Animated.timing(animScale, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [animOpacity, animTranslateY, animScale]);
-
-  const handlePress = (id) => {
-    if (value === id) {
-      const nextDirection = direction === "asc" ? "desc" : "asc";
-      onChange(id, nextDirection);
-    } else {
-      onChange(id, "asc");
-    }
-  };
+  const resultLabel = resultCount === null
+    ? "Finding buses..."
+    : `${resultCount} ${resultCount === 1 ? "Bus" : "Buses"} available`;
 
   return (
     <View style={styles.wrapper}>
-      <Animated.View
-        style={[
-          styles.outerGlowContainer,
-          {
-            opacity: animOpacity,
-            transform: [{ translateY: animTranslateY }, { scale: animScale }],
-          },
-        ]}
-      >
-        <View style={styles.innerContainer}>
-          <View style={styles.sortSection}>
-            {resultCount !== null && (
-              <View style={styles.countBadge}>
-                <Text style={styles.countText}>{resultCount} Buses</Text>
-              </View>
-            )}
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={onOpenFilters}
-              style={styles.filterSortButton}
-            >
-              <SlidersHorizontal size={13} color="#4B5563" />
-              <Text style={styles.filterSortText}>Filter & Sort</Text>
-            </TouchableOpacity>
+      <Text style={styles.resultCount} accessibilityLiveRegion="polite">
+        {resultLabel}
+      </Text>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.scrollContainer}
-            >
-              {SORT_OPTIONS.map((item) => (
-                <SortChip
-                  key={item.id}
-                  item={item}
-                  isSelected={value === item.id}
-                  direction={direction}
-                  handlePress={handlePress}
-                />
-              ))}
-            </ScrollView>
-          </View>
+      <View style={styles.toolbarRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open all bus filters and sorting"
+          onPress={onOpenFilters}
+          style={({ pressed }) => [styles.filterButton, pressed && styles.pressed]}
+        >
+          <SlidersHorizontal size={17} color="#FFFFFF" strokeWidth={2.4} />
+          <Text style={styles.filterButtonText}>Sort & Filters</Text>
+          {activeFilterCount > 0 ? (
+            <View style={styles.filterCountBadge}>
+              <Text style={styles.filterCountText}>{activeFilterCount}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+
+        <View style={styles.quickListViewport}>
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            directionalLockEnabled
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.quickListContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {QUICK_FILTERS.map((item) => (
+              <QuickFilterChip
+                key={item.id}
+                item={item}
+                selected={!!quickFilterStates[item.id]}
+                onToggle={onToggleQuickFilter}
+              />
+            ))}
+          </ScrollView>
         </View>
-      </Animated.View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 16,
+    paddingTop: 9,
+    paddingBottom: 10,
     backgroundColor: "#F8F9FB",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
   },
-  outerGlowContainer: {
-    borderRadius: 24,
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-  },
-  innerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: BORDER_COLOR,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  sortSection: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  sortByLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#111827",
-    marginRight: 8,
-    letterSpacing: 0.3,
-  },
-  filterSortButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    marginRight: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#FFFFFF",
-  },
-  filterSortText: {
-    color: "#374151",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  scrollContainer: {
-    alignItems: "center",
-    paddingRight: 4,
-  },
-  filterBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 28,
-    marginRight: 8,
-    borderWidth: 1,
-  },
-  activeFilterBadge: {
-    backgroundColor: PRIMARY_RED,
-    borderColor: PRIMARY_RED,
-    borderWidth: 0,
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  inactiveFilterBadge: {
-    backgroundColor: "#FFFFFF",
-    borderColor: BORDER_COLOR,
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  icon: {
-    marginRight: 4,
-  },
-  filterText: {
+  resultCount: {
+    marginBottom: 8,
+    color: "#475569",
     fontSize: 12,
-  },
-  activeFilterText: {
-    color: "#FFFFFF",
     fontWeight: "700",
   },
-  inactiveFilterText: {
-    color: "#2C2C2C",
-    fontWeight: "600",
+  toolbarRow: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
   },
-  arrowIcon: {
-    marginLeft: 4,
-  },
-  arrowDesc: {
-    transform: [{ rotate: "180deg" }],
-  },
-  countBadge: {
+  filterButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     backgroundColor: PRIMARY_RED,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 10,
+    zIndex: 2,
   },
-  countText: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "700",
+  filterButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
+  filterCountBadge: {
+    minWidth: 19,
+    height: 19,
+    paddingHorizontal: 5,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
   },
+  filterCountText: { color: PRIMARY_RED, fontSize: 10, fontWeight: "900" },
+  quickListViewport: { flex: 1, minWidth: 0, marginLeft: 8, overflow: "hidden" },
+  quickListContent: { alignItems: "center", paddingRight: 16, gap: 8 },
+  quickChip: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#D8DEE8",
+    backgroundColor: "#FFFFFF",
+  },
+  quickChipSelected: { borderColor: "#E6A5AF", backgroundColor: "#FFF0F2" },
+  quickChipText: { color: "#475569", fontSize: 12, fontWeight: "700" },
+  quickChipTextSelected: { color: PRIMARY_RED, fontWeight: "800" },
+  pressed: { opacity: 0.78 },
 });
