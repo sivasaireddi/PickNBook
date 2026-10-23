@@ -1369,19 +1369,88 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         }
       }
 
+      const extractDatePart = (timeStr, fallbackDate) => {
+        if (!timeStr) return fallbackDate;
+        const s = String(timeStr).trim();
+        const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+        return fallbackDate;
+      };
+
       const parseToDateTime = (timeStr, baseDateStr) => {
         if (!timeStr) return null;
         const trimmed = String(timeStr).trim();
-        if (trimmed.includes("T") || /^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+        if (!trimmed) return null;
+
+        // 1. If it starts with YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+          const normalized = trimmed.replace(" ", "T");
+          // e.g. "2026-10-14T21:40" -> "2026-10-14T21:40:00"
+          if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) {
+            return `${normalized}:00`;
+          }
+          // e.g. "2026-10-14T21:40:00"
+          if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(normalized)) {
+            return normalized.slice(0, 19);
+          }
+          return normalized;
+        }
+
+        const datePart = baseDateStr ? String(baseDateStr).trim() : baseDate;
+
+        // 2. Check 12-hour format e.g. "09:40 PM" or "9:40 AM"
+        const ampmMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+        if (ampmMatch) {
+          const [, hh, mm, ss = "00", modifier] = ampmMatch;
+          let hour = parseInt(hh, 10);
+          if (modifier.toUpperCase() === "PM" && hour < 12) hour += 12;
+          if (modifier.toUpperCase() === "AM" && hour === 12) hour = 0;
+          return `${datePart}T${String(hour).padStart(2, "0")}:${mm}:${ss}`;
+        }
+
+        // 3. Check 24-hour format e.g. "21:40" or "21:40:00" or "9:40"
+        const timeMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        if (timeMatch) {
+          const [, hh, mm, ss = "00"] = timeMatch;
+          return `${datePart}T${String(hh).padStart(2, "0")}:${mm}:${ss}`;
+        }
+
+        if (trimmed.includes("T")) {
           return trimmed;
         }
-        const datePart = baseDateStr ? String(baseDateStr).trim() : baseDate;
-        const timeMatch = trimmed.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
-        if (timeMatch) {
-          const [_, hh, mm, ss = "00"] = timeMatch;
-          return `${datePart}T${hh}:${mm}:${ss}`;
-        }
-        return null;
+
+        return trimmed || null;
+      };
+
+      const getMinutesOfDay = (timeStr) => {
+        if (!timeStr) return null;
+        const value = String(timeStr).trim();
+        const timePart = value.match(/(?:T|\s)(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?)/i)?.[1] ?? value;
+        const match = timePart.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
+        if (!match) return null;
+
+        let hour = Number(match[1]);
+        const minute = Number(match[2]);
+        const modifier = match[3]?.toUpperCase();
+        if (minute > 59 || hour > (modifier ? 12 : 23)) return null;
+        if (modifier === "PM" && hour < 12) hour += 12;
+        if (modifier === "AM" && hour === 12) hour = 0;
+        return hour * 60 + minute;
+      };
+
+      const addOneDay = (datePart) => {
+        const match = String(datePart || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return datePart;
+        const nextDate = new Date(Date.UTC(
+          Number(match[1]),
+          Number(match[2]) - 1,
+          Number(match[3]) + 1,
+        ));
+        return [
+          nextDate.getUTCFullYear(),
+          String(nextDate.getUTCMonth() + 1).padStart(2, "0"),
+          String(nextDate.getUTCDate()).padStart(2, "0"),
+        ].join("-");
       };
 
       const normalizeSeatType = (seatType) => {
@@ -1402,14 +1471,14 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const boardingPoint = (typeof route?.params?.boardingPoint === 'object' ? route.params.boardingPoint : route?.params?.selectedBoardingPoint) || {};
       const droppingPoint = (typeof route?.params?.droppingPoint === 'object' ? route.params.droppingPoint : route?.params?.selectedDroppingPoint) || {};
 
-      const rawBoardingId = route?.params?.boardingPointId ?? boardingPoint?.Id ?? boardingPoint?.id ?? "";
-      const rawDroppingId = route?.params?.droppingPointId ?? droppingPoint?.Id ?? droppingPoint?.id ?? "";
+      const rawBoardingId = route?.params?.boardingPointId ?? route?.params?.BoardingPointId ?? boardingPoint?.Id ?? boardingPoint?.id ?? "";
+      const rawDroppingId = route?.params?.droppingPointId ?? route?.params?.DroppingPointId ?? droppingPoint?.Id ?? droppingPoint?.id ?? "";
 
       const boardingPointId = getPointId(rawBoardingId);
       const droppingPointId = getPointId(rawDroppingId);
 
-      const boardingPointName = boardingPoint?.Name ?? boardingPoint?.name ?? "";
-      const droppingPointName = droppingPoint?.Name ?? droppingPoint?.name ?? "";
+      const boardingPointName = boardingPoint?.Name ?? boardingPoint?.name ?? route?.params?.boardingPointName ?? (typeof route?.params?.boardingPoint === 'string' ? route.params.boardingPoint : "");
+      const droppingPointName = droppingPoint?.Name ?? droppingPoint?.name ?? route?.params?.droppingPointName ?? (typeof route?.params?.droppingPoint === 'string' ? route.params.droppingPoint : "");
 
       // 1. Build Block payload matching API Integration Guide schema
       const pricingSeats = Array.isArray(finalPricingPayload?.seats)
@@ -1456,14 +1525,36 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const rawDepartureTime = String(busObj.departureDateTime ?? busObj.departureTimeUtc ?? busObj.DepartureTime ?? busObj.departureTime ?? route?.params?.departureTime ?? "");
       const rawArrivalTime = String(busObj.arrivalDateTime ?? busObj.arrivalTimeUtc ?? busObj.ArrivalTime ?? busObj.arrivalTime ?? route?.params?.arrivalTime ?? "");
       
-      const departureDatePart = (rawDepartureTime.includes("T") ? rawDepartureTime.split("T")[0] : null) || baseDate;
-      const arrivalDatePart = (rawArrivalTime.includes("T") ? rawArrivalTime.split("T")[0] : null) || departureDatePart;
-      
+      const departureDatePart = extractDatePart(rawDepartureTime, baseDate);
+      let arrivalDatePart = extractDatePart(rawArrivalTime, departureDatePart);
+
+      const rawBoardingTime = route?.params?.boardingPointTime ?? boardingPoint?.rawTime ?? boardingPoint?.Time ?? boardingPoint?.time ?? "";
+      const rawDroppingTime = route?.params?.droppingPointTime ?? droppingPoint?.rawTime ?? droppingPoint?.Time ?? droppingPoint?.time ?? "";
+
+      // If arrivalDatePart was not explicitly next-day, but drop time is earlier than boarding time,
+      // it means the journey reaches the next day.
+      const effectiveBoardingTime = rawBoardingTime || rawDepartureTime;
+      const effectiveDroppingTime = rawDroppingTime || rawArrivalTime;
+      const boardingMinutes = getMinutesOfDay(effectiveBoardingTime);
+      const droppingMinutes = getMinutesOfDay(effectiveDroppingTime);
+      const droppingHasExplicitDate = /^\d{4}-\d{2}-\d{2}/.test(
+        String(effectiveDroppingTime).trim(),
+      );
+      if (
+        arrivalDatePart === departureDatePart &&
+        !droppingHasExplicitDate &&
+        boardingMinutes !== null &&
+        droppingMinutes !== null &&
+        droppingMinutes < boardingMinutes
+      ) {
+        arrivalDatePart = addOneDay(departureDatePart);
+      }
+
       const departureTime = parseToDateTime(rawDepartureTime, departureDatePart) || rawDepartureTime;
       const arrivalTime = parseToDateTime(rawArrivalTime, arrivalDatePart) || rawArrivalTime;
       
-      const boardingPointTime = parseToDateTime(boardingPoint?.Time ?? boardingPoint?.time ?? "", departureDatePart);
-      const droppingPointTime = parseToDateTime(droppingPoint?.Time ?? droppingPoint?.time ?? "", arrivalDatePart);
+      const boardingPointTime = parseToDateTime(rawBoardingTime, departureDatePart);
+      const droppingPointTime = parseToDateTime(rawDroppingTime, arrivalDatePart);
 
       const operatorName = String(busObj.operatorName ?? busObj.travelsName ?? route?.params?.operatorName ?? "Operator");
       const busType = String(busObj.busType ?? route?.params?.busType ?? "Bus");
@@ -1656,8 +1747,14 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const bookRequestBody = {
         traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
         resultIndex: String(busObj.resultIndex ?? busObj.ResultIndex ?? route?.params?.resultIndex ?? ""),
-        boardingPointTime: null,
-        droppingPointTime: null,
+        BoardingPointId: String(boardingPointId || "").trim(),
+        boardingPointId: String(boardingPointId || "").trim(),
+        boardingPointName: String(boardingPointName || "").trim(),
+        boardingPointTime: boardingPointTime || null,
+        DroppingPointId: String(droppingPointId || "").trim(),
+        droppingPointId: String(droppingPointId || "").trim(),
+        droppingPointName: String(droppingPointName || "").trim(),
+        droppingPointTime: droppingPointTime || null,
         passengers: bookPassengers,
         busType: busType
       };
@@ -1673,8 +1770,9 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         
         const newObj = {};
         for (const [key, value] of Object.entries(obj)) {
-          if (key === 'Time' && typeof value === 'string' && /^\d{1,2}:\d{2}/.test(value.trim())) {
-            newObj[key] = null; // Backend expects ISO string or null
+          if (key === 'Time' && typeof value === 'string') {
+            const parsed = parseToDateTime(value, departureDatePart);
+            newObj[key] = parsed || value;
           } else if (typeof value === 'object') {
             newObj[key] = sanitizeBlockResponse(value);
           } else {

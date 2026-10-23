@@ -2,6 +2,7 @@ import axios from "axios";
 import Constants from "expo-constants";
 import { getStoredAuthToken } from "../utils/authSession";
 import { API_BASE_URL } from "../constants/config";
+import { getExitType, isSpecialSeatItem } from "../utils/seatExit";
 
 const runtimeEnv = Constants?.expoConfig?.extra || Constants?.manifest?.extra || {};
 let BASE_URL = API_BASE_URL;
@@ -405,7 +406,6 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     const response = await client.post("/api/BusBookings/seat-layout", payload);
 
     const layoutData = response.data || {};
-    busFlowLog("SEAT LAYOUT RESPONSE", layoutData);
     const normalizedData = layoutData.data || layoutData.result || layoutData.response || layoutData;
 
     // Resolve raw Result (Lower Deck) and ResultUpperSeat (Upper Deck)
@@ -429,20 +429,13 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
 
       const seatName = String(seat.SeatName ?? seat.seatName ?? seatCode).trim();
 
-      const codeUpper = seatCode.toUpperCase();
-      const isExit =
-        codeUpper.includes("EXIT") ||
-        codeUpper.includes("AISLE") ||
-        codeUpper.includes("DOOR") ||
-        codeUpper.includes("CABIN") ||
-        codeUpper.startsWith("RB_") ||
-        codeUpper.startsWith("LB_") ||
-        codeUpper.startsWith("RF_") ||
-        codeUpper.startsWith("LF_");
+      const exitType = getExitType(seatName);
+      const isExit = Boolean(exitType);
+      const isSpecial = isSpecialSeatItem(seatName);
 
       // Check for string boolean values: "true" means available, "false" means booked.
       const isBooked =
-        isExit ||
+        isSpecial ||
         seat.SeatStatus === "false" ||
         seat.seatStatus === "false" ||
         seat.isBooked === true ||
@@ -511,6 +504,8 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
         priceInr,
         isBooked,
         isExit,
+        exitType,
+        isSpecial,
         row: rawRow,
         column: rawCol,
         gender,
@@ -522,6 +517,27 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     });
 
     // Ã¢â€â‚¬Ã¢â€â‚¬ Independent Per-Deck Coordinate & Layout Mapping Ã¢â€â‚¬Ã¢â€â‚¬
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      const specialRecords = mappedSeats.filter((seat) => seat.isSpecial);
+      console.log("[BusFlow] SEAT LAYOUT RECORD COUNTS:", {
+        rawRecordCount: mappedSeats.length,
+        passengerSeatCount: mappedSeats.length - specialRecords.length,
+        specialRecordCount: specialRecords.length,
+        exitRecordCount: specialRecords.filter((seat) => seat.isExit).length,
+      });
+      specialRecords.forEach((seat) => console.log("[BusFlow] SPECIAL SEAT RECORD:", {
+        seatName: seat.seatName,
+        row: seat.row,
+        column: seat.column,
+        width: seat.width,
+        height: seat.height,
+        deck: seat.isUpper ? "upper" : "lower",
+        isSpecial: seat.isSpecial,
+        isExit: seat.isExit,
+        exitType: seat.exitType,
+      }));
+    }
+
     const decks = [
       { key: "LOWER", seats: mappedSeats.filter((s) => !s.isUpper) },
       { key: "UPPER", seats: mappedSeats.filter((s) => s.isUpper) }
@@ -535,7 +551,7 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     decks.forEach(({ seats: deckSeats }) => {
       if (deckSeats.length === 0) return;
 
-      const passengerSeats = deckSeats.filter((s) => !s.isExit);
+      const passengerSeats = deckSeats.filter((s) => !s.isSpecial);
       const seatsToProcess = passengerSeats.length > 0 ? passengerSeats : deckSeats;
 
       const rowCounts = new Map();
@@ -546,7 +562,8 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
 
       const uniqueRows = [...rowCounts.keys()].sort((a, b) => a - b);
 
-      const uniqueCols = [...new Set(deckSeats.map((s) => Number(s.column) || 0))].sort((a, b) => a - b);
+      const geometrySeats = passengerSeats.length > 0 ? passengerSeats : deckSeats;
+      const uniqueCols = [...new Set(geometrySeats.map((s) => Number(s.column) || 0))].sort((a, b) => a - b);
       const minGridCol = uniqueCols.length > 0 ? Math.min(...uniqueCols) : 0;
       const maxGridCol = uniqueCols.length > 0 ? Math.max(...uniqueCols) : 0;
 
@@ -554,11 +571,21 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
       // If we compact them to 0, 1, 2, 3, they will overlap in the UI since the UI component draws them with span=2 height.
       const totalPhysicalRows = maxGridCol - minGridCol + 1;
 
-      // 2+2 Layout Detection: 4 or 5 unique row values in raw provider response (e.g. 0, 1, 2, 3, 4)
-      // Seat count is not a reliable layout signal: a long 2+1 sleeper can
-      // easily contain 30+ seats. The provider's row coordinates are the
-      // source of truth for the lane topology.
-      const is2Plus2 = uniqueRows.length >= 4;
+      // Infer the lane topology from passenger occupancy. Structural records
+      // can otherwise make a 2+1 response look like a four-lane coach.
+      const passengerColumnCounts = new Map();
+      passengerSeats.forEach((seat) => {
+        const column = Number(seat.column) || 0;
+        passengerColumnCounts.set(
+          column,
+          (passengerColumnCounts.get(column) || 0) + 1,
+        );
+      });
+      const maxPassengerSeatsPerColumn = Math.max(
+        0,
+        ...passengerColumnCounts.values(),
+      );
+      const is2Plus2 = maxPassengerSeatsPerColumn >= 4;
 
       const rowGridMap = new Map();
       let aisleAfterGridRow = -1;
@@ -572,12 +599,20 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
           const rawCol = Number(seat.column) || 0;
           const physicalRow = Math.max(0, rawCol - minGridCol);
 
-          const isRearRow = physicalRow === (totalPhysicalRows - 1) && (rawRow === 2 || deckSeats.filter(s => (Number(s.column)||0) === rawCol).length > 4);
+          const seatsInPhysicalRow = passengerSeats.filter(
+            (candidate) => (Number(candidate.column) || 0) === rawCol,
+          ).length;
+          const isRearColumn =
+            physicalRow === totalPhysicalRows - 1 &&
+            (rawRow === 2 || seatsInPhysicalRow >= 4);
 
           let normalizedCol = 0;
           let side = "left";
 
-          if (rawRow >= 4) {
+          if (isRearColumn) {
+            normalizedCol = Math.max(0, Math.min(4, 4 - rawRow));
+            side = "rear";
+          } else if (rawRow >= 4) {
             normalizedCol = 0;
             side = "left";
           } else if (rawRow === 3) {
@@ -585,12 +620,12 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
             side = "left";
           } else if (rawRow === 2) {
             normalizedCol = 2;
-            side = isRearRow ? "center" : "left";
+            side = isRearColumn ? "center" : "left";
           } else if (rawRow === 1) {
-            normalizedCol = isRearRow ? 3 : 2;
+            normalizedCol = isRearColumn ? 3 : 2;
             side = "right";
           } else if (rawRow === 0) {
-            normalizedCol = isRearRow ? 4 : 3;
+            normalizedCol = isRearColumn ? 4 : 3;
             side = "right";
           } else {
             normalizedCol = Math.min(3, Math.max(0, rawRow));
@@ -600,7 +635,7 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
           seat.normalizedColumn = normalizedCol;
           seat.side = side;
           seat.deck = seat.isUpper ? "upper" : "lower";
-          seat.isRearRow = isRearRow;
+          seat.isRearRow = isRearColumn;
           seat.gridRow = normalizedCol;
           seat.gridCol = physicalRow;
           seat.aisleAfterGridRow = aisleAfterGridRow;
@@ -693,12 +728,13 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
       if (aisleAfterGridRow !== -1 && globalAisleAfterGridRow === -1) globalAisleAfterGridRow = aisleAfterGridRow;
     });
 
-    const activePassengerSeats = mappedSeats.filter((s) => !s.isExit);
+    const activePassengerSeats = mappedSeats.filter((s) => !s.isSpecial);
     const layoutTypeStr = is2Plus2Detected ? "2+2 seater coach geometry" : "2+1 vertical coach geometry";
 
     const finalLayout = {
       ...normalizedData,
       seats: mappedSeats,
+      seatCount: activePassengerSeats.length,
       layoutType: layoutTypeStr,
       variant: is2Plus2Detected ? "2plus2" : "2plus1",
       totalGridRows: maxOverallRows,
@@ -709,7 +745,7 @@ export async function getSeatLayout({ traceId, resultIndex, srdvIndex }) {
     busFlowLog("SEAT LAYOUT NORMALIZED", {
       traceId: cleanTraceId,
       resultIndex: cleanResultIndex,
-      seatCount: mappedSeats.length,
+      seatCount: activePassengerSeats.length,
       layoutType: layoutTypeStr,
     });
 

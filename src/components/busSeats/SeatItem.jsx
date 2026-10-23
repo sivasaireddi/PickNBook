@@ -151,7 +151,8 @@ const SeatItem = ({
         ? require("../../../assets/man.png")
         : null;
   const seatMinDimension = Math.min(Number(width) || 0, Number(height) || 0);
-  const genderIconSize = Math.max(18, Math.min(40, seatMinDimension * 0.52));
+  const genderIconSize = Math.max(12, Math.min(40, seatMinDimension * 0.42));
+  const seatRadius = Math.max(8, Math.min(11, seatMinDimension * 0.25));
   const genderIconColor =
     gender === "female"
       ? isBooked
@@ -178,6 +179,7 @@ const SeatItem = ({
           {
             backgroundColor: theme.bgColor,
             borderColor: theme.borderColor,
+            borderRadius: seatRadius,
             ...(theme.borderWidth ? { borderWidth: theme.borderWidth } : {}),
           },
           isFilteredOut && styles.filteredOut,

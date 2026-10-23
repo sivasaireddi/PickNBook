@@ -594,7 +594,10 @@ const BusCards = ({
 
       console.log("[BusFlow] NAVIGATING TO SEAT SELECTION:", {
         busId,
-        seatCount: seatLayout?.seats?.length || 0,
+        seatCount:
+          seatLayout?.seatCount ??
+          seatLayout?.seats?.filter((seat) => !seat?.isSpecial)?.length ??
+          0,
         layoutType: seatLayout?.layoutType,
       });
 

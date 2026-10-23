@@ -34,6 +34,7 @@ import {
 import { BUS_SEAT_COLORS, BUS_SEAT_SHADOWS } from "../theme/busSeatTheme";
 import SeatLegend from "../components/busSeats/SeatLegend";
 import SeatItem from "../components/busSeats/SeatItem";
+import ExitIndicator from "../components/busSeats/ExitIndicator";
 import DriverIndicator from "../components/busSeats/DriverIndicator";
 import SeatBottomSheet from "../components/busSeats/SeatBottomSheet";
 import SeatLayoutHeader from "../components/busSeats/SeatLayoutHeader";
@@ -219,35 +220,115 @@ const DeckCardContainer = memo(
 
     const totalCols = maxMappedCol + 1;
     const totalRows = maxGridCol + 1;
+    const passengerSeats = seats.filter((seat) => !seat.isSpecial);
+    const isSeaterOnlyDeck =
+      passengerSeats.length > 0 &&
+      passengerSeats.every((seat) => !isHorizontalSleeper(seat));
 
     // Responsive Dimension Calculations
     const CARD_PADDING = 8;
     const AISLE_W = 16;
-    const CELL_GAP = 4;
-    const ROW_GAP = 5;
+    const CELL_GAP = isSeaterOnlyDeck ? 6 : 4;
+    const ROW_GAP = isSeaterOnlyDeck ? 10 : 5;
     const seatCanvasTop = 18;
 
     // Keep the original seat scale while allowing a 2+1 deck to use only
     // three lanes. Otherwise the three lanes expand to fill the old width.
     const sizingCols = Math.max(totalCols, 4);
     const rawCellW = (availableCanvasWidth - CARD_PADDING * 2 - (hasAisle && sizingCols > 1 ? AISLE_W : 0)) / sizingCols;
-    // Let the lane grid use the full deck width. Capping this value leaves a
-    // large unused strip on the aisle side of each deck card on narrow screens.
-    const cellW = Math.max(28, rawCellW);
+    // Keep mixed seater/sleeper decks on their established responsive width.
+    // Pure-seater decks use the proven compact Seater geometry instead of
+    // stretching each seat to consume all available card width.
+    const seaterOnlyWidth = Math.min(38, Math.max(28, rawCellW - CELL_GAP));
+    const cellW = isSeaterOnlyDeck
+      ? seaterOnlyWidth + CELL_GAP
+      : Math.max(28, rawCellW);
 
     const gridTotalW = cellW * totalCols + (hasAisle && totalCols > 1 ? AISLE_W : 0);
     const offsetX = Math.max(0, (availableCanvasWidth - CARD_PADDING * 2 - gridTotalW) / 2);
 
-    // Compact vertical rhythm: reducing the row pitch from 38 to 32 reduces
-    // both seater and sleeper heights by roughly 15-20% while preserving the
-    // calculated seat width and all seat styling.
-    const cellH = 32;
-    const SEATER_W_DYN = cellW - CELL_GAP;
-    const SEATER_H_DYN = cellH - ROW_GAP;
+    // Match the dedicated Seater component's 38:40 seat ratio and spacing on
+    // pure-seater decks. Preserve the existing mixed-layout vertical rhythm.
+    const SEATER_W_DYN = isSeaterOnlyDeck
+      ? seaterOnlyWidth
+      : cellW - CELL_GAP;
+    const SEATER_H_DYN = isSeaterOnlyDeck
+      ? Math.round(SEATER_W_DYN * (40 / 38))
+      : 27;
+    const cellH = isSeaterOnlyDeck ? SEATER_H_DYN + ROW_GAP : 32;
     const SLEEPER_W_DYN = SEATER_W_DYN;
     const SLEEPER_H_DYN = SEATER_H_DYN * 2 + ROW_GAP;
 
-    const actualCanvasHeight = cellH * totalRows;
+    // Lower-deck sleepers occupy two physical vertical slots. Resolve the
+    // required top per lane first, then share the greatest top for every
+    // physical row so seats across the same row stay horizontally aligned.
+    const lowerRowTopMap = useMemo(() => {
+      if (!deck.isLower) return null;
+
+      const laneRows = new Map();
+      // Exits are part of the physical lane layout. Include them while
+      // resolving lower-deck tops so sleepers are placed below the roof exit
+      // instead of being allowed to occupy the same vertical space.
+      seats.forEach((seat) => {
+        const lane = columnMap.get(seat.gridRow ?? 0) ?? seat.gridRow ?? 0;
+        const row = Number(seat.gridCol ?? seat.row ?? 0);
+        if (!laneRows.has(lane)) laneRows.set(lane, []);
+        laneRows.get(lane).push({ seat, row });
+      });
+
+      const laneTops = new Map();
+      const rowTops = new Map();
+      laneRows.forEach((laneSeats) => {
+        let previousBottom = -Infinity;
+        laneSeats.sort((a, b) => a.row - b.row).forEach(({ seat, row }) => {
+          if (seat.isSpecial) {
+            previousBottom = Math.max(previousBottom, row * cellH + cellH);
+            return;
+          }
+          const height = isHorizontalSleeper(seat) ? SLEEPER_H_DYN : SEATER_H_DYN;
+          const top = Math.max(row * cellH, previousBottom + ROW_GAP);
+          laneTops.set(seat.seatCode, { row, top });
+          rowTops.set(row, Math.max(rowTops.get(row) ?? 0, top));
+          previousBottom = top + height;
+        });
+      });
+
+      const tops = new Map();
+      laneTops.forEach(({ row }, seatCode) => {
+        tops.set(seatCode, rowTops.get(row) ?? row * cellH);
+      });
+      return tops;
+    }, [deck.isLower, seats, columnMap, cellH, ROW_GAP, SEATER_H_DYN, SLEEPER_H_DYN]);
+
+    const getSeatTop = useCallback(
+      (seat, gridC) => lowerRowTopMap?.get(seat.seatCode) ?? gridC * cellH,
+      [lowerRowTopMap, cellH],
+    );
+
+    const actualCanvasHeight = useMemo(() => {
+      let bottom = cellH * totalRows;
+      seats.filter((seat) => !seat.isSpecial).forEach((seat) => {
+        const gridC = Number(seat.gridCol ?? seat.row ?? 0);
+        const height = isHorizontalSleeper(seat) ? SLEEPER_H_DYN : SEATER_H_DYN;
+        bottom = Math.max(bottom, getSeatTop(seat, gridC) + height);
+      });
+      return bottom;
+    }, [cellH, totalRows, seats, SLEEPER_H_DYN, SEATER_H_DYN, getSeatTop]);
+
+    const getGridLeft = useCallback((seat, itemWidth) => {
+      const isRear = Boolean(seat.isRearRow || (Number(seat.gridCol ?? seat.row ?? 0) === totalRows - 1 && seat.gridRow === 4));
+      if (isRear) {
+        const rearStep = (gridTotalW - itemWidth) / 4;
+        const rearColIndex = Math.min(4, Math.max(0, seat.gridRow ?? seat.normalizedColumn ?? 0));
+        return offsetX + rearColIndex * rearStep;
+      }
+
+      const rawGridRow = seat.gridRow ?? 0;
+      const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
+      const effectiveCol = Math.max(0, Math.min(mappedCol, totalCols - 1));
+      const aisleOff = hasAisle && effectiveCol > aisleAfterRow ? AISLE_W : 0;
+      return offsetX + effectiveCol * cellW + aisleOff;
+    }, [aisleAfterRow, cellW, columnMap, gridTotalW, hasAisle, offsetX, totalCols, totalRows]);
 
     const deckOpacity = useSharedValue(0);
     const deckTranslateY = useSharedValue(8);
@@ -274,7 +355,7 @@ const DeckCardContainer = memo(
         <View style={styles.cabinDivider} />
         <Animated.View style={[styles.deckCanvasWrapper, { height: actualCanvasHeight + seatCanvasTop }, seatsAnimatedStyle]}>
           {seats.map((seat) => {
-            if (seat.isExit) return null;
+            if (seat.isSpecial) return null;
 
             const isSelected = selectedSeatSet.has(seat.seatCode);
             const seatPrice = getSeatPrice(seat, layoutPrice);
@@ -285,8 +366,6 @@ const DeckCardContainer = memo(
               !isSelected;
 
             const gridC = Number(seat.gridCol ?? seat.row ?? 0);
-            const isRear = Boolean(seat.isRearRow || (gridC === totalRows - 1 && seat.gridRow === 4));
-
             const isH = isHorizontalSleeper(seat);
             const seatWidthMult = Number(seat.width ?? seat.Width ?? 1);
 
@@ -296,24 +375,9 @@ const DeckCardContainer = memo(
               : baseW;
             const renderedHeight = isH ? SLEEPER_H_DYN : SEATER_H_DYN;
 
-            let left = 0;
+            const left = getGridLeft(seat, seatW);
 
-            if (isRear) {
-              const rearStep = (gridTotalW - seatW) / 4;
-              const rearColIndex = Math.min(4, Math.max(0, seat.gridRow ?? seat.normalizedColumn ?? 0));
-              left = offsetX + rearColIndex * rearStep;
-            } else {
-              const rawGridRow = seat.gridRow ?? 0;
-              const mappedCol = columnMap.get(rawGridRow) ?? rawGridRow;
-              const effectiveCol = seatWidthMult > 1
-                ? Math.max(0, Math.min(mappedCol, totalCols - seatWidthMult))
-                : Math.min(3, Math.max(0, mappedCol));
-
-              const aisleOff = hasAisle && effectiveCol > aisleAfterRow ? AISLE_W : 0;
-              left = offsetX + effectiveCol * cellW + aisleOff;
-            }
-
-            const top = seatCanvasTop + gridC * cellH;
+            const top = seatCanvasTop + getSeatTop(seat, gridC);
 
             return (
               <SeatItem
@@ -329,6 +393,38 @@ const DeckCardContainer = memo(
                 top={top}
                 isSleeper={isH}
                 staggerIndex={gridC}
+              />
+            );
+          })}
+          {seats
+            .filter((seat) => seat.isExit && seat.exitType === "BACK_EXIT")
+            .sort(
+              (a, b) =>
+                Number(b.gridCol ?? b.column ?? 0) -
+                Number(a.gridCol ?? a.column ?? 0),
+            )
+            .slice(0, 1)
+            .map((exit) => {
+            // Keep the marker wide enough for the complete label, but anchor
+            // its center to the actual API slot (RowNo/ColumnNo, represented
+            // here by the normalized gridRow/gridCol values).
+            const markerWidth = 78;
+            const gridC = Number(exit.gridCol ?? exit.column ?? 0);
+            const markerLaneLeft = getGridLeft(exit, cellW);
+            return (
+              <ExitIndicator
+                key={`exit-${exit.seatCode}`}
+                type={exit.exitType}
+                seatName={exit.seatName}
+                deck={deck.title}
+                row={exit.row}
+                column={exit.column}
+                anchor={{ gridRow: exit.gridRow, gridCol: exit.gridCol }}
+                width={markerWidth}
+                height={cellH}
+                containerHeight={actualCanvasHeight + seatCanvasTop}
+                left={markerLaneLeft + (cellW - markerWidth) / 2}
+                top={seatCanvasTop + gridC * cellH}
               />
             );
           })}
@@ -415,7 +511,7 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
     const seatPrices = Array.from(
       new Set(
         (layout?.seats ?? [])
-          .filter((seat) => !seat?.isExit)
+          .filter((seat) => !seat?.isSpecial)
           .map((seat) => getSeatPrice(seat, layout?.priceInr))
           .filter((price) => price > 0),
       ),

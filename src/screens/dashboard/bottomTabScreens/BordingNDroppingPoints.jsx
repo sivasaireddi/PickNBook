@@ -146,16 +146,17 @@ const buildPointOption = (value, kind, fallbackLabel, index) => {
       '',
   );
 
-  const time = normalizeText(
+  const rawTime =
     raw.Time ??
-      raw.time ??
-      raw.departureTime ??
-      raw.departureTimeUtc ??
-      raw.arrivalTime ??
-      raw.arrivalTimeUtc ??
-      raw.scheduleTime ??
-      '',
-  );
+    raw.time ??
+    raw.departureTime ??
+    raw.departureTimeUtc ??
+    raw.arrivalTime ??
+    raw.arrivalTimeUtc ??
+    raw.scheduleTime ??
+    '';
+
+  const time = normalizeText(rawTime);
 
   const id =
     normalizeIdValue(
@@ -175,10 +176,15 @@ const buildPointOption = (value, kind, fallbackLabel, index) => {
 
   return {
     id,
+    Id: id,
     cityPointIndex: id,
     name: label,
+    Name: label,
     address,
     time,
+    Time: time,
+    rawTime: typeof rawTime === 'string' ? rawTime.trim() : time,
+    raw,
   };
 };
 
@@ -518,6 +524,17 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
         return;
       }
 
+      const boardingPointTime =
+        selectedBoardingPoint.rawTime ||
+        selectedBoardingPoint.time ||
+        selectedBoardingPoint.Time ||
+        '';
+      const droppingPointTime =
+        selectedDroppingPoint.rawTime ||
+        selectedDroppingPoint.time ||
+        selectedDroppingPoint.Time ||
+        '';
+
       navigation.navigate('PostBusBooking', {
         ...routeParams,
         selectedSeats,
@@ -525,8 +542,14 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
         seatNumber: routeParams.seatNumber ?? selectedSeats.join(', '),
         boardingPoint: selectedBoardingPoint.name,
         droppingPoint: selectedDroppingPoint.name,
+        boardingPointName: selectedBoardingPoint.name,
+        droppingPointName: selectedDroppingPoint.name,
         boardingPointId: selectedBoardingPoint.id,
         droppingPointId: selectedDroppingPoint.id,
+        BoardingPointId: selectedBoardingPoint.id,
+        DroppingPointId: selectedDroppingPoint.id,
+        boardingPointTime,
+        droppingPointTime,
         selectedBoardingPoint,
         selectedDroppingPoint,
       });

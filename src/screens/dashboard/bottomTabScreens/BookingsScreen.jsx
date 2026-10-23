@@ -198,8 +198,14 @@ export default function BookingsScreen() {
         to: toVal,
         agencyName: agencyVal,
         date: item.date || item.departureDate || "",
-        departTime: item.departTime || item.departureTime || "",
-        arriveTime: item.dropTime || item.arriveTime || item.arrivalTime || "",
+        departTime: item.boardingPointTime
+          ? (String(item.boardingPointTime).includes("T") ? String(item.boardingPointTime).split("T")[1].slice(0, 5) : String(item.boardingPointTime))
+          : (item.departTime || item.departureTime || ""),
+        arriveTime: item.droppingPointTime
+          ? (String(item.droppingPointTime).includes("T") ? String(item.droppingPointTime).split("T")[1].slice(0, 5) : String(item.droppingPointTime))
+          : (item.dropTime || item.arriveTime || item.arrivalTime || ""),
+        boardingPoint: item.boardingPointName || item.boardingPoint || "",
+        droppingPoint: item.droppingPointName || item.droppingPoint || "",
         duration: item.duration || "",
         seats: item.seatsBooked ? `Seat ${String(item.seatsBooked).padStart(2, "0")}` : "",
         totalAmount: item.totalPriceInr ? `₹${item.totalPriceInr}` : "",
