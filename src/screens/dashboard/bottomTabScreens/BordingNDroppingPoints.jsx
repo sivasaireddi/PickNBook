@@ -11,8 +11,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
 // Color tokens
 const COLORS = {
@@ -22,8 +23,6 @@ const COLORS = {
   inkSoft: '#6B7280',
   primary: '#D11A2A',
   primaryDeep: '#B91C1C',
-  accentAmber: '#FFB13D',
-  accentAmberDeep: '#F59614',
   selectedFill: '#FDE7E7',
   divider: '#E7E9F5',
   outline: '#D1D5E2',
@@ -216,63 +215,69 @@ const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint, activeTab }) => {
 
   const originLabel = (fromCity || 'KADAPA').toUpperCase();
   const destLabel = (toCity || 'HYDERABAD').toUpperCase();
-  const selectedName = (
-    selectedPoint?.name ||
-    (activeTab === 'boarding' ? 'SELECT BOARDING' : 'SELECT DROPPING')
-  ).toUpperCase();
-  const selectedTime = selectedPoint?.time || '--:--';
+  const selectedLabel = selectedPoint
+    ? [selectedPoint.name, selectedPoint.time].filter(Boolean).join(' · ')
+    : '';
+  const markerX = activeTab === 'boarding' ? 63 : 278;
+  const markerY = activeTab === 'boarding' ? 47 : 25;
 
   return (
     <LinearGradient
-      colors={[COLORS.primaryDeep, COLORS.accentAmberDeep]}
+      colors={[COLORS.primary, COLORS.primaryDeep]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 0 }}
       style={styles.bannerContainer}
     >
-      <View style={styles.bannerInner}>
-        {/* Horizontal Dotted Track */}
-        <View style={styles.dotsTrackRow}>
-          {Array.from({ length: 18 }).map((_, i) => (
-            <View key={`mini-dot-${i}`} style={styles.miniDot} />
-          ))}
-        </View>
+      {selectedLabel ? (
+        <Text style={styles.routeSelectedLabel} numberOfLines={1}>
+          {selectedLabel}
+        </Text>
+      ) : (
+        <View style={styles.routeLabelPlaceholder} />
+      )}
 
-        {/* Route Stops Container */}
-        <View style={styles.stopsContainer}>
-          {/* Origin Stop */}
-          <View style={[styles.stopMarker, styles.stopMarkerLeft]}>
-            <View style={styles.stopDotOutline}>
-              <View style={styles.stopDotInner} />
-            </View>
-            <Text style={styles.stopNameText} numberOfLines={2}>{originLabel}</Text>
-          </View>
-
-          {/* Active / Selected Stop (Middle) */}
-          <View style={[styles.stopMarker, styles.stopMarkerCenter]}>
-            {/* Floating Bus Badge */}
-            <View style={styles.busBadge}>
-              <MaterialCommunityIcons name="bus" size={12} color="#FFFFFF" />
-            </View>
-
-            {/* Concentric Glow Ring */}
-            <View style={styles.glowRingOuter}>
-              <View style={styles.glowRingInner} />
-            </View>
-
-            {/* Selected Stop Title & Time */}
-            <Text style={styles.selectedStopTitle} numberOfLines={2}>
-              {selectedName}
-            </Text>
-            <Text style={styles.selectedStopTimeText}>{selectedTime}</Text>
-          </View>
-
-          {/* Destination Stop */}
-          <View style={[styles.stopMarker, styles.stopMarkerRight]}>
-            <View style={styles.stopDotOutline}>
-              <View style={styles.stopDotInner} />
-            </View>
-            <Text style={styles.stopNameText} numberOfLines={2}>{destLabel}</Text>
-          </View>
+      <View style={styles.routePathWrap}>
+        <Svg width="100%" height="64" viewBox="0 0 350 64">
+          <Path
+            d="M24 53 C88 3 142 67 198 31 C252 -3 301 12 326 40"
+            fill="none"
+            stroke="rgba(255,255,255,0.58)"
+            strokeWidth="3"
+            strokeDasharray="2 8"
+            strokeLinecap="round"
+          />
+          <Circle cx="24" cy="53" r="5" fill="none" stroke="#FFFFFF" strokeWidth="3" />
+          <Circle cx="326" cy="40" r="5" fill="#FFFFFF" />
+          {selectedPoint ? (
+            <>
+              <Circle cx={markerX} cy={markerY} r="19" fill="rgba(255,255,255,0.22)" />
+              <Circle cx={markerX} cy={markerY} r="12" fill="#FFFFFF" />
+              <Rect
+                x={markerX - 5}
+                y={markerY - 6}
+                width="10"
+                height="12"
+                rx="2.5"
+                fill="none"
+                stroke={COLORS.primary}
+                strokeWidth="2"
+              />
+              <Line
+                x1={markerX - 5}
+                y1={markerY + 1}
+                x2={markerX + 5}
+                y2={markerY + 1}
+                stroke={COLORS.primary}
+                strokeWidth="2"
+              />
+            </>
+          ) : null}
+        </Svg>
+        <View style={styles.routeCityRow} pointerEvents="none">
+          <Text style={styles.routeCityText} numberOfLines={1}>{originLabel}</Text>
+          <Text style={[styles.routeCityText, styles.routeCityTextRight]} numberOfLines={1}>
+            {destLabel}
+          </Text>
         </View>
       </View>
     </LinearGradient>
@@ -549,6 +554,10 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
     activeTab === 'boarding' ? selectedBoardingPoint : selectedDroppingPoint;
 
   const hasSeatSelection = selectedSeats.length > 0;
+  const selectedSeatLabel = selectedSeats.length > 0
+    ? selectedSeats.join(', ')
+    : '—';
+  const seatMetaLabel = selectedSeats.length === 1 ? 'Seat' : 'Seats';
 
   const switchTab = (tab) => {
     setActiveTab(tab);
@@ -617,11 +626,17 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
       console.log("[BusFlow] NAVIGATING TO PASSENGER DETAILS");
   };
 
-  const renderPoint = ({ item }) => {
+  const renderPoint = ({ item, index }) => {
     const isSelected =
       activeTab === 'boarding'
-        ? selectedBoardingPoint?.id === item.id
-        : selectedDroppingPoint?.id === item.id;
+        ? String(selectedBoardingPoint?.id) === String(item.id)
+        : String(selectedDroppingPoint?.id) === String(item.id);
+    const isFirst = index === 0;
+    const isLast = index === activeOptions.length - 1;
+    const pointAddress =
+      normalizeText(item.address) ||
+      normalizeText(item.raw?.Landmark) ||
+      normalizeText(item.raw?.Location);
 
     return (
       <TouchableOpacity
@@ -639,25 +654,49 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
         accessibilityState={{ selected: isSelected }}
         accessibilityLabel={`${item.name}${item.time ? `, ${item.time}` : ''}`}
       >
-        {/* Selected Accent Bar on left edge */}
-        {isSelected ? <View style={styles.selectedLeftBar} /> : null}
-
-        <View style={styles.pointTextWrap}>
-          <Text style={styles.pointName}>{item.name}</Text>
-          {item.address ? (
-            <Text style={styles.pointAddress}>{item.address}</Text>
-          ) : null}
-          {item.time ? (
-            <Text style={styles.pointTime}>{item.time}</Text>
-          ) : null}
+        <View style={styles.timelineTimeColumn}>
+          <Text style={[styles.pointTime, isSelected && styles.pointTimeSelected]}>
+            {item.time || '--:--'}
+          </Text>
         </View>
 
-        {/* Custom Radio Button */}
-        <View
-          style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}
-        >
-          {isSelected && <View style={styles.radioInner} />}
+        <View style={styles.timelineRailColumn}>
+          {!isFirst ? <View style={[styles.timelineLine, styles.timelineLineTop]} /> : null}
+          {!isLast ? <View style={[styles.timelineLine, styles.timelineLineBottom]} /> : null}
+          <View style={[styles.timelineNode, isSelected && styles.timelineNodeSelected]}>
+            {isSelected ? <View style={styles.timelineNodeCore} /> : null}
+          </View>
         </View>
+
+        {isSelected ? (
+          <View style={styles.ticketCard}>
+            <View style={styles.ticketMain}>
+              <Text style={styles.ticketEyebrow}>
+                {activeTab === 'boarding' ? 'BOARD HERE' : 'DROP HERE'}
+              </Text>
+              <Text style={styles.ticketName} numberOfLines={1}>{item.name}</Text>
+              {pointAddress ? (
+                <Text style={styles.ticketAddress} numberOfLines={2}>{pointAddress}</Text>
+              ) : null}
+            </View>
+            <View style={styles.ticketDivider} />
+            <View style={styles.ticketSeatBlock}>
+              <Text style={styles.ticketSeatLabel}>{seatMetaLabel.toUpperCase()}</Text>
+              <Text style={styles.ticketSeatValue} numberOfLines={2} adjustsFontSizeToFit>
+                {selectedSeatLabel}
+              </Text>
+            </View>
+            <View style={[styles.ticketNotch, styles.ticketNotchTop]} />
+            <View style={[styles.ticketNotch, styles.ticketNotchBottom]} />
+          </View>
+        ) : (
+          <View style={styles.pointTextWrap}>
+            <Text style={styles.pointName} numberOfLines={1}>{item.name}</Text>
+            {pointAddress ? (
+              <Text style={styles.pointAddress} numberOfLines={2}>{pointAddress}</Text>
+            ) : null}
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
@@ -682,14 +721,15 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
           </View>
         </View>
 
-        {/* Operator Title & Route Subtitle */}
+        {/* Context and step title */}
         <View style={styles.titleSection}>
-          <Text style={styles.operatorTitle} numberOfLines={1}>
-            {operatorName}
+          <Text style={styles.routeEyebrow} numberOfLines={1}>
+            {`${operatorName} · ${fromCity || 'Origin'} → ${toCity || 'Destination'}`.toUpperCase()}
           </Text>
-
-          <Text style={styles.routeSubtitle} numberOfLines={1}>
-            {[fromCity || 'Kadapa', toCity || 'Hyderabad'].join('  →  ')}
+          <Text style={styles.pageTitle}>
+            {activeTab === 'boarding'
+              ? 'Where should we pick you up?'
+              : 'Where should we drop you?'}
           </Text>
         </View>
 
@@ -701,14 +741,14 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
           activeTab={activeTab}
         />
 
-        {/* Selected Seat Chip */}
-        <View style={styles.seatChipSection}>
-          <Text style={styles.seatChipLabel}>SELECTED SEAT</Text>
-          <View style={styles.seatChipBadge}>
-            <Text style={styles.seatChipText}>
-              {selectedSeats.length > 0 ? selectedSeats.join(', ') : 'L1'}
-            </Text>
-          </View>
+        {/* Seat and step metadata */}
+        <View style={styles.tripMetaRow}>
+          <Text style={styles.tripSeatText} numberOfLines={1}>
+            {seatMetaLabel} {selectedSeatLabel}
+          </Text>
+          <Text style={styles.stepText}>
+            {activeTab === 'boarding' ? 'STEP 1 OF 2' : 'STEP 2 OF 2'}
+          </Text>
         </View>
 
         {/* Segmented Tabs */}
@@ -752,13 +792,6 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
 
         {/* Main List Card Container */}
         <View style={styles.listCard}>
-          <Text style={styles.listCardTitle}>
-            {activeTab === 'boarding'
-              ? 'Select a boarding point'
-              : 'Select a dropping point'}
-          </Text>
-          <View style={styles.dividerLine} />
-
           {validationMessage ? (
             <View style={styles.validationBanner}>
               <Ionicons
@@ -785,7 +818,6 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
               showsVerticalScrollIndicator={false}
               nestedScrollEnabled
               keyboardShouldPersistTaps="handled"
-              ItemSeparatorComponent={() => <View style={styles.dividerLine} />}
               contentContainerStyle={
                 activeOptions.length === 0
                   ? styles.emptyList
@@ -826,16 +858,12 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
           onPress={handleContinue}
           activeOpacity={0.88}
         >
-          <LinearGradient
-            colors={[COLORS.primary, COLORS.accentAmberDeep]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.ctaGradientBtn}
-          >
+          <View style={styles.ctaSolidBtn}>
             <Text style={styles.ctaButtonText}>
               {hasSeatSelection ? 'Next' : 'Done'}
             </Text>
-          </LinearGradient>
+            <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+          </View>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -886,19 +914,23 @@ const createStyles = (scaleFont) =>
     letterSpacing: 0.4,
   },
   titleSection: {
-    marginBottom: 4,
+    marginTop: 6,
+    marginBottom: 12,
   },
-  operatorTitle: {
-    fontSize: scaleFont(16),
-    fontWeight: '700',
+  routeEyebrow: {
+    fontSize: scaleFont(10),
+    fontWeight: '800',
+    color: COLORS.primary,
+    letterSpacing: 0.9,
+  },
+  pageTitle: {
+    maxWidth: 285,
+    marginTop: 5,
+    fontSize: scaleFont(27),
+    lineHeight: scaleFont(29),
     color: COLORS.ink,
-    letterSpacing: -0.4,
-  },
-  routeSubtitle: {
-    fontSize: scaleFont(12),
-    color: COLORS.inkSoft,
-    marginTop: 2,
-    fontWeight: '600',
+    fontWeight: '900',
+    letterSpacing: -0.7,
   },
 
   // ─── Horizon Route Banner ────────────────────────────────────────────────
@@ -1139,7 +1171,7 @@ const createStyles = (scaleFont) =>
     top: 0,
     bottom: 0,
     width: 6,
-    backgroundColor: COLORS.accentAmberDeep,
+    backgroundColor: COLORS.primary,
   },
   pointTextWrap: {
     flex: 1,
@@ -1180,7 +1212,7 @@ const createStyles = (scaleFont) =>
     width: 11,
     height: 11,
     borderRadius: 5.5,
-    backgroundColor: COLORS.accentAmberDeep,
+    backgroundColor: COLORS.primary,
   },
   loadingContainer: {
     padding: 30,
@@ -1262,5 +1294,272 @@ const createStyles = (scaleFont) =>
     color: '#FFFFFF',
     fontSize: scaleFont(15),
     fontWeight: '800',
+  },
+
+  // Premium journey layout overrides
+  bannerContainer: {
+    borderRadius: 24,
+    height: 118,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    marginBottom: 10,
+    elevation: 5,
+    shadowColor: COLORS.primaryDeep,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+  },
+  routeSelectedLabel: {
+    height: 18,
+    paddingHorizontal: 5,
+    color: '#FFFFFF',
+    fontSize: scaleFont(11),
+    fontWeight: '800',
+  },
+  routeLabelPlaceholder: {
+    height: 18,
+  },
+  routePathWrap: {
+    flex: 1,
+    position: 'relative',
+  },
+  routeCityRow: {
+    position: 'absolute',
+    left: 1,
+    right: 1,
+    bottom: -1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  routeCityText: {
+    maxWidth: '44%',
+    color: '#FFFFFF',
+    fontSize: scaleFont(8),
+    fontWeight: '800',
+    letterSpacing: 0.7,
+  },
+  routeCityTextRight: {
+    textAlign: 'right',
+  },
+  tripMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 9,
+  },
+  tripSeatText: {
+    flex: 1,
+    color: COLORS.primary,
+    fontSize: scaleFont(12),
+    fontWeight: '800',
+  },
+  stepText: {
+    color: COLORS.inkSoft,
+    fontSize: scaleFont(9),
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  listCard: {
+    flex: 1,
+    minHeight: 0,
+    marginBottom: 6,
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  listContent: {
+    paddingTop: 4,
+    paddingBottom: 18,
+  },
+  pointRow: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    backgroundColor: COLORS.surface,
+  },
+  pointRowSelected: {
+    minHeight: 104,
+    backgroundColor: COLORS.surface,
+  },
+  timelineTimeColumn: {
+    width: 50,
+    paddingTop: 12,
+    alignItems: 'flex-start',
+  },
+  pointTime: {
+    marginTop: 0,
+    color: COLORS.inkSoft,
+    fontFamily: MONOSPACE_FONT,
+    fontSize: scaleFont(11),
+    fontWeight: '700',
+  },
+  pointTimeSelected: {
+    color: COLORS.primary,
+    fontWeight: '900',
+  },
+  timelineRailColumn: {
+    width: 28,
+    position: 'relative',
+    alignItems: 'center',
+  },
+  timelineLine: {
+    position: 'absolute',
+    width: 1.5,
+    left: 13,
+    backgroundColor: '#E2C9CC',
+  },
+  timelineLineTop: {
+    top: 0,
+    height: 20,
+  },
+  timelineLineBottom: {
+    top: 28,
+    bottom: -4,
+  },
+  timelineNode: {
+    width: 12,
+    height: 12,
+    marginTop: 14,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: '#C9B3B6',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  timelineNodeSelected: {
+    width: 18,
+    height: 18,
+    marginTop: 11,
+    borderRadius: 9,
+    borderWidth: 4,
+    borderColor: '#F8C8CE',
+    backgroundColor: COLORS.primary,
+  },
+  timelineNodeCore: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#FFFFFF',
+  },
+  pointTextWrap: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 10,
+    paddingRight: 8,
+    paddingBottom: 8,
+  },
+  pointName: {
+    color: COLORS.ink,
+    fontSize: scaleFont(14),
+    fontWeight: '800',
+  },
+  pointAddress: {
+    marginTop: 3,
+    color: COLORS.inkSoft,
+    fontSize: scaleFont(11),
+    lineHeight: scaleFont(15),
+    fontWeight: '400',
+  },
+  ticketCard: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 94,
+    flexDirection: 'row',
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 17,
+    backgroundColor: COLORS.primary,
+    elevation: 4,
+    shadowColor: COLORS.primaryDeep,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  ticketMain: {
+    flex: 1,
+    minWidth: 0,
+    paddingLeft: 14,
+    paddingRight: 10,
+    paddingVertical: 11,
+  },
+  ticketEyebrow: {
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: scaleFont(8),
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+  ticketName: {
+    marginTop: 2,
+    color: '#FFFFFF',
+    fontSize: scaleFont(17),
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  ticketAddress: {
+    marginTop: 2,
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: scaleFont(10),
+    lineHeight: scaleFont(13),
+    fontWeight: '500',
+  },
+  ticketDivider: {
+    width: 1,
+    marginVertical: 10,
+    borderLeftWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(255,255,255,0.58)',
+  },
+  ticketSeatBlock: {
+    width: 62,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ticketSeatLabel: {
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: scaleFont(8),
+    fontWeight: '900',
+    letterSpacing: 0.9,
+  },
+  ticketSeatValue: {
+    width: '100%',
+    marginTop: 2,
+    color: '#FFFFFF',
+    fontSize: scaleFont(17),
+    lineHeight: scaleFont(19),
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  ticketNotch: {
+    position: 'absolute',
+    right: 55,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: COLORS.surface,
+  },
+  ticketNotchTop: {
+    top: -6,
+  },
+  ticketNotchBottom: {
+    bottom: -6,
+  },
+  ctaSolidBtn: {
+    minWidth: 104,
+    height: 48,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    backgroundColor: COLORS.primary,
   },
 });
