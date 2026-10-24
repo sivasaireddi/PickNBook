@@ -74,12 +74,12 @@ const busFlowError = (stage, error) => busFlowLog(`${stage} ERROR`, {
 /**
  * Search cities for autocomplete via GET /api/Places?query={cityName}&tripType=bus
  */
-export async function searchCities(query = "") {
+export async function searchCities(query = "", options = {}) {
   busFlowLog("CITY SEARCH START", { query });
-  try {
-    const trimmed = String(query || "").trim();
-    if (!trimmed) return [];
+  const trimmed = String(query || "").trim();
+  if (!trimmed) return [];
 
+  try {
     const response = await client.get("/api/Places", {
       params: { query: trimmed, tripType: "bus" },
     });
@@ -108,6 +108,7 @@ export async function searchCities(query = "") {
       response: error?.response?.data,
     };
     console.error("[BusService] searchCities error:", error?.message, details);
+    if (options.throwOnError) throw error;
     return [];
   }
 }

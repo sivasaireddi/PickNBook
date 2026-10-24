@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { searchCities } from '../../../services/busService';
+import { normalizeBusLocationResults } from '../../../utils/busLocationResults';
 
 const BusLocationSearchScreen = () => {
   const navigation = useNavigation();
@@ -59,75 +60,10 @@ const BusLocationSearchScreen = () => {
       
       console.log(`[BusLocationSearch] API Response count: ${suggestions.length}`);
       
-      const grouped = {};
-      
-      suggestions.forEach(item => {
-        let city = item?.city || "";
-        let locality = item?.name || item?.label || item?.description || "";
-        const description = item?.description || item?.label || item?.cityName || "";
-        const cityId = String(item?.cityCode || item?.cityId || item?.code || item?.place_id || "").trim();
-        const stateName = String(item?.stateName || item?.state || "").trim();
-
-        if (!city && description) {
-          const parts = description.split(',').map(p => p.trim()).filter(Boolean);
-          if (parts.length >= 2) {
-            locality = parts[0];
-            city = parts[1];
-          } else {
-            city = parts[0];
-          }
-        }
-
-        if (!city) {
-          const parts = (item?.cityName || "").split(',').map(p => p.trim()).filter(Boolean);
-          if (parts.length >= 2) {
-            locality = parts[0];
-            city = parts[1];
-          } else {
-            city = parts[0] || locality;
-          }
-        }
-
-        city = city.trim();
-        locality = locality.trim();
-        
-        if (!city) return;
-        
-        const cityName = city.charAt(0).toUpperCase() + city.slice(1).toLowerCase();
-        
-        if (!grouped[cityName]) {
-          grouped[cityName] = {
-            city: cityName,
-            state: stateName,
-            cityPayload: {
-              cityId: cityId, 
-              cityName: cityName,
-              label: cityName,
-              stateName: stateName,
-            },
-            subLocations: []
-          };
-        }
-        
-        // If locality is different from city name, add to subLocations
-        if (locality && locality.toLowerCase() !== cityName.toLowerCase()) {
-          const displayLabel = locality;
-          const exists = grouped[cityName].subLocations.some(sub => sub.cityId === cityId || sub.label === displayLabel);
-          if (!exists) {
-            grouped[cityName].subLocations.push({
-              cityId: cityId,
-              cityName: cityName,
-              label: displayLabel,
-              stateName: stateName,
-            });
-          }
-        }
-      });
-      
       // Keep the order in which the API returned the cities. The previous
       // alphabetical sort changed the supplier ranking/order shown to users
       // (for example, Chennai was returned first but appeared after Chabi).
-      const groupedArray = Object.values(grouped);
+      const groupedArray = normalizeBusLocationResults(suggestions);
       
       console.log(`[BusLocationSearch] Grouped Locations length: ${groupedArray.length}`);
       setResults(groupedArray);

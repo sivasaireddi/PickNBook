@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   Easing,
   Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -20,6 +21,14 @@ import { AssuranceStrip, SearchPanelHeading, TravelPrimaryButton, TravelSearchHe
 import { createBusSearchNavigationParams, formatBusDisplayDate } from "../../../utils/busSearchParams";
 import { BUS_FLOW_COLORS } from "../../../constants/colors";
 import { theme } from "../../../theme/tokens";
+import { searchCities } from "../../../services/busService";
+import { flattenBusLocationResults, normalizeBusLocationResults } from "../../../utils/busLocationResults";
+import {
+  addRecentBusLocation,
+  getBusLocationIdentity,
+  loadRecentBusLocations,
+  removeRecentBusLocation,
+} from "../../../utils/busRecentLocations";
 
 const COLORS = BUS_FLOW_COLORS;
 
@@ -30,6 +39,9 @@ const TravelField = ({
   placeholder,
   onChangeText,
   onPress,
+  onFocus,
+  inputRef,
+  active = false,
   rightAdornment,
   editable = true,
   error = false,
@@ -67,7 +79,11 @@ const TravelField = ({
           {rightAdornment}
         </Pressable>
       ) : (
-        <View style={[styles.fieldSurfaceContainer, error && styles.fieldError]}>
+        <View style={[
+          styles.fieldSurfaceContainer,
+          active && styles.fieldActive,
+          error && styles.fieldError,
+        ]}>
           <View style={styles.fieldContentLeft}>
             {icon ? (
               <Ionicons name={icon} size={18} color={error ? "#DC2626" : COLORS.primary} style={styles.bookingIcon} />
@@ -75,12 +91,16 @@ const TravelField = ({
             <TextInput
               value={value}
               onChangeText={onChangeText}
+              onFocus={onFocus}
               placeholder={placeholder}
               placeholderTextColor={COLORS.textMuted}
               style={styles.bookingTextInput}
               selectionColor={COLORS.primary}
               autoCapitalize="words"
               editable={editable}
+              ref={inputRef}
+              autoCorrect={false}
+              returnKeyType="search"
             />
           </View>
           {rightAdornment}
@@ -93,10 +113,131 @@ const TravelField = ({
   );
 };
 
+const EMPTY_LOCATION = { cityId: "", cityName: "", label: "", stateName: "" };
+
+const getLocationText = (location) => location?.label || location?.cityName || "";
+
+const InlineLocationPanel = ({
+  query,
+  loading,
+  error,
+  suggestions,
+  recents,
+  onSelect,
+  onDeleteRecent,
+}) => {
+  const trimmedQuery = query.trim();
+  const showingRecents = trimmedQuery.length === 0;
+
+  if (showingRecents && recents.length === 0) return null;
+
+  return (
+    <View style={styles.locationPanel}>
+      {showingRecents ? (
+        <>
+          <Text style={styles.locationPanelHeading}>RECENT SEARCHES</Text>
+          {recents.map((location, index) => (
+            <Pressable
+              key={getBusLocationIdentity(location)}
+              onPress={() => onSelect(location)}
+              style={({ pressed }) => [
+                styles.locationRow,
+                index < recents.length - 1 && styles.locationRowDivider,
+                pressed && styles.locationRowPressed,
+              ]}
+            >
+              <View style={styles.locationIconWrap}>
+                <Ionicons name="time-outline" size={17} color={COLORS.primary} />
+              </View>
+              <View style={styles.locationRowText}>
+                <Text style={styles.locationTitle} numberOfLines={1}>
+                  {getLocationText(location)}
+                </Text>
+                {location.stateName ? (
+                  <Text style={styles.locationSubtitle} numberOfLines={1}>
+                    {location.stateName}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${getLocationText(location)} from recent searches`}
+                hitSlop={10}
+                onPress={(event) => {
+                  event?.stopPropagation?.();
+                  onDeleteRecent(location);
+                }}
+                style={({ pressed }) => [
+                  styles.recentDeleteButton,
+                  pressed && styles.recentDeleteButtonPressed,
+                ]}
+              >
+                <Ionicons name="close" size={16} color={COLORS.textMuted} />
+              </Pressable>
+            </Pressable>
+          ))}
+        </>
+      ) : loading ? (
+        <View style={styles.locationStatusRow}>
+          <ActivityIndicator size="small" color={COLORS.primary} />
+          <Text style={styles.locationStatusText}>Searching places...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.locationStatusRow}>
+          <Ionicons name="alert-circle-outline" size={17} color="#DC2626" />
+          <Text style={[styles.locationStatusText, styles.locationErrorText]}>
+            Unable to load places. Try again.
+          </Text>
+        </View>
+      ) : suggestions.length === 0 ? (
+        <View style={styles.locationStatusRow}>
+          <Ionicons name="location-outline" size={17} color={COLORS.textMuted} />
+          <Text style={styles.locationStatusText}>No matching places found</Text>
+        </View>
+      ) : (
+        suggestions.map((item, index) => (
+          <Pressable
+            key={`${item.key}:${index}`}
+            onPress={() => onSelect(item.payload)}
+            style={({ pressed }) => [
+              styles.locationRow,
+              index < suggestions.length - 1 && styles.locationRowDivider,
+              pressed && styles.locationRowPressed,
+            ]}
+          >
+            <View style={styles.locationIconWrap}>
+              <Ionicons
+                name={item.kind === "city" ? "business-outline" : "return-down-forward-outline"}
+                size={17}
+                color={item.kind === "city" ? COLORS.primary : COLORS.textMuted}
+              />
+            </View>
+            <View style={styles.locationRowText}>
+              <Text style={styles.locationTitle} numberOfLines={1}>{item.title}</Text>
+              {item.subtitle ? (
+                <Text style={styles.locationSubtitle} numberOfLines={1}>{item.subtitle}</Text>
+              ) : null}
+            </View>
+            <Ionicons name="arrow-forward" size={15} color="#A1A8B5" />
+          </Pressable>
+        ))
+      )}
+    </View>
+  );
+};
+
 export default function BusBookingSection({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const [source, setSource] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
-  const [destination, setDestination] = useState({ cityId: "", cityName: "", label: "", stateName: "" });
+  const [source, setSource] = useState(EMPTY_LOCATION);
+  const [destination, setDestination] = useState(EMPTY_LOCATION);
+  const [sourceQuery, setSourceQuery] = useState("");
+  const [destinationQuery, setDestinationQuery] = useState("");
+  const [activeLocationField, setActiveLocationField] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [suggestionError, setSuggestionError] = useState("");
+  const [recentSources, setRecentSources] = useState([]);
+  const [recentDestinations, setRecentDestinations] = useState([]);
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
@@ -106,6 +247,67 @@ export default function BusBookingSection({ navigation, route }) {
   const swapRotation = useRef(new Animated.Value(0)).current;
   const swapScale = useRef(new Animated.Value(1)).current;
   const lastLocationSelection = useRef(null);
+  const searchSequence = useRef(0);
+  const sourceInputRef = useRef(null);
+  const destinationInputRef = useRef(null);
+
+  const activeQuery = activeLocationField === "source"
+    ? sourceQuery
+    : activeLocationField === "destination"
+      ? destinationQuery
+      : "";
+  const activeRecents = activeLocationField === "source"
+    ? recentSources
+    : recentDestinations;
+  const inlineSuggestions = useMemo(
+    () => flattenBusLocationResults(suggestions, 8),
+    [suggestions],
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([
+      loadRecentBusLocations("source"),
+      loadRecentBusLocations("destination"),
+    ]).then(([sources, destinations]) => {
+      if (!mounted) return;
+      setRecentSources(sources);
+      setRecentDestinations(destinations);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const requestId = ++searchSequence.current;
+    const query = activeQuery.trim();
+
+    if (!activeLocationField || query.length < 1) {
+      setSuggestions([]);
+      setSuggestionLoading(false);
+      setSuggestionError("");
+      return undefined;
+    }
+
+    setSuggestionLoading(true);
+    setSuggestionError("");
+    const timeoutId = setTimeout(async () => {
+      try {
+        const results = await searchCities(query, { throwOnError: true });
+        if (requestId !== searchSequence.current) return;
+        setSuggestions(normalizeBusLocationResults(results));
+      } catch {
+        if (requestId !== searchSequence.current) return;
+        setSuggestions([]);
+        setSuggestionError("Unable to load places. Try again.");
+      } finally {
+        if (requestId === searchSequence.current) setSuggestionLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [activeLocationField, activeQuery]);
 
   useEffect(() => {
     // Dismiss the keyboard whenever this screen loses focus (e.g. the user
@@ -116,6 +318,7 @@ export default function BusBookingSection({ navigation, route }) {
     // the keyboard is gone before HomeScreen ever lays out.
     const unsubscribe = navigation.addListener('blur', () => {
       Keyboard.dismiss();
+      setActiveLocationField(null);
     });
     return unsubscribe;
   }, [navigation]);
@@ -133,11 +336,21 @@ export default function BusBookingSection({ navigation, route }) {
 
     lastLocationSelection.current = selectionId;
     if (selectionType === "from") {
-      setSource(selection || returnedSource || { cityId: "", cityName: "", label: "", stateName: "" });
-      if (returnedDestination) setDestination(returnedDestination);
+      const nextSource = selection || returnedSource || EMPTY_LOCATION;
+      setSource(nextSource);
+      setSourceQuery(getLocationText(nextSource));
+      if (returnedDestination) {
+        setDestination(returnedDestination);
+        setDestinationQuery(getLocationText(returnedDestination));
+      }
     } else if (selectionType === "to") {
-      if (returnedSource) setSource(returnedSource);
-      setDestination(selection || returnedDestination || { cityId: "", cityName: "", label: "", stateName: "" });
+      if (returnedSource) {
+        setSource(returnedSource);
+        setSourceQuery(getLocationText(returnedSource));
+      }
+      const nextDestination = selection || returnedDestination || EMPTY_LOCATION;
+      setDestination(nextDestination);
+      setDestinationQuery(getLocationText(nextDestination));
     }
 
     navigation.setParams({
@@ -221,12 +434,81 @@ export default function BusBookingSection({ navigation, route }) {
   const toTranslateY = swapMotion.interpolate({ inputRange: [0, 1], outputRange: [0, -36] });
   const fieldFade = swapMotion.interpolate({ inputRange: [0, 1], outputRange: [1, 0.92] });
 
+  const closeLocationPanel = useCallback(() => {
+    searchSequence.current += 1;
+    setActiveLocationField(null);
+    setSuggestions([]);
+    setSuggestionLoading(false);
+    setSuggestionError("");
+  }, []);
+
+  const handleLocationChange = useCallback((field, text) => {
+    if (field === "source") {
+      setSourceQuery(text);
+      setSource(EMPTY_LOCATION);
+      setErrors((current) => ({ ...current, source: "" }));
+    } else {
+      setDestinationQuery(text);
+      setDestination(EMPTY_LOCATION);
+      setErrors((current) => ({ ...current, destination: "" }));
+    }
+  }, []);
+
+  const handleLocationSelect = useCallback(async (field, location) => {
+    const nextLocation = {
+      cityId: String(location?.cityId || "").trim(),
+      cityName: String(location?.cityName || "").trim(),
+      label: String(location?.label || location?.cityName || "").trim(),
+      stateName: String(location?.stateName || "").trim(),
+    };
+
+    closeLocationPanel();
+    Keyboard.dismiss();
+
+    if (field === "source") {
+      setSource(nextLocation);
+      setSourceQuery(getLocationText(nextLocation));
+      setErrors((current) => ({ ...current, source: "" }));
+      const nextRecents = await addRecentBusLocation("source", nextLocation, recentSources);
+      setRecentSources(nextRecents);
+    } else {
+      setDestination(nextLocation);
+      setDestinationQuery(getLocationText(nextLocation));
+      setErrors((current) => ({ ...current, destination: "" }));
+      const nextRecents = await addRecentBusLocation("destination", nextLocation, recentDestinations);
+      setRecentDestinations(nextRecents);
+    }
+
+  }, [closeLocationPanel, recentDestinations, recentSources]);
+
+  const handleDeleteRecent = useCallback(async (field, location) => {
+    if (field === "source") {
+      const nextRecents = recentSources.filter(
+        (entry) => getBusLocationIdentity(entry) !== getBusLocationIdentity(location),
+      );
+      setRecentSources(nextRecents);
+      await removeRecentBusLocation("source", location, recentSources);
+    } else {
+      const nextRecents = recentDestinations.filter(
+        (entry) => getBusLocationIdentity(entry) !== getBusLocationIdentity(location),
+      );
+      setRecentDestinations(nextRecents);
+      await removeRecentBusLocation("destination", location, recentDestinations);
+    }
+  }, [recentDestinations, recentSources]);
+
   const handleSwap = () => {
     if (isSwapping || (!source.cityName && !destination.cityName)) return;
     const nextFrom = destination;
     const nextTo = source;
+    const nextSourceQuery = destinationQuery;
+    const nextDestinationQuery = sourceQuery;
+    closeLocationPanel();
+    Keyboard.dismiss();
     setSource(nextFrom);
     setDestination(nextTo);
+    setSourceQuery(nextSourceQuery);
+    setDestinationQuery(nextDestinationQuery);
     // Clear same-location and field-specific errors on swap
     setErrors({ source: "", destination: "", date: errors.date });
     setIsSwapping(true);
@@ -245,6 +527,8 @@ export default function BusBookingSection({ navigation, route }) {
       }
       setSource(nextFrom);
       setDestination(nextTo);
+      setSourceQuery(nextSourceQuery);
+      setDestinationQuery(nextDestinationQuery);
       Animated.timing(swapMotion, { toValue: 0, duration: 190, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => {
         setIsSwapping(false);
       });
@@ -253,6 +537,8 @@ export default function BusBookingSection({ navigation, route }) {
 
   const handleSearch = () => {
     if (isSubmitting) return;
+    closeLocationPanel();
+    Keyboard.dismiss();
     console.log("[BusFlow] SEARCH FORM SUBMITTED:", {
       from: source,
       to: destination,
@@ -306,6 +592,10 @@ export default function BusBookingSection({ navigation, route }) {
 
   return (
     <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
       <ScrollView
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
@@ -343,21 +633,41 @@ export default function BusBookingSection({ navigation, route }) {
               <TravelField
                 label="FROM"
                 icon="location-outline"
-                value={source.label || source.cityName}
+                value={sourceQuery}
                 placeholder="Enter source"
                 error={!!errors.source}
                 errorMessage={errors.source}
-                onPress={() => {
-                  navigation.navigate("BusLocationSearchScreen", {
-                    type: "from",
-                    currentValue: source.cityName,
-                    currentSource: source,
-                    currentDestination: destination,
-                    returnTo: route?.name || "TravelScreen",
-                    selectionRequestId: String(Date.now()),
-                  });
-                }}
+                active={activeLocationField === "source"}
+                inputRef={sourceInputRef}
+                onFocus={() => setActiveLocationField("source")}
+                onChangeText={(text) => handleLocationChange("source", text)}
+                rightAdornment={sourceQuery ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear source"
+                    hitSlop={10}
+                    onPress={() => {
+                      handleLocationChange("source", "");
+                      setActiveLocationField("source");
+                      sourceInputRef.current?.focus();
+                    }}
+                    style={styles.inputClearButton}
+                  >
+                    <Ionicons name="close-circle" size={19} color="#A1A8B5" />
+                  </Pressable>
+                ) : null}
               />
+              {activeLocationField === "source" ? (
+                <InlineLocationPanel
+                  query={sourceQuery}
+                  loading={suggestionLoading}
+                  error={suggestionError}
+                  suggestions={inlineSuggestions}
+                  recents={activeRecents}
+                  onSelect={(location) => handleLocationSelect("source", location)}
+                  onDeleteRecent={(location) => handleDeleteRecent("source", location)}
+                />
+              ) : null}
             </Animated.View>
 
             <View style={styles.swapConnectorRow}>
@@ -380,21 +690,41 @@ export default function BusBookingSection({ navigation, route }) {
               <TravelField
                 label="TO"
                 icon="location-outline"
-                value={destination.label || destination.cityName}
+                value={destinationQuery}
                 placeholder="Enter destination"
                 error={!!errors.destination}
                 errorMessage={errors.destination}
-                onPress={() => {
-                  navigation.navigate("BusLocationSearchScreen", {
-                    type: "to",
-                    currentValue: destination.cityName,
-                    currentSource: source,
-                    currentDestination: destination,
-                    returnTo: route?.name || "TravelScreen",
-                    selectionRequestId: String(Date.now()),
-                  });
-                }}
+                active={activeLocationField === "destination"}
+                inputRef={destinationInputRef}
+                onFocus={() => setActiveLocationField("destination")}
+                onChangeText={(text) => handleLocationChange("destination", text)}
+                rightAdornment={destinationQuery ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear destination"
+                    hitSlop={10}
+                    onPress={() => {
+                      handleLocationChange("destination", "");
+                      setActiveLocationField("destination");
+                      destinationInputRef.current?.focus();
+                    }}
+                    style={styles.inputClearButton}
+                  >
+                    <Ionicons name="close-circle" size={19} color="#A1A8B5" />
+                  </Pressable>
+                ) : null}
               />
+              {activeLocationField === "destination" ? (
+                <InlineLocationPanel
+                  query={destinationQuery}
+                  loading={suggestionLoading}
+                  error={suggestionError}
+                  suggestions={inlineSuggestions}
+                  recents={activeRecents}
+                  onSelect={(location) => handleLocationSelect("destination", location)}
+                  onDeleteRecent={(location) => handleDeleteRecent("destination", location)}
+                />
+              ) : null}
             </Animated.View>
 
           </View>
@@ -407,7 +737,11 @@ export default function BusBookingSection({ navigation, route }) {
             placeholder="Select date"
             error={!!errors.date}
             errorMessage={errors.date}
-            onPress={() => setShowPicker(true)}
+            onPress={() => {
+              closeLocationPanel();
+              Keyboard.dismiss();
+              setShowPicker(true);
+            }}
             rightAdornment={
               <View style={[styles.fieldRightBadge, errors.date ? styles.fieldRightBadgeError : null]}>
                 <Ionicons name="calendar" size={16} color={errors.date ? "#DC2626" : COLORS.primary} />
@@ -432,12 +766,14 @@ export default function BusBookingSection({ navigation, route }) {
         <OffersCarousel serviceType="bus" />
 
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+  keyboardAvoider: { flex: 1 },
   contentContainer: { paddingBottom: 32 },
   /* Compact Booking Container (15-20% height reduction) */
   searchCard: {
@@ -499,6 +835,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#F1F5F9",
     borderColor: "#E2E8F0",
   },
+  fieldActive: {
+    borderColor: "#D11A2A",
+    borderWidth: 1.5,
+    backgroundColor: "#FFFFFF",
+  },
   fieldContentLeft: {
     flex: 1,
     flexDirection: "row",
@@ -527,6 +868,93 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     fontWeight: "600",
   },
+  inputClearButton: {
+    width: 30,
+    height: 36,
+    alignItems: "flex-end",
+    justifyContent: "center",
+  },
+  locationPanel: {
+    marginTop: -4,
+    marginBottom: 12,
+    marginHorizontal: 1,
+    borderWidth: 1,
+    borderColor: "#E6E8EE",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 7,
+    elevation: 2,
+  },
+  locationPanelHeading: {
+    paddingHorizontal: 13,
+    paddingTop: 11,
+    paddingBottom: 6,
+    color: theme.colors.slate,
+    fontFamily: theme.typography.fontFamily.body.semiBold,
+    fontSize: 9,
+    letterSpacing: 0.7,
+  },
+  locationRow: {
+    minHeight: 54,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  locationRowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E8EAF0",
+  },
+  locationRowPressed: { backgroundColor: "#FFF6F7" },
+  locationIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+    backgroundColor: "#FFF1F3",
+  },
+  locationRowText: { flex: 1, minWidth: 0 },
+  locationTitle: {
+    color: theme.colors.ink,
+    fontFamily: theme.typography.fontFamily.body.semiBold,
+    fontSize: 13,
+  },
+  locationSubtitle: {
+    color: COLORS.textMuted,
+    fontFamily: theme.typography.fontFamily.body.regular,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  recentDeleteButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
+    borderRadius: 17,
+  },
+  recentDeleteButtonPressed: { backgroundColor: "#F3F4F6" },
+  locationStatusRow: {
+    minHeight: 56,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  locationStatusText: {
+    color: COLORS.textMuted,
+    fontFamily: theme.typography.fontFamily.body.medium,
+    fontSize: 12,
+  },
+  locationErrorText: { color: "#B91C1C" },
   fieldRightBadge: {
     width: 32,
     height: 32,
