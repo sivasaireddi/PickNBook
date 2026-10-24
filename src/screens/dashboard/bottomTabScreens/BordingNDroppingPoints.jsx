@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Platform,
   StyleSheet,
@@ -211,14 +210,17 @@ const useResponsiveFont = () => {
 };
 
 // ─── Horizon Route Banner ──────────────────────────────────────────────────
-const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint }) => {
+const HorizonRouteBanner = ({ fromCity, toCity, selectedPoint, activeTab }) => {
   const scaleFont = useResponsiveFont();
   const styles = useMemo(() => createStyles(scaleFont), [scaleFont]);
 
   const originLabel = (fromCity || 'KADAPA').toUpperCase();
   const destLabel = (toCity || 'HYDERABAD').toUpperCase();
-  const selectedName = (selectedPoint?.name || 'SHAMSHABAD').toUpperCase();
-  const selectedTime = selectedPoint?.time || '05:00';
+  const selectedName = (
+    selectedPoint?.name ||
+    (activeTab === 'boarding' ? 'SELECT BOARDING' : 'SELECT DROPPING')
+  ).toUpperCase();
+  const selectedTime = selectedPoint?.time || '--:--';
 
   return (
     <LinearGradient
@@ -459,6 +461,8 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
   const [activeTab, setActiveTab] = useState('boarding');
   const [selectedBoardingId, setSelectedBoardingId] = useState(null);
   const [selectedDroppingId, setSelectedDroppingId] = useState(null);
+  const [validationMessage, setValidationMessage] = useState('');
+  const listRef = useRef(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -469,35 +473,73 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
   useEffect(() => {
     setSelectedBoardingId((currentId) => {
       if (
-        currentId &&
-        boardingOptions.some((option) => option.id === currentId)
+        currentId !== null &&
+        boardingOptions.some(
+          (option) => String(option.id) === String(currentId),
+        )
       ) {
         return currentId;
       }
-      return boardingOptions[0]?.id ?? null;
+
+      const explicitSelection =
+        getObjectValue(routeParams.selectedBoardingPoint) ??
+        getObjectValue(routeParams.boardingPoint);
+      const explicitId = normalizeIdValue(
+        routeParams.boardingPointId ??
+          routeParams.BoardingPointId ??
+          explicitSelection?.id ??
+          explicitSelection?.Id ??
+          explicitSelection?.cityPointIndex,
+      );
+
+      return boardingOptions.some(
+        (option) => String(option.id) === String(explicitId),
+      )
+        ? explicitId
+        : null;
     });
-  }, [boardingOptions]);
+  }, [boardingOptions, routeParams]);
 
   useEffect(() => {
     setSelectedDroppingId((currentId) => {
       if (
-        currentId &&
-        droppingOptions.some((option) => option.id === currentId)
+        currentId !== null &&
+        droppingOptions.some(
+          (option) => String(option.id) === String(currentId),
+        )
       ) {
         return currentId;
       }
-      return droppingOptions[0]?.id ?? null;
+
+      const explicitSelection =
+        getObjectValue(routeParams.selectedDroppingPoint) ??
+        getObjectValue(routeParams.droppingPoint);
+      const explicitId = normalizeIdValue(
+        routeParams.droppingPointId ??
+          routeParams.DroppingPointId ??
+          explicitSelection?.id ??
+          explicitSelection?.Id ??
+          explicitSelection?.cityPointIndex,
+      );
+
+      return droppingOptions.some(
+        (option) => String(option.id) === String(explicitId),
+      )
+        ? explicitId
+        : null;
     });
-  }, [droppingOptions]);
+  }, [droppingOptions, routeParams]);
 
   const selectedBoardingPoint =
-    boardingOptions.find((option) => option.id === selectedBoardingId) ??
-    boardingOptions[0] ??
+    boardingOptions.find(
+      (option) => String(option.id) === String(selectedBoardingId),
+    ) ??
     null;
 
   const selectedDroppingPoint =
-    droppingOptions.find((option) => option.id === selectedDroppingId) ??
-    droppingOptions[0] ??
+    droppingOptions.find(
+      (option) => String(option.id) === String(selectedDroppingId),
+    ) ??
     null;
 
   const activeOptions =
@@ -508,6 +550,14 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
 
   const hasSeatSelection = selectedSeats.length > 0;
 
+  const switchTab = (tab) => {
+    setActiveTab(tab);
+    setValidationMessage('');
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset?.({ offset: 0, animated: false });
+    });
+  };
+
   const handleContinue = () => {
     console.log("[BusFlow] BOARDING/DROPPING CONTINUE:", {
       hasSeatSelection,
@@ -515,14 +565,25 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
       droppingPoint: selectedDroppingPoint?.name,
       selectedSeatCount: selectedSeats.length,
     });
-    if (hasSeatSelection) {
-      if (!selectedBoardingPoint || !selectedDroppingPoint) {
-        Alert.alert(
-          'Select points',
-          'Please choose both boarding and dropping points before continuing.',
-        );
+    if (!hasSeatSelection) {
+      navigation.goBack();
+      return;
+    }
+
+    if (activeTab === 'boarding') {
+      if (!selectedBoardingPoint) {
+        setValidationMessage('Select a boarding point to continue.');
         return;
       }
+
+      switchTab('dropping');
+      return;
+    }
+
+    if (!selectedDroppingPoint) {
+      setValidationMessage('Select a dropping point to continue.');
+      return;
+    }
 
       const boardingPointTime =
         selectedBoardingPoint.rawTime ||
@@ -540,8 +601,8 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
         selectedSeats,
         selectedSeatDetails,
         seatNumber: routeParams.seatNumber ?? selectedSeats.join(', '),
-        boardingPoint: selectedBoardingPoint.name,
-        droppingPoint: selectedDroppingPoint.name,
+        boardingPoint: selectedBoardingPoint,
+        droppingPoint: selectedDroppingPoint,
         boardingPointName: selectedBoardingPoint.name,
         droppingPointName: selectedDroppingPoint.name,
         boardingPointId: selectedBoardingPoint.id,
@@ -554,10 +615,6 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
         selectedDroppingPoint,
       });
       console.log("[BusFlow] NAVIGATING TO PASSENGER DETAILS");
-      return;
-    }
-
-    navigation.goBack();
   };
 
   const renderPoint = ({ item }) => {
@@ -575,8 +632,12 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
           } else {
             setSelectedDroppingId(item.id);
           }
+          setValidationMessage('');
         }}
         activeOpacity={0.88}
+        accessibilityRole="radio"
+        accessibilityState={{ selected: isSelected }}
+        accessibilityLabel={`${item.name}${item.time ? `, ${item.time}` : ''}`}
       >
         {/* Selected Accent Bar on left edge */}
         {isSelected ? <View style={styles.selectedLeftBar} /> : null}
@@ -637,6 +698,7 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
           fromCity={fromCity}
           toCity={toCity}
           selectedPoint={selectedActivePoint}
+          activeTab={activeTab}
         />
 
         {/* Selected Seat Chip */}
@@ -656,7 +718,7 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
               styles.segmentedTab,
               activeTab === 'boarding' && styles.segmentedTabActive,
             ]}
-            onPress={() => setActiveTab('boarding')}
+            onPress={() => switchTab('boarding')}
             activeOpacity={0.88}
           >
             <Text
@@ -674,7 +736,7 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
               styles.segmentedTab,
               activeTab === 'dropping' && styles.segmentedTabActive,
             ]}
-            onPress={() => setActiveTab('dropping')}
+            onPress={() => switchTab('dropping')}
             activeOpacity={0.88}
           >
             <Text
@@ -697,6 +759,17 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
           </Text>
           <View style={styles.dividerLine} />
 
+          {validationMessage ? (
+            <View style={styles.validationBanner}>
+              <Ionicons
+                name="information-circle-outline"
+                size={16}
+                color={COLORS.primary}
+              />
+              <Text style={styles.validationText}>{validationMessage}</Text>
+            </View>
+          ) : null}
+
           {loading ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={COLORS.primary} />
@@ -704,6 +777,7 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
             </View>
           ) : (
             <FlatList
+              ref={listRef}
               style={styles.pointsList}
               data={activeOptions}
               keyExtractor={(item, index) => `${item.id || index}`}
@@ -733,25 +807,23 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
       {/* Sticky Bottom CTA Bar */}
       <View style={styles.bottomStickyBar}>
         <View style={styles.ctaTextWrap}>
-          <Text style={styles.ctaSubLabel}>CONTINUE TO BOOKING</Text>
+          <Text style={styles.ctaSubLabel}>
+            {activeTab === 'boarding'
+              ? 'CONTINUE TO DROPPING POINT'
+              : 'CONTINUE TO BOOKING'}
+          </Text>
           <Text style={styles.ctaRouteSummary} numberOfLines={1}>
-            {selectedBoardingPoint?.name || 'Boarding Point'} ➔{' '}
-            {selectedDroppingPoint?.name || 'Dropping Point'}
+            {activeTab === 'boarding'
+              ? selectedBoardingPoint?.name || 'Select a boarding point'
+              : `${selectedBoardingPoint?.name || 'Boarding point'} → ${
+                  selectedDroppingPoint?.name || 'Select a dropping point'
+                }`}
           </Text>
         </View>
 
         <TouchableOpacity
-          style={[
-            styles.ctaButtonTouch,
-            hasSeatSelection &&
-              (!selectedBoardingPoint || !selectedDroppingPoint) &&
-              styles.ctaButtonDisabled,
-          ]}
+          style={styles.ctaButtonTouch}
           onPress={handleContinue}
-          disabled={
-            hasSeatSelection &&
-            (!selectedBoardingPoint || !selectedDroppingPoint)
-          }
           activeOpacity={0.88}
         >
           <LinearGradient
@@ -1026,6 +1098,23 @@ const createStyles = (scaleFont) =>
     height: 1,
     backgroundColor: COLORS.divider,
   },
+  validationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: '#FFF1F2',
+  },
+  validationText: {
+    flex: 1,
+    color: COLORS.primaryDeep,
+    fontSize: scaleFont(11),
+    fontWeight: '600',
+  },
   listContent: {
     paddingBottom: 18,
   },
@@ -1035,6 +1124,7 @@ const createStyles = (scaleFont) =>
   pointRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 82,
     paddingHorizontal: 18,
     paddingVertical: 14,
     backgroundColor: COLORS.surface,

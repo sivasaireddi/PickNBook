@@ -1855,6 +1855,81 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   const selectedTraveler = savedTravelers.find(
     (traveler) => String(traveler.id) === String(selectedTravelerId)
   );
+  const tripBus = getObjectValue(route?.params?.bus) || {};
+  const tripOperator = String(
+    route?.params?.operatorName ??
+      tripBus.operatorName ??
+      tripBus.travelsName ??
+      tripBus.travelName ??
+      tripBus.busName ??
+      "Bus operator"
+  ).trim();
+  const tripFrom = String(
+    route?.params?.from ??
+      route?.params?.fromCity ??
+      tripBus.fromCity ??
+      tripBus.sourceCity ??
+      tripBus.source ??
+      "Origin"
+  ).trim();
+  const tripTo = String(
+    route?.params?.to ??
+      route?.params?.toCity ??
+      tripBus.toCity ??
+      tripBus.destinationCity ??
+      tripBus.destination ??
+      "Destination"
+  ).trim();
+  const boardingSelection =
+    getObjectValue(route?.params?.selectedBoardingPoint) ||
+    getObjectValue(route?.params?.boardingPoint) ||
+    {};
+  const droppingSelection =
+    getObjectValue(route?.params?.selectedDroppingPoint) ||
+    getObjectValue(route?.params?.droppingPoint) ||
+    {};
+  const boardingName = String(
+    route?.params?.boardingPointName ??
+      boardingSelection.name ??
+      boardingSelection.Name ??
+      "Boarding point"
+  ).trim();
+  const droppingName = String(
+    route?.params?.droppingPointName ??
+      droppingSelection.name ??
+      droppingSelection.Name ??
+      "Dropping point"
+  ).trim();
+  const boardingTime = String(
+    route?.params?.boardingPointTime ??
+      boardingSelection.rawTime ??
+      boardingSelection.time ??
+      boardingSelection.Time ??
+      ""
+  ).trim();
+  const droppingTime = String(
+    route?.params?.droppingPointTime ??
+      droppingSelection.rawTime ??
+      droppingSelection.time ??
+      droppingSelection.Time ??
+      ""
+  ).trim();
+  const rawJourneyDate =
+    route?.params?.dateLabel ??
+    route?.params?.date ??
+    route?.params?.dateValue ??
+    route?.params?.departDate ??
+    "";
+  const parsedJourneyDate = rawJourneyDate ? new Date(rawJourneyDate) : null;
+  const journeyDateLabel =
+    parsedJourneyDate && !Number.isNaN(parsedJourneyDate.getTime())
+      ? parsedJourneyDate.toLocaleDateString("en-IN", {
+          weekday: "short",
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        })
+      : String(rawJourneyDate || "Date unavailable");
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -1905,16 +1980,37 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                   </View>
                 </View>
 
-                <Text style={styles.heroTitle}>Bus Booking</Text>
-                <Text style={styles.heroSubtitle}>
-                  Review passengers, apply offers, and confirm your trip in a secure checkout flow.
+                <Text style={styles.heroEyebrow}>CONFIRMED TRIP</Text>
+                <Text style={styles.heroTitle} numberOfLines={1}>{tripOperator}</Text>
+                <Text style={styles.heroRoute} numberOfLines={1}>
+                  {tripFrom} → {tripTo}
                 </Text>
 
-                <View style={styles.heroSeatRow}>
-                  <MaterialIcons name="event-seat" size={18} color="#FFE4E6" />
-                  <Text style={styles.heroSeatText}>
-                    {selectedSeats.length > 0 ? selectedSeats.join(", ") : "No seats selected yet"}
-                  </Text>
+                <View style={styles.heroJourneyRow}>
+                  <View style={styles.heroPointBlock}>
+                    <Text style={styles.heroPointLabel}>BOARDING</Text>
+                    <Text style={styles.heroPointName} numberOfLines={1}>{boardingName}</Text>
+                    <Text style={styles.heroPointTime}>{boardingTime || "Time unavailable"}</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={18} color="#FDA4AF" />
+                  <View style={[styles.heroPointBlock, styles.heroPointBlockRight]}>
+                    <Text style={styles.heroPointLabel}>DROPPING</Text>
+                    <Text style={styles.heroPointName} numberOfLines={1}>{droppingName}</Text>
+                    <Text style={styles.heroPointTime}>{droppingTime || "Time unavailable"}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.heroMetaRow}>
+                  <View style={styles.heroMetaItem}>
+                    <Ionicons name="calendar-outline" size={15} color="#FFE4E6" />
+                    <Text style={styles.heroMetaText} numberOfLines={1}>{journeyDateLabel}</Text>
+                  </View>
+                  <View style={styles.heroMetaItem}>
+                    <MaterialIcons name="event-seat" size={16} color="#FFE4E6" />
+                    <Text style={styles.heroMetaText} numberOfLines={1}>
+                      {selectedSeats.length > 0 ? selectedSeats.join(", ") : "No seats"}
+                    </Text>
+                  </View>
                 </View>
               </LinearGradient>
             </AnimatedCard>
@@ -2588,11 +2684,80 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   heroTitle: {
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 20,
+    lineHeight: 25,
     color: "#FFFFFF",
     fontWeight: "800",
     letterSpacing: -0.1,
+  },
+  heroEyebrow: {
+    color: "#FDA4AF",
+    fontSize: 9,
+    lineHeight: 13,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
+  heroRoute: {
+    marginTop: 2,
+    color: "#FFE4E6",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  heroJourneyRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.11)",
+  },
+  heroPointBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  heroPointBlockRight: {
+    alignItems: "flex-end",
+  },
+  heroPointLabel: {
+    color: "#FDA4AF",
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+  },
+  heroPointName: {
+    marginTop: 2,
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  heroPointTime: {
+    marginTop: 2,
+    color: "#FFE4E6",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  heroMetaRow: {
+    marginTop: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  heroMetaItem: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  heroMetaText: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "600",
   },
   heroSubtitle: {
     marginTop: 4,
