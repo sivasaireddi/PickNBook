@@ -201,7 +201,7 @@ const OperatorLogo = React.memo(({ logoUrl, operatorName }) => {
 });
 
 // Animated Action Button Component with Press Scale Animation
-const ActionButton = React.memo(({ onPress, style, children, activeOpacity = 0.8 }) => {
+const ActionButton = React.memo(({ onPress, style, containerStyle, children, activeOpacity = 0.8 }) => {
   const pressAnim = useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -221,7 +221,7 @@ const ActionButton = React.memo(({ onPress, style, children, activeOpacity = 0.8
   };
 
   return (
-    <Animated.View style={[{ flex: 1 }, { transform: [{ scale: pressAnim }] }]}>
+    <Animated.View style={[{ flex: 1 }, containerStyle, { transform: [{ scale: pressAnim }] }]}>
       <TouchableOpacity
         style={style}
         onPress={onPress}
@@ -315,6 +315,10 @@ const BusCardItemComponent = ({
   const durationStr = item?.duration || "";
   const operatorName = item?.operatorName || "Jagan Travels Elite";
   const availableSeats = item?.availableSeats ?? 17;
+  const availableSeatCount = Number(availableSeats);
+  const isLowAvailability =
+    Number.isFinite(availableSeatCount) && availableSeatCount >= 1 && availableSeatCount <= 9;
+  const availabilityLabel = `${availableSeats} ${availableSeatCount === 1 ? "seat" : "seats"} available`;
   const isLoadingThisCard = loadingBusId === busId;
 
   return (
@@ -337,93 +341,110 @@ const BusCardItemComponent = ({
           style={styles.cardPressable}
         >
           <View style={styles.cardInner}>
-            {/* Header Row: Operator Name + Bus Type (Left) | FARE + Price (Right) */}
-            <View style={styles.headerRow}>
+            <View style={styles.cardMainPanel}>
               <View style={styles.operatorWrap}>
-                <OperatorLogo logoUrl={item?.operatorLogo || item?.logoUrl} operatorName={operatorName} />
                 <Text style={styles.operatorNameText} numberOfLines={1}>
                   {operatorName}
                 </Text>
-                <Text style={styles.busTypeText} numberOfLines={1}>
-                  {item?.busType || "Volvo 9600 SLX Multi-Axle AC"}
-                </Text>
-              </View>
-
-              <View style={styles.fareWrap}>
-                <Text style={styles.fareLabelText}>FARE</Text>
-                <Text style={styles.farePriceText}>₹ {item?.priceInr ?? "1318.8"}</Text>
-              </View>
-            </View>
-
-            {/* Departure Time | Journey Duration Pill | Arrival Time */}
-            <View style={styles.journeyRow}>
-              {/* Departure */}
-              <View style={styles.timeBlockLeft}>
-                <View style={styles.timeRow}>
-                  <Text style={styles.timeDigitsText}>{deptTimeStr}</Text>
+                <View style={styles.metadataRow}>
+                  <Text style={styles.busTypeText} numberOfLines={1}>
+                    {item?.busType || "Volvo 9600 SLX Multi-Axle AC"}
+                  </Text>
+                  <View style={styles.metadataSeparator} />
+                  <View style={styles.availabilityInline}>
+                    <View style={[styles.availabilityDot, isLowAvailability && styles.availabilityDotLow]} />
+                    <Text
+                      style={[styles.availabilityText, isLowAvailability && styles.availabilityTextLow]}
+                      numberOfLines={1}
+                    >
+                      {availabilityLabel}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={styles.locationText} numberOfLines={1}>
+              </View>
+
+            <View style={styles.journeyRow}>
+              <View style={styles.timeBlockLeft}>
+                <Text style={styles.timeDigitsText}>{deptTimeStr}</Text>
+                <Text style={styles.locationText} numberOfLines={1} ellipsizeMode="tail">
                   {item?.boardingPoint || "ITI CIRCLE"}
                 </Text>
               </View>
 
-              {/* Journey Duration Pill */}
-              <View style={styles.durationPill}>
-                <Text style={styles.durationTimeText}>{durationStr}</Text>
-                <Text style={styles.durationSubText}>journey</Text>
+              <View style={styles.durationTrack}>
+                <View style={styles.durationLine} />
+                <View style={styles.durationPill}>
+                  <MaterialCommunityIcons name="bus" size={12} color={PRIMARY_RED} />
+                  <Text style={styles.durationTimeText}>{durationStr}</Text>
+                </View>
               </View>
 
-              {/* Arrival */}
               <View style={styles.timeBlockRight}>
-                <View style={styles.timeRow}>
-                  <Text style={styles.timeDigitsText}>{arrTimeStr}</Text>
-                </View>
-                <Text style={styles.locationText} numberOfLines={1}>
+                <Text style={styles.timeDigitsText}>{arrTimeStr}</Text>
+                <Text style={[styles.locationText, styles.locationTextRight]} numberOfLines={1} ellipsizeMode="tail">
                   {item?.droppingPoint || "Shamshabad"}
                 </Text>
               </View>
             </View>
 
-            {/* Seats Available Badge (Green) Row */}
-            <View style={styles.seatsRow}>
-              <View style={styles.seatsBadge}>
-                <Text style={styles.seatsBadgeText}>
-                  {availableSeats} Seats Available
-                </Text>
-              </View>
-            </View>
-
-            {/* Action Buttons Row: Boarding & Dropping | Policies | View Seats */}
             <View style={styles.actionsRow}>
               <ActionButton
-                style={styles.actionBtnOutline}
+                style={styles.actionLink}
+                containerStyle={styles.boardingActionWrap}
                 onPress={() => onOpenBoardingDropping(item)}
               >
-                <Ionicons name="location-outline" size={12.5} color="#D11A2A" style={{ marginRight: 2 }} />
-                <Text style={styles.actionBtnOutlineText} numberOfLines={2}>
-                  Boarding &{"\n"}Dropping
+                <Ionicons name="location-outline" size={15} color={PRIMARY_RED} />
+                <Text style={styles.actionLinkText} numberOfLines={1}>
+                  Boarding & Dropping
                 </Text>
               </ActionButton>
 
               <ActionButton
-                style={styles.actionBtnOutline}
+                style={styles.actionLink}
+                containerStyle={styles.policyActionWrap}
                 onPress={() => onOpenPolicies(item)}
               >
-                <Ionicons name="document-text-outline" size={12.5} color="#D11A2A" style={{ marginRight: 2 }} />
-                <Text style={styles.actionBtnOutlineText}>Policies</Text>
-              </ActionButton>
-
-              <ActionButton
-                style={styles.actionBtnPrimary}
-                onPress={() => onViewSeats(item)}
-              >
-                {isLoadingThisCard ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.actionBtnPrimaryText}>View Seats</Text>
-                )}
+                <Ionicons name="document-text-outline" size={15} color={PRIMARY_RED} />
+                <Text style={styles.actionLinkText} numberOfLines={1}>Policies</Text>
               </ActionButton>
             </View>
+
+            </View>
+
+            <TouchableOpacity
+              style={styles.farePanel}
+              onPress={() => onViewSeats(item)}
+              activeOpacity={0.86}
+              accessibilityRole="button"
+              accessibilityLabel={`View seats for ${operatorName}`}
+            >
+              <LinearGradient
+                colors={["#E8404B", "#B41120"]}
+                start={{ x: 0.1, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={styles.farePanelGradient}
+              >
+                <View style={styles.fareDecor} />
+                <View style={[styles.ticketNotch, styles.ticketNotchTop]} />
+                <View style={[styles.ticketNotch, styles.ticketNotchBottom]} />
+                <View style={styles.fareWrap}>
+                  <Text style={styles.fareLabelText}>FARE</Text>
+                  <Text style={styles.farePriceText} numberOfLines={1} adjustsFontSizeToFit>
+                    ₹{item?.priceInr ?? "1318.8"}
+                  </Text>
+                </View>
+                <View style={styles.viewSeatsWrap}>
+                  <View style={styles.viewSeatsCircle}>
+                    {isLoadingThisCard ? (
+                      <ActivityIndicator size="small" color={PRIMARY_RED} />
+                    ) : (
+                      <Ionicons name="arrow-forward" size={21} color={PRIMARY_RED} />
+                    )}
+                  </View>
+                  <Text style={styles.viewSeatsText}>View Seats</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
         </Pressable>
       </View>
@@ -1013,42 +1034,42 @@ const styles = StyleSheet.create({
   },
   outerGlowContainer: {
     marginHorizontal: 6,
-    marginVertical: 3,
-    borderRadius: 18,
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
+    marginVertical: 5,
+    borderRadius: 22,
   },
   cardShadowLayer: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: "#F4A3A3",
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-    overflow: Platform.OS === "android" ? "hidden" : "visible",
+    borderColor: "#EADADC",
+    shadowColor: "#1A1216",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+    overflow: "hidden",
   },
   cardPressable: {
-    borderRadius: 16,
+    borderRadius: 22,
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
   cardInner: {
-    padding: 8,
-  },
-  headerRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 2,
+    minHeight: 148,
+  },
+  cardMainPanel: {
+    flex: 1,
+    minWidth: 0,
+    paddingTop: 12,
+    paddingHorizontal: 13,
+    paddingBottom: 9,
+    borderRightWidth: 1,
+    borderRightColor: "#EBC5C8",
+    borderStyle: "dashed",
   },
   operatorWrap: {
-    flex: 1,
-    paddingRight: 6,
+    minWidth: 0,
   },
   operatorLogoImage: {
     width: 32,
@@ -1056,152 +1077,222 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   operatorNameText: {
-    fontSize: 13.5,
-    fontWeight: "700",
-    color: "#111827",
-    letterSpacing: -0.2,
+    fontSize: 14.5,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: "#1A1216",
+    letterSpacing: -0.3,
+  },
+  metadataRow: {
+    minWidth: 0,
+    marginTop: 3,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  metadataSeparator: {
+    width: 3,
+    height: 3,
+    marginHorizontal: 6,
+    borderRadius: 2,
+    backgroundColor: "#C9B3B6",
   },
   busTypeText: {
-    fontSize: 10,
-    fontWeight: "400",
-    color: "#9CA3AF",
-    marginTop: 1,
+    flexShrink: 1,
+    maxWidth: "45%",
+    fontSize: 10.5,
+    fontWeight: "500",
+    color: "#6B6168",
+  },
+  availabilityInline: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  availabilityDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#18864B",
+  },
+  availabilityDotLow: {
+    backgroundColor: "#B7794D",
+  },
+  availabilityText: {
+    fontSize: 8.5,
+    fontWeight: "700",
+    color: "#18864B",
+  },
+  availabilityTextLow: {
+    color: "#B7794D",
   },
   fareWrap: {
-    alignItems: "flex-end",
+    position: "relative",
+    alignItems: "center",
   },
   fareLabelText: {
-    fontSize: 9,
-    fontWeight: "600",
-    color: "#9CA3AF",
-    letterSpacing: 0.5,
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "rgba(255,255,255,0.84)",
+    letterSpacing: 1.8,
   },
   farePriceText: {
-    fontSize: 15.5,
-    fontWeight: "700",
-    color: "#111827",
-    marginTop: 1,
+    width: "100%",
+    marginTop: 2,
+    fontSize: 22,
+    lineHeight: 25,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    textAlign: "center",
   },
   journeyRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
+    marginTop: 10,
+    marginBottom: 8,
   },
   timeBlockLeft: {
-    flex: 1,
+    width: 59,
   },
   timeBlockRight: {
-    flex: 1,
+    width: 59,
     alignItems: "flex-end",
   },
-  timeRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-  },
   timeDigitsText: {
-    fontSize: 16.5,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  timePeriodText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#9CA3AF",
-    marginLeft: 2,
+    fontSize: 18.5,
+    lineHeight: 22,
+    fontWeight: "900",
+    color: "#111018",
+    letterSpacing: -0.45,
   },
   locationText: {
-    fontSize: 9.5,
-    fontWeight: "600",
-    color: "#9CA3AF",
-    marginTop: 1,
+    width: "100%",
+    marginTop: 4,
+    fontSize: 9,
+    fontWeight: "500",
+    color: "#6B6168",
+  },
+  locationTextRight: {
+    textAlign: "right",
+  },
+  durationTrack: {
+    flex: 1,
+    minWidth: 58,
+    height: 30,
+    marginHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  durationLine: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 14,
+    borderTopWidth: 1,
+    borderStyle: "dotted",
+    borderColor: "#E4B6BA",
   },
   durationPill: {
-    width: 56,
-    height: 30,
-    backgroundColor: "#F3F0FA",
-    borderRadius: 12,
-    paddingHorizontal: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  durationTimeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#6B52B6",
-  },
-  durationSubText: {
-    fontSize: 8,
-    fontWeight: "500",
-    color: "#9CA3AF",
-  },
-  seatsRow: {
+    height: 25,
+    paddingHorizontal: 7,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
-    marginBottom: 4,
-  },
-  seatsBadge: {
-    height: 22,
-    backgroundColor: "#E6F4EA",
-    borderRadius: 10,
-    paddingHorizontal: 6,
     justifyContent: "center",
-    alignItems: "center",
+    gap: 4,
+    borderRadius: 999,
+    backgroundColor: "#FDECEE",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
-  seatsBadgeText: {
-    fontSize: 10.5,
-    fontWeight: "600",
-    color: "#0D8A47",
+  durationTimeText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: PRIMARY_RED,
   },
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#EBDADD",
+  },
+  boardingActionWrap: {
+    flex: 1.45,
+  },
+  policyActionWrap: {
+    flex: 0.8,
+  },
+  actionLink: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 4,
+  },
+  actionLinkText: {
+    flexShrink: 1,
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#1A1216",
+  },
+  farePanel: {
+    width: 96,
+    alignSelf: "stretch",
+  },
+  farePanelGradient: {
+    flex: 1,
+    overflow: "hidden",
+    alignItems: "center",
     justifyContent: "space-between",
+    paddingTop: 13,
+    paddingHorizontal: 6,
+    paddingBottom: 11,
+  },
+  fareDecor: {
+    position: "absolute",
+    top: -34,
+    right: -31,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: "rgba(255,255,255,0.09)",
+  },
+  ticketNotch: {
+    position: "absolute",
+    left: -7,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: SURFACE_BG,
+  },
+  ticketNotchTop: {
+    top: -7,
+  },
+  ticketNotchBottom: {
+    bottom: -7,
+  },
+  viewSeatsWrap: {
+    alignItems: "center",
     gap: 5,
   },
-  actionBtnOutline: {
-    flex: 1,
-    height: 32,
-    flexDirection: "row",
-    borderWidth: 1,
-    borderColor: "#F4A3A3",
+  viewSeatsCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "#FFFFFF",
-    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 7,
+    elevation: 4,
   },
-  actionBtnOutlineText: {
-    fontSize: 9.5,
-    fontWeight: "700",
-    color: "#111827",
-    textAlign: "center",
-    lineHeight: 11,
-  },
-  actionBtnPrimary: {
-    flex: 1,
-    height: 32,
-    backgroundColor: PRIMARY_RED,
-    borderWidth: 0,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 4,
-    shadowColor: PRIMARY_RED,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 2,
-  },
-  actionBtnPrimaryText: {
+  viewSeatsText: {
     fontSize: 10.5,
-    fontWeight: "700",
+    fontWeight: "800",
     color: "#FFFFFF",
     textAlign: "center",
   },
