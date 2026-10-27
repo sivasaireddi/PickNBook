@@ -141,6 +141,7 @@ export async function getTravelers(filtersOrToken) {
   if (filters.limit) params.limit = filters.limit;
 
   const endpoints = ["/api/travelers", "/api/Travelers", "/api/user/travelers"];
+  let lastError = null;
 
   for (const ep of endpoints) {
     try {
@@ -158,11 +159,12 @@ export async function getTravelers(filtersOrToken) {
 
       return rawList.map(normalizeTraveler).filter(Boolean);
     } catch (error) {
+      lastError = error;
       console.warn(`[TravelerService] GET ${ep} failed (${error?.message}), checking fallbacks...`);
     }
   }
 
-  return [];
+  throw lastError || new Error("Unable to load saved travelers.");
 }
 
 /**
@@ -194,6 +196,7 @@ export async function createTraveler(travelerPayload, customToken) {
   const normalizedPayload = normalizePayloadForApi(travelerPayload);
 
   const endpoints = ["/api/travelers", "/api/Travelers", "/api/user/travelers"];
+  let lastError = null;
 
   for (const ep of endpoints) {
     try {
@@ -201,11 +204,12 @@ export async function createTraveler(travelerPayload, customToken) {
 
       return normalizeTraveler(response.data?.data || response.data || travelerPayload);
     } catch (error) {
+      lastError = error;
       console.warn(`[TravelerService] POST ${ep} failed (${error?.message}), checking fallbacks...`);
     }
   }
 
-  return normalizeTraveler(travelerPayload);
+  throw lastError || new Error("Unable to create traveler.");
 }
 
 /**

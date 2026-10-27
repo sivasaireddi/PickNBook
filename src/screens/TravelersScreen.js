@@ -167,8 +167,9 @@ function DropdownPicker({ label, value, options, onSelect, error }) {
 // ═════════════════════════════════════════════════════════════════════════════
 // ─── MAIN SCREEN ────────────────────────────────────────────────────────────
 // ═════════════════════════════════════════════════════════════════════════════
-export default function TravelersScreen() {
+export default function TravelersScreen({ route }) {
   const navigation = useNavigation();
+  const openedFromBookingRef = useRef(false);
 
   // ─── State ──────────────────────────────────────────────────────────────────
   const [travelers, setTravelers] = useState([]);
@@ -251,6 +252,13 @@ export default function TravelersScreen() {
     setModalVisible(true);
   };
 
+  useEffect(() => {
+    if (route?.params?.openAdd && !openedFromBookingRef.current) {
+      openedFromBookingRef.current = true;
+      openAddModal();
+    }
+  }, [route?.params?.openAdd]);
+
   // ─── Open Edit Modal ────────────────────────────────────────────────────────
   const openEditModal = async (traveler) => {
     setEditingTraveler(traveler);
@@ -301,16 +309,31 @@ export default function TravelersScreen() {
     setIsSaving(true);
 
     try {
+      const createdTraveler = editingTraveler
+        ? null
+        : await createTraveler(payload);
+
       if (editingTraveler) {
         await updateTraveler(editingTraveler.id, payload);
         showToast("Traveler updated successfully.");
       } else {
-        await createTraveler(payload);
         showToast("Traveler added successfully.");
       }
       setModalVisible(false);
       setForm(emptyForm);
       setEditingTraveler(null);
+      if (!editingTraveler && route?.params?.returnToBooking) {
+        navigation.navigate({
+          name: route?.params?.returnRouteName || "PostBusBooking",
+          params: {
+            newlyCreatedTravelerId: createdTraveler?.id || null,
+            newlyCreatedTravelerTargetIndex: route?.params?.travelerTargetIndex ?? 0,
+          },
+          merge: true,
+        });
+        return;
+      }
+
       // Refresh list
       setIsLoading(true);
       await loadTravelers(searchText);

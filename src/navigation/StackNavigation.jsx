@@ -48,6 +48,7 @@ import WalletTransactionsScreen from "../screens/wallet/WalletTransactionsScreen
 import CheckoutScreen from "../screens/CheckoutScreen";
 import BookingConfirmationScreen from "../screens/BookingConfirmationScreen";
 import BookingFailureScreen from "../screens/BookingFailureScreen";
+import BusBookingDetailsScreen from "../screens/BusBookingDetailsScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -137,6 +138,7 @@ const StackNavigation = () => {
       <Stack.Screen name="CheckoutScreen" component={CheckoutScreen} />
       <Stack.Screen name="BookingConfirmationScreen" component={BookingConfirmationScreen} />
       <Stack.Screen name="BookingFailureScreen" component={BookingFailureScreen} />
+      <Stack.Screen name="BusBookingDetails" component={BusBookingDetailsScreen} />
     </Stack.Navigator>
   );
 };

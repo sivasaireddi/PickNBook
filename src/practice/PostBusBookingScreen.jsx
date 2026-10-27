@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -9,6 +10,7 @@ import {
   Alert,
   Animated,
   Dimensions,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -20,11 +22,11 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 import { blockSeats, bookSeats, getSeatLayout, getPricingPreview, getBusCoupons, getFeaturedOffers } from "../services/busService";
 import { getTravelers } from "../services/travelerService";
-import { Picker } from "@react-native-picker/picker";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   Ionicons,
@@ -56,7 +58,7 @@ const redactBookingLog = (value) => {
 
   return Object.fromEntries(
     Object.entries(value).map(([key, child]) => {
-      const hidden = ["contactNo", "phone", "phoneNumber", "email", "idNumber", "address"].some((field) =>
+      const hidden = ["contactNo", "phone", "phoneNumber", "email", "idNumber", "address", "firstName", "lastName", "fullName", "passengerName"].some((field) =>
         key.toLowerCase().includes(field.toLowerCase())
       );
       return [key, hidden ? "[REDACTED]" : redactBookingLog(child)];
@@ -628,8 +630,10 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   const [savedTravelers, setSavedTravelers] = useState([]);
   const [travelersLoading, setTravelersLoading] = useState(false);
   const [travelersError, setTravelersError] = useState(null);
-  const [selectedTravelerId, setSelectedTravelerId] = useState(null);
+  const [selectedTravelerIds, setSelectedTravelerIds] = useState({});
+  const [travelerTargetIndex, setTravelerTargetIndex] = useState(0);
   const [savedTravelerPickerOpen, setSavedTravelerPickerOpen] = useState(false);
+  const [genderPickerIndex, setGenderPickerIndex] = useState(null);
 
   const [passengerName, setPassengerName] = useState("");
   const [passengerPhone, setPassengerPhone] = useState("");
@@ -638,6 +642,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
   const [couponCode, setCouponCode] = useState("");
   const [couponInputText, setCouponInputText] = useState("");
+  const [couponFeedback, setCouponFeedback] = useState("");
   const [selectedFeaturedOfferId, setSelectedFeaturedOfferId] = useState(normalizeIdValue(route?.params?.selectedFeaturedOfferId) || null);
   
   const [availableCoupons, setAvailableCoupons] = useState([]);
@@ -650,6 +655,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   // Cache block response to prevent double /block calls
   const [cachedBlockKey, setCachedBlockKey] = useState(null);
   const [cachedBlockResponse, setCachedBlockResponse] = useState(null);
+  const bookingSubmissionRef = useRef(false);
 
   const [passengers, setPassengers] = useState(
     selectedSeats.map((seat) => ({
@@ -704,16 +710,14 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       console.log("[PostBusBookingScreen] Fetching GET /api/Travelers");
       const list = await getTravelers(token);
       setSavedTravelers(list || []);
-
-      if (list && list.length > 0) {
-        handleSelectTraveler(list[0]);
-      }
+      return list || [];
     } catch (err) {
       console.log("[PostBusBookingScreen] Error fetching saved travelers:", err);
       setTravelersError("Unable to load saved travelers.");
     } finally {
       setTravelersLoading(false);
     }
+    return [];
   };
 
   useEffect(() => {
@@ -748,45 +752,46 @@ const PostBusBookingScreen = ({ route, navigation }) => {
     fetchDeals();
   }, [authToken]);
 
-  const handleSelectTraveler = (traveler) => {
-    if (!traveler) {
-      setSelectedTravelerId(null);
-      return;
-    }
+  const handleSelectTraveler = (traveler, passengerIndex = travelerTargetIndex) => {
+    if (!traveler || passengerIndex < 0 || passengerIndex >= passengers.length) return;
 
-    setSelectedTravelerId(traveler.id);
+    setSelectedTravelerIds((current) => ({
+      ...current,
+      [passengerIndex]: traveler.id,
+    }));
 
     setPassengers((prev) => {
-      if (!prev || prev.length === 0) return prev;
+      if (!prev?.[passengerIndex]) return prev;
       const next = [...prev];
-      next[0] = {
-        ...next[0],
+      next[passengerIndex] = {
+        ...next[passengerIndex],
         fullName: traveler.fullName || "",
-        gender: traveler.gender || "Male",
-        age: String(traveler.age || "25"),
+        gender: traveler.gender || "",
+        age: traveler.age ? String(traveler.age) : "",
       };
       return next;
     });
 
-    if (traveler.fullName) setPassengerName(traveler.fullName);
+    if (passengerIndex === 0 && traveler.fullName) setPassengerName(traveler.fullName);
     if (traveler.phoneNumber) {
-      setPassengerPhone(removeIndianCountryCode(traveler.phoneNumber));
+      setPassengerPhone((current) => current || removeIndianCountryCode(traveler.phoneNumber));
     }
-    if (traveler.email) setPassengerEmail(traveler.email);
+    if (traveler.email) setPassengerEmail((current) => current || traveler.email);
   };
 
-  const handleAddNewTraveler = () => {
-    setSelectedTravelerId(null);
-    setPassengers((prev) => {
-      if (!prev || prev.length === 0) return prev;
-      const next = [...prev];
-      next[0] = {
-        ...next[0],
-        fullName: "",
-        gender: "",
-        age: "",
-      };
-      return next;
+  const openTravelerPicker = (passengerIndex) => {
+    setTravelerTargetIndex(passengerIndex);
+    setSavedTravelerPickerOpen(true);
+  };
+
+  const handleAddNewTraveler = (passengerIndex = travelerTargetIndex) => {
+    setTravelerTargetIndex(passengerIndex);
+    setSavedTravelerPickerOpen(false);
+    navigation.navigate("TravelersScreen", {
+      openAdd: true,
+      returnToBooking: true,
+      returnRouteName: "PostBusBooking",
+      travelerTargetIndex: passengerIndex,
     });
   };
 
@@ -902,6 +907,17 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       if (applyPricing) {
         setPricing(pricingPayload);
+        if (couponCode) {
+          const appliedCode = String(pricingPayload?.appliedPromotionCode || "").trim();
+          const discount = normalizeAmount(
+            pricingPayload?.couponDiscountAmount ?? pricingPayload?.appliedCouponAmount ?? 0
+          );
+          setCouponFeedback(
+            appliedCode || discount > 0
+              ? "Coupon applied to the live fare."
+              : "This coupon is not applicable to the selected trip."
+          );
+        }
       }
 
       return pricingPayload;
@@ -923,6 +939,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         setCouponCode("");
         setCouponInputText("");
         setSelectedFeaturedOfferId(null);
+        setCouponFeedback(errorMessage || "Unable to apply this coupon.");
       }
 
       if (applyPricing) {
@@ -974,6 +991,10 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       Alert.alert("Contact Details Required", "Please enter a mobile number so we can send your ticket.");
       return false;
     }
+    if (!/^\d{10}$/.test(passengerPhone.replace(/\D/g, ""))) {
+      Alert.alert("Contact Details Required", "Enter a valid 10-digit mobile number.");
+      return false;
+    }
     if (!passengerEmail.trim() || !passengerEmail.trim().includes("@")) {
       Alert.alert("Contact Details Required", "Please enter a valid email address for booking confirmation.");
       return false;
@@ -983,6 +1004,11 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       const passenger = passengers[i];
       if (!passenger.fullName.trim() || !passenger.gender || !passenger.age) {
         Alert.alert("Validation Error", `Complete all details for Passenger ${i + 1} (Seat ${passenger.seatNumber}).`);
+        return false;
+      }
+      const passengerAge = Number(passenger.age);
+      if (!Number.isInteger(passengerAge) || passengerAge < 1 || passengerAge > 120) {
+        Alert.alert("Validation Error", `Enter a valid age for Passenger ${i + 1}.`);
         return false;
       }
 
@@ -1191,11 +1217,33 @@ const PostBusBookingScreen = ({ route, navigation }) => {
     setCachedBlockResponse(null);
   }, [selectedSeats]);
 
-  useEffect(() => {
-    if (!sessionLoading && authToken) {
-      fetchSavedTravelers(authToken);
-    }
-  }, [authToken, sessionLoading]);
+  useFocusEffect(
+    useCallback(() => {
+      if (sessionLoading || !authToken) return undefined;
+
+      let active = true;
+      fetchSavedTravelers(authToken).then((list) => {
+        if (!active || !route?.params?.newlyCreatedTravelerId) return;
+        const created = list.find(
+          (traveler) => String(traveler.id) === String(route.params.newlyCreatedTravelerId)
+        );
+        if (created) {
+          handleSelectTraveler(
+            created,
+            Number(route?.params?.newlyCreatedTravelerTargetIndex ?? 0)
+          );
+        }
+        navigation.setParams({
+          newlyCreatedTravelerId: undefined,
+          newlyCreatedTravelerTargetIndex: undefined,
+        });
+      });
+
+      return () => {
+        active = false;
+      };
+    }, [authToken, sessionLoading, route?.params?.newlyCreatedTravelerId, route?.params?.newlyCreatedTravelerTargetIndex])
+  );
 
   useEffect(() => {
     if (sessionLoading) {
@@ -1272,19 +1320,21 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   }, [busId, routeSeatDetails, selectedSeats]);
 
   const handleBooking = async () => {
+    if (bookingSubmissionRef.current) return;
+
     if (!validateForm()) {
       logBusBookingFlow("Booking validation failed");
       return;
     }
 
+    bookingSubmissionRef.current = true;
+
     const getGenderInt = (genderStr) => {
       const clean = String(genderStr || "").trim().toLowerCase();
-      if (clean === "male" || clean === "m" || clean === "1" || clean.includes("male")) {
-        return 1;
-      }
-      if (clean === "female" || clean === "f" || clean === "2" || clean.includes("female")) {
+      if (clean === "female" || clean === "f" || clean === "2") {
         return 2;
       }
+      if (clean === "male" || clean === "m" || clean === "1") return 1;
       return 1;
     };
 
@@ -1299,8 +1349,8 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       const normalizedPassengers = passengers.map((passenger) => {
         const nameParts = String(passenger.fullName || "").trim().split(/\s+/);
-        const firstName = nameParts[0] || "Passenger";
-        const lastName = nameParts.slice(1).join(" ") || "Kumar"; // Default fallback last name for travel operator requirements
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ");
         const fullName = `${firstName} ${lastName}`.trim();
         
         const seatCode = passenger.seatNumber || passenger.seatCode || "";
@@ -1316,18 +1366,18 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           firstName,
           lastName,
           fullName,
-          age: Number(passenger.age) || 25,
+          age: Number(passenger.age),
           seatName: seatCode,
           seatNumber: seatCode,
           fare: seatFare,
           baseFare: seatFare,
           seatType: getCleanSeatType(seatDetail.seatType),
           externalGst: Number(seatDetail.externalGst ?? 0),
-          contactNo: passengerPhone.trim() || "1234567890",
-          email: passengerEmail.trim() || "passenger@example.com",
-          address: "Default Address",
-          city: "Default City",
-          state: "Default State",
+          contactNo: passengerPhone.trim(),
+          email: passengerEmail.trim(),
+          address: "",
+          city: String(route?.params?.from ?? route?.params?.bus?.fromCity ?? ""),
+          state: "",
           genderInt,
           genderStr,
         };
@@ -1505,9 +1555,9 @@ const PostBusBookingScreen = ({ route, navigation }) => {
           fare: providerSeatFare,
           contactNo: String(passengerPhone || "").trim(),
           email: String(passengerEmail || "").trim(),
-          address: "123 Main St",
-          city: "Hyderabad",
-          state: "Telangana"
+          address: String(boardingPointName || "").trim(),
+          city: String(route?.params?.from ?? route?.params?.bus?.fromCity ?? ""),
+          state: ""
         };
 
         if (idProofRequired) {
@@ -1735,18 +1785,27 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       }
 
       // 4. Build exact bookRequestBody for Cashfree Webhook Fulfillment
-      const bookPassengers = previewSeats.map((ps) => {
+      const bookPassengers = previewSeats.map((ps, index) => {
+        const passenger = normalizedPassengers.find(
+          (item) => String(item.seatNumber) === String(ps.seatCode)
+        ) || normalizedPassengers[index];
         return {
           seatNumber: String(ps.seatCode),
-          SeatType: String(ps.seatType),
-          BaseFare: Number(ps.baseFare),
-          ExternalGst: Number(ps.externalGst)
+          fullName: passenger?.fullName || "",
+          gender: passenger?.genderStr || "",
+          age: Number(passenger?.age),
+          leadPassenger: index === 0,
+          seatType: String(ps.seatType),
+          baseFare: Number(ps.baseFare),
+          externalGst: Number(ps.externalGst)
         };
       });
 
       const bookRequestBody = {
         traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
         resultIndex: String(busObj.resultIndex ?? busObj.ResultIndex ?? route?.params?.resultIndex ?? ""),
+        srdvIndex: Number(busObj.srdvIndex ?? busObj.SrdvIndex ?? route?.params?.srdvIndex ?? 0),
+        blockKey: String(srdvBlockKey || ""),
         BoardingPointId: String(boardingPointId || "").trim(),
         boardingPointId: String(boardingPointId || "").trim(),
         boardingPointName: String(boardingPointName || "").trim(),
@@ -1755,6 +1814,15 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         droppingPointId: String(droppingPointId || "").trim(),
         droppingPointName: String(droppingPointName || "").trim(),
         droppingPointTime: droppingPointTime || null,
+        passengerName: passengerName.trim() || normalizedPassengers[0]?.fullName || "",
+        passengerPhone: passengerPhone.trim(),
+        passengerEmail: passengerEmail.trim(),
+        fromCity,
+        toCity,
+        departureTime,
+        arrivalTime,
+        operatorName,
+        totalFare: grandTotalToPay,
         passengers: bookPassengers,
         busType: busType
       };
@@ -1805,11 +1873,50 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         bookingType: "Bus",
         bookingDetails: bookingPayloadWithBlock,
         customerDetails: {
-          name: passengerName.trim() || passengers[0]?.fullName?.trim() || "Passenger",
+          name: passengerName.trim() || passengers[0]?.fullName?.trim(),
           phone: passengerPhone.trim(),
           email: passengerEmail.trim(),
           couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : null
-        }
+        },
+        reviewDetails: {
+          operatorName,
+          fromCity,
+          toCity,
+          journeyDate: journeyDateLabel,
+          seats: selectedSeats,
+          boardingPoint: {
+            id: boardingPointId,
+            name: boardingPointName,
+            time: boardingTime,
+          },
+          droppingPoint: {
+            id: droppingPointId,
+            name: droppingPointName,
+            time: droppingTime,
+          },
+          passengers: normalizedPassengers.map((passenger) => ({
+            fullName: passenger.fullName,
+            gender: passenger.genderStr,
+            age: passenger.age,
+            seatNumber: passenger.seatNumber,
+          })),
+          contact: {
+            phone: passengerPhone.trim(),
+            email: passengerEmail.trim(),
+          },
+          fareSummary: {
+            seatBreakdown,
+            subtotal: fareSummary.subtotal,
+            autoDiscountAmount: fareSummary.autoDiscountAmount,
+            autoDiscountLabel: fareSummary.autoDiscountLabel,
+            couponAmount: fareSummary.couponAmount,
+            couponLabel: fareSummary.couponDiscountLabel,
+            gstAmount: fareSummary.gstAmount,
+            gstPercent: fareSummary.gstPercent,
+            convenienceFee: fareSummary.convenienceFee,
+            total: grandTotalToPay,
+          },
+        },
       });
 
       return;
@@ -1847,14 +1954,12 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         Alert.alert("Booking Failed", apiErrorMessage || error.message);
       }
     } finally {
+      bookingSubmissionRef.current = false;
       setLoading(false);
     }
   };
 
   const passengerCount = selectedSeats.length;
-  const selectedTraveler = savedTravelers.find(
-    (traveler) => String(traveler.id) === String(selectedTravelerId)
-  );
   const tripBus = getObjectValue(route?.params?.bus) || {};
   const tripOperator = String(
     route?.params?.operatorName ??
@@ -1935,7 +2040,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={styles.keyboardAvoiding}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 10 : 0}
       >
         <ScrollView
@@ -2053,26 +2158,32 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                   </View>
                 ) : (
                   <>
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onPress={() => setSavedTravelerPickerOpen(true)}
-                      style={styles.savedTravelerSelector}
-                      accessibilityRole="button"
-                      accessibilityLabel="Select saved traveler"
-                    >
-                      <View style={styles.savedTravelerSelectorIcon}>
-                        <Ionicons name="person" size={18} color="#D11A2A" />
-                      </View>
-                      <View style={styles.savedTravelerSelectorTextWrap}>
-                        <Text style={styles.savedTravelerSelectorLabel}>
-                          {selectedTraveler ? "Selected traveler" : "Choose a traveler"}
-                        </Text>
-                        <Text style={styles.savedTravelerSelectorValue} numberOfLines={1}>
-                          {selectedTraveler?.fullName || "Select from your saved travelers"}
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-down" size={20} color="#64748B" />
-                    </TouchableOpacity>
+                    {passengers.map((passenger, passengerIndex) => {
+                      const assignedTraveler = savedTravelers.find(
+                        (traveler) => String(traveler.id) === String(selectedTravelerIds[passengerIndex])
+                      );
+                      return (
+                        <TouchableOpacity
+                          key={`traveler-seat-${passenger.seatNumber}`}
+                          activeOpacity={0.85}
+                          onPress={() => openTravelerPicker(passengerIndex)}
+                          style={styles.savedTravelerSelector}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Select saved traveler for seat ${passenger.seatNumber}`}
+                        >
+                          <View style={styles.savedTravelerSelectorIcon}>
+                            <Ionicons name="person" size={18} color="#D11A2A" />
+                          </View>
+                          <View style={styles.savedTravelerSelectorTextWrap}>
+                            <Text style={styles.savedTravelerSelectorLabel}>Seat {passenger.seatNumber}</Text>
+                            <Text style={styles.savedTravelerSelectorValue} numberOfLines={1}>
+                              {assignedTraveler?.fullName || "Choose a saved traveler"}
+                            </Text>
+                          </View>
+                          <Ionicons name="chevron-down" size={20} color="#64748B" />
+                        </TouchableOpacity>
+                      );
+                    })}
 
                     <Modal
                       visible={savedTravelerPickerOpen}
@@ -2092,7 +2203,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                             <View>
                               <Text style={styles.travelerModalTitle}>Choose traveler</Text>
                               <Text style={styles.travelerModalSubtitle}>
-                                Select who is travelling on this booking
+                                Assign a traveler to seat {passengers[travelerTargetIndex]?.seatNumber || ""}
                               </Text>
                             </View>
                             <TouchableOpacity
@@ -2106,16 +2217,24 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
                           <View style={styles.savedTravelersList}>
                             {savedTravelers.map((traveler) => {
-                              const isSelected = String(traveler.id) === String(selectedTravelerId);
+                              const isSelected = String(traveler.id) === String(selectedTravelerIds[travelerTargetIndex]);
+                              const isAssignedElsewhere = Object.entries(selectedTravelerIds).some(
+                                ([index, id]) => Number(index) !== travelerTargetIndex && String(id) === String(traveler.id)
+                              );
                               return (
                                 <TouchableOpacity
                                   key={traveler.id}
                                   activeOpacity={0.85}
                                   onPress={() => {
-                                    handleSelectTraveler(traveler);
+                                    handleSelectTraveler(traveler, travelerTargetIndex);
                                     setSavedTravelerPickerOpen(false);
                                   }}
-                                  style={[styles.travelerItemCard, isSelected && styles.travelerItemCardSelected]}
+                                  disabled={isAssignedElsewhere}
+                                  style={[
+                                    styles.travelerItemCard,
+                                    isSelected && styles.travelerItemCardSelected,
+                                    isAssignedElsewhere && styles.travelerItemCardDisabled,
+                                  ]}
                                 >
                                   <View style={styles.travelerAvatar}>
                                     <Text style={styles.travelerAvatarText}>
@@ -2230,6 +2349,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                           setCouponCode("");
                           setCouponInputText("");
                           setSelectedFeaturedOfferId(null);
+                          setCouponFeedback("");
                         }}
                         activeOpacity={0.8}
                       >
@@ -2255,16 +2375,20 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                           ]}
                           onPress={() => {
                             if (couponInputText.trim()) {
+                              setCouponFeedback("Checking coupon...");
                               setCouponCode(couponInputText.trim().toUpperCase());
                               setSelectedFeaturedOfferId(null);
                             }
                           }}
-                          disabled={!couponInputText.trim()}
+                          disabled={!couponInputText.trim() || pricingLoading}
                           activeOpacity={0.8}
                         >
-                          <Text style={styles.applyCouponBtnText}>Apply</Text>
+                          <Text style={styles.applyCouponBtnText}>{pricingLoading ? "Checking..." : "Apply"}</Text>
                         </TouchableOpacity>
                       </View>
+                      {couponFeedback ? (
+                        <Text style={styles.couponFeedbackText}>{couponFeedback}</Text>
+                      ) : null}
 
                       {dealsLoading ? (
                         <ActivityIndicator color="#D11A2A" style={{ marginTop: 20 }} />
@@ -2371,22 +2495,21 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                           />
                           <Text style={styles.pickerFieldLabel}>Gender</Text>
                         </View>
-                        <View style={styles.modernPickerShell}>
-                          <Picker
-                            selectedValue={passenger.gender}
-                            onValueChange={(value) =>
-                              handlePassengerChange(index, "gender", value)
-                            }
-                            style={[styles.pickerControl, { backgroundColor: "#FFFFFF" }]}
-                            accessibilityLabel={`Passenger ${index + 1} gender`}
-                            dropdownIconColor="#D11A2A"
-                            mode="dropdown"
-                          >
-                            <Picker.Item label="Select Gender" value="" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
-                            <Picker.Item label="Male" value="Male" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
-                            <Picker.Item label="Female" value="Female" color="#0F172A" style={{ backgroundColor: "#FFFFFF" }} />
-                          </Picker>
-                        </View>
+                        <TouchableOpacity
+                          style={styles.modernPickerShell}
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setGenderPickerIndex(index);
+                          }}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Passenger ${index + 1} gender`}
+                        >
+                          <Text style={[styles.genderValue, !passenger.gender && styles.genderPlaceholder]}>
+                            {passenger.gender || "Select Gender"}
+                          </Text>
+                          <Ionicons name="chevron-down" size={18} color="#D11A2A" />
+                        </TouchableOpacity>
                       </View>
 
                       <View style={styles.ageFieldWrap}>
@@ -2437,6 +2560,37 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                   </View>
                 </View>
               ))}
+
+              <Modal
+                visible={genderPickerIndex !== null}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setGenderPickerIndex(null)}
+              >
+                <View style={styles.genderModalBackdrop}>
+                  <View style={styles.genderModalCard}>
+                    <Text style={styles.genderModalTitle}>Select gender</Text>
+                    {["Male", "Female"].map((value) => (
+                      <TouchableOpacity
+                        key={value}
+                        style={styles.genderOption}
+                        onPress={() => {
+                          handlePassengerChange(genderPickerIndex, "gender", value);
+                          setGenderPickerIndex(null);
+                        }}
+                      >
+                        <Text style={styles.genderOptionText}>{value}</Text>
+                        {passengers[genderPickerIndex]?.gender === value ? (
+                          <Ionicons name="checkmark-circle" size={21} color="#D11A2A" />
+                        ) : null}
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity style={styles.genderCancel} onPress={() => setGenderPickerIndex(null)}>
+                      <Text style={styles.genderCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Modal>
             </AnimatedCard>
 
             <AnimatedCard delay={200}>
@@ -2909,6 +3063,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    marginBottom: 10,
   },
   savedTravelerSelectorIcon: {
     width: 38,
@@ -2986,6 +3141,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#E2E8F0",
+  },
+  travelerItemCardDisabled: {
+    opacity: 0.42,
   },
   loadingInlineCard: {
     flexDirection: "row",
@@ -3091,19 +3249,81 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   modernPickerShell: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     borderWidth: 1,
     borderColor: "#E2E8F0",
     borderRadius: 10,
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
-    height: 40,
+    height: 44,
+    paddingHorizontal: 12,
+  },
+  genderValue: {
+    color: "#0F172A",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  genderPlaceholder: {
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+  genderModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.45)",
+    alignItems: "center",
     justifyContent: "center",
+    padding: 24,
+  },
+  genderModalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    padding: 18,
+  },
+  genderModalTitle: {
+    color: "#0F172A",
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 10,
+  },
+  genderOption: {
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E2E8F0",
+  },
+  genderOptionText: {
+    color: "#0F172A",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  genderCancel: {
+    minHeight: 46,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+  },
+  genderCancelText: {
+    color: "#D11A2A",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  couponFeedbackText: {
+    marginTop: 8,
+    color: "#64748B",
+    fontSize: 12,
+    lineHeight: 17,
   },
   ageFieldWrap: {
     width: Math.min(110, SCREEN_WIDTH * 0.24),
   },
   ageInput: {
-    height: 40,
+    height: 44,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     borderRadius: 10,

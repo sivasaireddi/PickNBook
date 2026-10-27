@@ -17,7 +17,7 @@ const BookingFailureScreen = ({ error, orderId, onRetry }) => {
       </View>
       
       <Text style={styles.message}>
-        No amount has been deducted, or if it has, it will be refunded automatically.
+        Payment was not confirmed. If your bank shows a debit, check the payment status or contact support before trying again.
       </Text>
 
       <View style={styles.buttonContainer}>
