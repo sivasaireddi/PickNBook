@@ -23,15 +23,17 @@ const AuthVideoBackground = React.memo(function AuthVideoBackground() {
 
   return (
     <View style={styles.videoLayer} pointerEvents="none">
-      <Video
-        source={authBackgroundVideo}
-        style={StyleSheet.absoluteFillObject}
-        resizeMode={ResizeMode.COVER}
-        shouldPlay={isFocused}
-        isLooping
-        isMuted
-        useNativeControls={false}
-      />
+      {isFocused ? (
+        <Video
+          source={authBackgroundVideo}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay
+          isLooping
+          isMuted
+          useNativeControls={false}
+        />
+      ) : null}
       <View style={styles.videoTint} />
     </View>
   );
