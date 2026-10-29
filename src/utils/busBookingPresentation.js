@@ -80,16 +80,67 @@ const normalizePassenger = (passenger, index) => ({
   cancelledAt: pickBookingValue(passenger, ["cancelledAtUtc", "CancelledAtUtc"], null),
 });
 
-const normalizeStatus = (raw, departureAt) => {
-  const text = String(raw || "").trim().toLowerCase();
-  if (text.includes("cancel")) return "Cancelled";
-  if (text.includes("fail") || text.includes("expired") || text.includes("user_dropped")) return "PaymentFailed";
-  if (text.includes("past") || text.includes("completed")) return "Past";
-  if (["booked", "confirmed", "success", "upcoming"].includes(text)) {
+export const normalizeBusStatusToken = (value) => String(value || "")
+  .trim()
+  .toLowerCase()
+  .replace(/[\s_-]+/g, "");
+
+const normalizeStatus = (sources, departureAt, passengers) => {
+  const tokens = sources.map(normalizeBusStatusToken).filter(Boolean);
+  const activePassengerCount = passengers.filter((passenger) => !passenger.isCancelled).length;
+  const cancelledPassengerCount = passengers.filter((passenger) => passenger.isCancelled).length;
+  const departure = toBookingDate(departureAt);
+  const isPast = Boolean(departure && departure.getTime() < Date.now());
+
+  if (tokens.some((token) => token === "manualcheckrequired" || token === "manualreviewrequired")) {
+    return "ManualReviewRequired";
+  }
+  if (tokens.some((token) => token === "cancelinprocess" || token === "cancellationpending")) {
+    return "CancellationPending";
+  }
+
+  const explicitlyPartial = tokens.some((token) => token === "partiallycancelled" || token === "partialcancelled");
+  if ((explicitlyPartial && (activePassengerCount > 0 || passengers.length === 0)) || (activePassengerCount > 0 && cancelledPassengerCount > 0)) {
+    return "PartiallyCancelled";
+  }
+  if (tokens.some((token) => token === "cancelled" || token === "canceled") || (passengers.length > 0 && activePassengerCount === 0 && cancelledPassengerCount > 0)) {
+    return "Cancelled";
+  }
+  if (tokens.some((token) => token.includes("fail") || token === "expired" || token === "userdropped")) return "PaymentFailed";
+  if (tokens.some((token) => token === "past" || token === "completed")) return "Past";
+  if (tokens.some((token) => ["booked", "confirmed", "success", "upcoming"].includes(token))) {
+    return isPast ? "Past" : "Upcoming";
+  }
+  return "Upcoming";
+};
+
+const getListStatus = (status, departureAt) => {
+  if (["CancellationPending", "ManualReviewRequired"].includes(status)) return "Upcoming";
+  if (status === "PartiallyCancelled") {
     const departure = toBookingDate(departureAt);
     return departure && departure.getTime() < Date.now() ? "Past" : "Upcoming";
   }
-  return "Upcoming";
+  return status;
+};
+
+export const formatBusCancellationWindow = (slabs, index) => {
+  const slab = Array.isArray(slabs) ? slabs[index] : null;
+  if (!slab) return "Cancellation window";
+  const upperHours = Number(pickBookingValue(slab, ["hoursBeforeDeparture", "HoursBeforeDeparture"], NaN));
+  if (!Number.isFinite(upperHours)) return "Cancellation window";
+  const previousSlab = index > 0 ? slabs[index - 1] : null;
+  const lowerHours = previousSlab
+    ? Number(pickBookingValue(previousSlab, ["hoursBeforeDeparture", "HoursBeforeDeparture"], 0))
+    : 0;
+  if (upperHours < 0) return `Cancellation more than ${Math.max(0, lowerHours)} hours before departure`;
+  return `Cancellation between ${Math.max(0, lowerHours)} and ${upperHours} hours before departure`;
+};
+
+export const formatBusCancellationChargeRule = (slab) => {
+  const charge = pickBookingValue(slab, ["cancellationCharge", "CancellationCharge"], null);
+  const type = normalizeBusStatusToken(pickBookingValue(slab, ["cancellationChargeType", "CancellationChargeType"], ""));
+  if (!isPresent(charge)) return "";
+  return type.includes("percent") ? `Cancellation fee: ${Number(charge)}%` : `Cancellation fee: ${formatBookingCurrency(charge)}`;
 };
 
 export const normalizeBusBooking = (record) => {
@@ -110,11 +161,14 @@ export const normalizeBusBooking = (record) => {
     "bookingStatus", "BookingStatus", "tripState", "TripState",
     "canonicalStatus", "CanonicalStatus", "status", "Status",
   ], "Upcoming");
+  const rawStatusSource = pickBookingValue(raw, ["status", "Status", "canonicalStatus", "CanonicalStatus"], "");
   const paymentBreakdown = pickBookingValue(raw, ["paymentBreakdown", "PaymentBreakdown"], {}) || {};
   const cancellationPolicy = pickBookingValue(raw, ["cancellationPolicy", "CancellationPolicy"], null);
   const cancellationAudit = pickBookingValue(raw, ["cancellationAudit", "CancellationAudit"], null);
   const bookingId = pickBookingValue(raw, ["bookingId", "BookingId", "id", "Id"], null);
   const seatNumbers = passengers.map((item) => item.seatNumber).filter(Boolean);
+
+  const normalizedStatus = normalizeStatus([rawStatusSource, statusSource], departureAt, passengers);
 
   return {
     id: bookingId,
@@ -134,7 +188,8 @@ export const normalizeBusBooking = (record) => {
     droppingName: String(pickBookingValue(raw, ["droppingPointName", "DroppingPointName", "droppingPoint", "DroppingPoint"], "") || "").trim(),
     droppingAddress: String(pickBookingValue(raw, ["droppingPointAddress", "DroppingPointAddress", "droppingAddress", "DroppingAddress"], "") || "").trim(),
     droppingAt: pickBookingValue(raw, ["droppingPointTimeUtc", "DroppingPointTimeUtc", "droppingPointTime", "DroppingPointTime", "droppingPointTimeIst", "DroppingPointTimeIst"], arrivalAt),
-    status: normalizeStatus(statusSource, departureAt),
+    status: normalizedStatus,
+    listStatus: getListStatus(normalizedStatus, departureAt),
     statusSource: String(statusSource || ""),
     canCancel: Boolean(pickBookingValue(raw, ["canCancel", "CanCancel"], false)),
     passengers,
@@ -160,6 +215,9 @@ export const normalizeBusBooking = (record) => {
     cancellationCharge: pickBookingValue(raw, ["cancellationChargeInr", "CancellationChargeInr"], null),
     refundAmount: pickBookingValue(raw, ["refundAmountInr", "RefundAmountInr"], null),
     refundStatus: String(pickBookingValue(raw, ["financialStatus", "FinancialStatus", "refundStatus", "RefundStatus"], "") || "").trim(),
+    refundReference: String(pickBookingValue(raw, ["cashfreeRefundId", "CashfreeRefundId", "refundId", "RefundId"], "") || "").trim(),
+    refundPreference: String(pickBookingValue(cancellationAudit, ["refundPreference", "RefundPreference", "refundDestination", "RefundDestination"], "") || "").trim(),
+    refundCompletedAt: pickBookingValue(cancellationAudit, ["completedAtUtc", "CompletedAtUtc", "completedAt", "CompletedAt"], null),
     cancellationPolicy,
     cancellationAudit,
     timeline: pickBookingValue(raw, ["timeline", "Timeline"], null),
@@ -167,9 +225,20 @@ export const normalizeBusBooking = (record) => {
   };
 };
 
+export const isBusCancellationEligible = (booking) => {
+  if (!booking || !["Upcoming", "PartiallyCancelled"].includes(booking.status) || booking.listStatus !== "Upcoming" || booking.canCancel !== true) return false;
+  const activePassengers = Array.isArray(booking.passengers)
+    ? booking.passengers.filter((passenger) => !passenger.isCancelled)
+    : [];
+  return activePassengers.length > 0 && Number(booking.id) > 0;
+};
+
 export const getBusStatusPresentation = (status) => {
   const map = {
     Upcoming: { label: "CONFIRMED", color: "#C8172C", tint: "#FDECEF" },
+    CancellationPending: { label: "CANCELLATION PENDING", color: "#B54708", tint: "#FFFAEB" },
+    ManualReviewRequired: { label: "MANUAL REVIEW REQUIRED", color: "#B54708", tint: "#FFFAEB" },
+    PartiallyCancelled: { label: "PARTIALLY CANCELLED", color: "#9A3412", tint: "#FFF1E8" },
     Past: { label: "COMPLETED", color: "#475569", tint: "#EEF2F6" },
     Cancelled: { label: "CANCELLED", color: "#B42318", tint: "#FEECEB" },
     PaymentFailed: { label: "PAYMENT FAILED", color: "#B42318", tint: "#FEECEB" },

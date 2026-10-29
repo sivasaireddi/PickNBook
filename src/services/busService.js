@@ -888,19 +888,47 @@ export async function getMyBusBookings(authToken) {
 }
 
 /**
- * Cancel entire bus booking by bookingId via POST /api/BusBookings/bookings/{bookingId}/cancel?reason={reason}
+ * Fetch the authoritative, non-destructive cancellation quote.
+ * GET /api/BusBookings/bookings/{bookingId}/cancellation-quote?passengerIds=1,2
  */
-export async function cancelBusBooking(bookingId, reason = "User requested cancellation", authToken) {
-  busFlowLog("BUS CANCELLATION REQUEST", { bookingId, reason });
+export async function getBusCancellationQuote(bookingId, passengerIds = [], authToken) {
+  const token = authToken || (await getStoredAuthToken());
+  if (!token) throw new Error("Please sign in to review cancellation details.");
+
+  const cleanId = Number(bookingId);
+  if (!Number.isInteger(cleanId) || cleanId <= 0) throw new Error("A valid booking is required.");
+
+  const ids = (Array.isArray(passengerIds) ? passengerIds : [passengerIds])
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0);
+  const query = ids.length > 0 ? `?passengerIds=${encodeURIComponent(ids.join(","))}` : "";
+  const response = await client.get(`/api/BusBookings/bookings/${cleanId}/cancellation-quote${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.data;
+}
+
+/**
+ * Cancel an entire bus booking via POST /api/BusBookings/bookings/{bookingId}/cancel.
+ */
+export async function cancelBusBooking(
+  bookingId,
+  reason = "User requested cancellation",
+  authToken,
+  refundPreference = "ORIGINAL_PAYMENT_METHOD"
+) {
+  busFlowLog("BUS CANCELLATION REQUEST", { bookingId });
   try {
-    const token = authToken || (await getStoredAuthToken());
+    const legacyTokenArgument = !authToken && typeof reason === "string" && reason.split(".").length === 3;
+    const token = authToken || (legacyTokenArgument ? reason : null) || (await getStoredAuthToken());
     if (!token) {
       throw new Error("No authentication token found. Please log in.");
     }
 
     const cleanId = String(bookingId || "").trim();
-    const queryReason = String(reason || "User requested cancellation").trim();
-    const url = `/api/BusBookings/bookings/${encodeURIComponent(cleanId)}/cancel?reason=${encodeURIComponent(queryReason)}`;
+    const cleanReason = legacyTokenArgument ? "User requested cancellation" : String(reason || "").trim();
+    const webRefundPreference = refundPreference === "WALLET" ? "Wallet" : "Original";
+    const url = `/api/BusBookings/bookings/${encodeURIComponent(cleanId)}/cancel?reason=${encodeURIComponent(cleanReason)}&refundPreference=${encodeURIComponent(webRefundPreference)}`;
 
 
     const response = await client.post(
@@ -912,13 +940,9 @@ export async function cancelBusBooking(bookingId, reason = "User requested cance
         },
       }
     );
-
-    busFlowLog("BUS CANCELLATION RESPONSE", response.data);
-
     return response.data;
   } catch (error) {
-    busFlowError("BUS CANCELLATION", error);
-    console.warn("[BusService] cancelBusBooking error:", error?.message, error?.response?.data);
+    console.warn("[BusService] cancelBusBooking error:", error?.message);
     throw error;
   }
 }
@@ -926,8 +950,8 @@ export async function cancelBusBooking(bookingId, reason = "User requested cance
 /**
  * Cancel specific passengers on a bus booking via POST /api/BusBookings/bookings/{bookingId}/cancel-passengers
  */
-export async function cancelBusPassengers(bookingId, passengerIds = [], authToken) {
-  busFlowLog("PASSENGER CANCELLATION REQUEST", { bookingId, passengerIds });
+export async function cancelBusPassengers(bookingId, passengerIds = [], authToken, reason = "") {
+  busFlowLog("PASSENGER CANCELLATION REQUEST", { bookingId, passengerCount: passengerIds?.length || 0 });
   try {
     const token = authToken || (await getStoredAuthToken());
     if (!token) {
@@ -937,7 +961,8 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
     const cleanId = String(bookingId || "").trim();
     const url = `/api/BusBookings/bookings/${encodeURIComponent(cleanId)}/cancel-passengers`;
     const payload = {
-      passengerIds: (Array.isArray(passengerIds) ? passengerIds : [passengerIds]).map((id) => Number(id)),
+      PassengerIds: (Array.isArray(passengerIds) ? passengerIds : [passengerIds]).map((id) => Number(id)),
+      Reason: String(reason || "").trim(),
     };
 
 
@@ -950,16 +975,37 @@ export async function cancelBusPassengers(bookingId, passengerIds = [], authToke
         },
       }
     );
-
-    busFlowLog("PASSENGER CANCELLATION RESPONSE", response.data);
-
-
     return response.data;
   } catch (error) {
-    busFlowError("PASSENGER CANCELLATION", error);
     console.warn("[BusService] cancelBusPassengers warning/error:", error?.message);
     throw error;
   }
+}
+
+/**
+ * Construct and submit the same production cancellation contract used by web.
+ * Callers must obtain explicit user confirmation before invoking this function.
+ */
+export async function submitBusCancellation(
+  { bookingId, passengerIds = [], activePassengerIds = [], reason, refundPreference },
+  authToken
+) {
+  const selected = (Array.isArray(passengerIds) ? passengerIds : [])
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0);
+  const active = (Array.isArray(activePassengerIds) ? activePassengerIds : [])
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0);
+  const cleanReason = String(reason || "").trim();
+
+  if (!cleanReason) throw new Error("Enter a reason for cancellation.");
+  if (selected.length === 0) throw new Error("Select at least one passenger to cancel.");
+
+  const isFullCancellation = active.length > 0 && active.every((id) => selected.includes(id));
+  if (isFullCancellation) {
+    return cancelBusBooking(bookingId, cleanReason, authToken, refundPreference);
+  }
+  return cancelBusPassengers(bookingId, selected, authToken, cleanReason);
 }
 
 /**
@@ -1033,8 +1079,10 @@ export default {
   blockSeats,
   bookSeats,
   getMyBusBookings,
+  getBusCancellationQuote,
   cancelBusBooking,
   cancelBusPassengers,
+  submitBusCancellation,
   getBusCoupons,
   getFeaturedOffers,
 };

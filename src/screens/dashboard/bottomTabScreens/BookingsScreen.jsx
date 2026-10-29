@@ -2,14 +2,14 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, Alert, FlatList, Modal, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import AppHeader from "../../../components/AppHeader";
 import { requireAuthToken } from "../../../utils/authSession";
 import { getMyBusBookings } from "../../../services/busService";
 import { getMyHotelBookings, cancelHotelBooking } from "../../../services/hotelService";
 import { AUTH_API_BASE_URL } from "../../../services/authService";
 import { readConfirmedFlightBookingsLocally } from "./flights/services/flightBookingFlowStore";
-import { formatBookingCurrency, formatBookingDate, formatBookingTime, getBusStatusPresentation, normalizeBusBooking } from "../../../utils/busBookingPresentation";
+import { formatBookingCurrency, formatBookingDate, formatBookingDateTime, formatBookingTime, getBusStatusPresentation, normalizeBusBooking } from "../../../utils/busBookingPresentation";
 
 const BRAND = "#D7192D";
 const NAVY = "#111827";
@@ -37,7 +37,7 @@ const groupBusBookings = (records) => {
   const groups = emptyGroups();
   (Array.isArray(records) ? records : []).forEach((record) => {
     const booking = normalizeBusBooking(record);
-    groups[booking.status]?.push(booking);
+    groups[booking.listStatus]?.push(booking);
   });
   return groups;
 };
@@ -93,6 +93,7 @@ export default function BookingsScreen() {
   const [hotelCancelReason, setHotelCancelReason] = useState("User requested cancellation");
   const [cancellingHotel, setCancellingHotel] = useState(false);
   const loadedCategories = useRef(new Set());
+  const hasFocusedOnce = useRef(false);
 
   const loadCategory = useCallback(async (target, force = false) => {
     if (!force && loadedCategories.current.has(target)) return;
@@ -127,6 +128,14 @@ export default function BookingsScreen() {
   }, []);
 
   useEffect(() => { loadCategory(category); }, [category, loadCategory]);
+  useFocusEffect(useCallback(() => {
+    if (!hasFocusedOnce.current) {
+      hasFocusedOnce.current = true;
+      return undefined;
+    }
+    if (category === "bus") loadCategory("bus", true);
+    return undefined;
+  }, [category, loadCategory]));
 
   const statusTabs = category === "bus" ? BUS_TABS : BASE_TABS;
   const currentList = bookings[category]?.[activeTab] || [];
@@ -229,6 +238,9 @@ const BusBookingCard = memo(({ booking, onPress }) => {
       ? `${booking.seatCount} ${booking.seatCount === 1 ? "seat" : "seats"}`
       : "";
   const total = formatBookingCurrency(booking.totalPaid);
+  const cancelledAtText = booking.status === "Cancelled" ? formatBookingDateTime(booking.cancelledAt) : "";
+  const refundAmountText = booking.status === "Cancelled" ? formatBookingCurrency(booking.refundAmount) : "";
+  const refundStateText = booking.status === "Cancelled" ? String(booking.refundStatus || "").replace(/_/g, " ").toLowerCase() : "";
   return <TouchableOpacity style={styles.busCard} onPress={onPress} activeOpacity={0.88} accessibilityRole="button">
     <View style={styles.cardTopRow}>
       <View style={[styles.statusBadge, { backgroundColor: status.tint }]}><Text style={[styles.statusBadgeText, { color: status.color }]}>{status.label}</Text></View>
@@ -243,7 +255,7 @@ const BusBookingCard = memo(({ booking, onPress }) => {
     </View>
     <View style={styles.cardDivider} />
     <View style={styles.cardFooter}>
-      <View style={styles.metadataRow}>{!!seatText && <Metadata icon="bed-outline" text={seatText} />}{!!total && <Metadata icon="wallet-outline" text={`${total} paid`} />}</View>
+      <View style={styles.metadataRow}>{!!seatText && <Metadata icon="bed-outline" text={seatText} />}{!!total && <Metadata icon="wallet-outline" text={`${total} paid`} />}{!!cancelledAtText && <Metadata icon="close-circle-outline" text={`Cancelled ${cancelledAtText}`} />}{(refundAmountText || refundStateText) && <Metadata icon="return-down-back-outline" text={[refundAmountText && `${refundAmountText} refund`, refundStateText].filter(Boolean).join(" · ")} />}</View>
       <View style={styles.detailsAction}><Text style={styles.detailsActionText}>View details</Text><Ionicons name="chevron-forward" size={17} color={BRAND} /></View>
     </View>
   </TouchableOpacity>;
