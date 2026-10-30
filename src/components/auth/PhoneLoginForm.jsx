@@ -80,7 +80,7 @@ export default function PhoneLoginForm({ navigation }) {
       </View>
 
       <View style={styles.privacyRow}>
-        <Ionicons name="lock-closed" size={12} color={authTheme.colors.slate} />
+        <Ionicons name="lock-closed" size={12} color={authTheme.colors.red} />
         <Text style={styles.privacyText}>Your number is used only to verify your account.</Text>
       </View>
       <AuthPrimaryButton title="Send OTP" onPress={handleSendOtp} loading={loading} />
@@ -111,16 +111,16 @@ const styles = StyleSheet.create({
   },
   phoneRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
   countryCode: {
-    height: 50,
+    height: 56,
     width: 88,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
-    borderRadius: 16,
-    backgroundColor: "#F8F8FB",
+    borderRadius: 18,
+    backgroundColor: authTheme.colors.authField,
     borderWidth: 1,
-    borderColor: authTheme.colors.line,
+    borderColor: authTheme.colors.authBorder,
   },
   flag: { fontSize: 17 },
   countryText: { fontFamily: "Inter_600SemiBold", color: authTheme.colors.ink, fontSize: 14 },

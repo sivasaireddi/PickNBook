@@ -167,6 +167,19 @@ const UserLoginScreen = ({ navigation }) => {
       login
       subtitle="Sign in to manage your trips, travels and bookings"
       footer={<LegalEntityFooter variant="overlay" />}
+      ticketFooter={authView === "login" ? (
+        <View style={styles.createRow}>
+          <Text style={styles.createText}>New to Pick&Book?</Text>
+          <TouchableOpacity onPress={() => navigation.navigate("CreateAccount")} style={styles.createHit} accessibilityRole="button">
+            <Text style={styles.createLink}>Create account</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.backToLogin} onPress={() => setAuthView("login")} accessibilityRole="button">
+          <Ionicons name="arrow-back" size={16} color={authTheme.colors.redDeep} />
+          <Text style={styles.createLink}>Back to sign in</Text>
+        </TouchableOpacity>
+      )}
     >
       <View style={authView === "login" ? undefined : styles.hidden}>
         <AuthMethodTabs
@@ -239,22 +252,10 @@ const UserLoginScreen = ({ navigation }) => {
           <PhoneLoginForm navigation={navigation} />
         </View>
 
-        <View style={styles.accountDivider} />
-
-        <View style={styles.createRow}>
-          <Text style={styles.createText}>New to Pick&Book?</Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate("CreateAccount")}
-            style={styles.createHit}
-            accessibilityRole="button"
-          >
-            <Text style={styles.createLink}>Create account</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       <View style={authView === "forgot" ? undefined : styles.hidden}>
-        <ForgotPasswordForm navigation={navigation} onBack={() => setAuthView("login")} />
+        <ForgotPasswordForm navigation={navigation} onBack={() => setAuthView("login")} showBackAction={false} />
       </View>
     </AuthScreenLayout>
   );
@@ -295,12 +296,7 @@ const styles = StyleSheet.create({
     marginTop: 0,
     gap: 3,
   },
-  accountDivider: {
-    height: StyleSheet.hairlineWidth,
-    marginTop: 24,
-    marginBottom: 12,
-    backgroundColor: authTheme.colors.line,
-  },
+  backToLogin: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   createText: { fontFamily: "Inter_400Regular", color: authTheme.colors.slate, fontSize: 13 },
   createHit: { minHeight: 40, justifyContent: "center", paddingHorizontal: 4 },
   createLink: { fontFamily: "Inter_600SemiBold", color: authTheme.colors.redDeep, fontSize: 13 },

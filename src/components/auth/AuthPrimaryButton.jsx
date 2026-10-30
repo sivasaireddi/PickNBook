@@ -43,7 +43,7 @@ export default function AuthPrimaryButton({ title, onPress, loading, disabled, i
 
 const styles = StyleSheet.create({
   wrap: {
-    borderRadius: authTheme.radii.medium,
+    borderRadius: authTheme.radii.pill,
     shadowColor: authTheme.colors.redDeep,
     shadowOffset: { width: 0, height: 7 },
     shadowOpacity: 0.22,
@@ -52,14 +52,14 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.62 },
   button: {
-    height: 52,
-    borderRadius: authTheme.radii.medium,
+    height: 58,
+    borderRadius: authTheme.radii.pill,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 9,
     paddingHorizontal: 20,
   },
-  buttonCompact: { height: 48, borderRadius: 13 },
+  buttonCompact: { height: 48, borderRadius: authTheme.radii.pill },
   title: { fontFamily: "Inter_600SemiBold", color: "#FFFFFF", fontSize: 15.5 },
 });

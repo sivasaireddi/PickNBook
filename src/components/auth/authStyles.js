@@ -9,12 +9,17 @@ export const authTheme = {
     error: "#C72C3B",
     errorSoft: "#FFF0F1",
     successSoft: "#ECF9F3",
+    authCard: "#FFFFFF",
+    authBlush: "#FDECEC",
+    authField: "#FBF6F6",
+    authBorder: "#EBD5D7",
   },
   radii: {
     small: 12,
     medium: 16,
     large: 24,
     pill: 999,
+    ticket: 30,
   },
   shadow: {
     shadowColor: "#41131A",

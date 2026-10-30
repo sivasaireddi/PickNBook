@@ -14,6 +14,7 @@ import { ResizeMode, Video } from "expo-av";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { authTheme } from "./authStyles";
+import AuthTicketCard from "./AuthTicketCard";
 
 const pickAndBookLogo = require("../../../assets/Splash-Icon.png");
 const authBackgroundVideo = require("../../../assets/picknbook_bus_hero_mobile_9x16.mp4");
@@ -51,6 +52,8 @@ export default function AuthScreenLayout({
   keyboardSafe = false,
   keyboardVerticalOffset = 0,
   topAligned = false,
+  ticketFooter,
+  ticketBadge,
 }) {
   const AndroidKeyboardContainer = keyboardSafe ? KeyboardAvoidingView : View;
   const androidKeyboardProps = keyboardSafe
@@ -106,7 +109,7 @@ export default function AuthScreenLayout({
                   </Text>
                 )}
               </View>}
-              <View style={[styles.surface, compact && styles.surfaceCompact, login && styles.loginSurface]}>{children}</View>
+              <AuthTicketCard compact={compact} footer={ticketFooter} floatingBadge={ticketBadge}>{children}</AuthTicketCard>
               {!!footer && <View style={[styles.footerSlot, login && styles.loginFooterSlot]}>{footer}</View>}
             </View>
           </KeyboardAvoidingView>
@@ -126,7 +129,7 @@ export default function AuthScreenLayout({
                 </Text>
               )}
             </View>}
-            <View style={[styles.surface, compact && styles.surfaceCompact, login && styles.loginSurface]}>{children}</View>
+            <AuthTicketCard compact={compact} footer={ticketFooter} floatingBadge={ticketBadge}>{children}</AuthTicketCard>
             {!!footer && <View style={[styles.footerSlot, login && styles.loginFooterSlot]}>{footer}</View>}
           </View>
           </AndroidKeyboardContainer>
@@ -229,27 +232,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 24,
     textAlign: "center",
-  },
-  surface: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(180,24,42,0.08)",
-    padding: 16,
-    shadowColor: "#41131A",
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  surfaceCompact: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 16 },
-  loginSurface: {
-    padding: 24,
-    borderRadius: 26,
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 4,
   },
   footerSlot: { paddingTop: 16 },
   loginFooterSlot: {

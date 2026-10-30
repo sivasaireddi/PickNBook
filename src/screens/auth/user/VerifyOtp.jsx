@@ -6,8 +6,10 @@ import { requestAuth } from "../../../services/authService";
 import { validateStrongPassword } from "./AuthValidation";
 import AuthScreenLayout from "../../../components/auth/AuthScreenLayout";
 import AuthTextInput from "../../../components/auth/AuthTextInput";
+import AuthOtpInput from "../../../components/auth/AuthOtpInput";
 import AuthPrimaryButton from "../../../components/auth/AuthPrimaryButton";
 import { authTheme } from "../../../components/auth/authStyles";
+import useAndroidSmsOtpRetriever from "../../../hooks/useAndroidSmsOtpRetriever";
 
 export default function VerifyOtp() {
   const navigation = useNavigation();
@@ -31,6 +33,15 @@ export default function VerifyOtp() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [timeLeft, setTimeLeft] = useState(297); // 04:57
+
+  useAndroidSmsOtpRetriever({
+    enabled: channel === "Mobile" && step === 1,
+    timeoutMs: 297000,
+    onOtp: (receivedOtp) => {
+      setOtp(receivedOtp);
+      setErrorMsg("");
+    },
+  });
 
   useEffect(() => {
     if (step !== 1) return;
@@ -128,7 +139,7 @@ export default function VerifyOtp() {
       {!!errorMsg && <View style={recoveryStyles.errorBanner}><Ionicons name="alert-circle-outline" size={18} color={authTheme.colors.error} /><Text style={recoveryStyles.errorText}>{errorMsg}</Text></View>}
       {step === 1 ? (
         <>
-          <AuthTextInput label="One-time password" icon="keypad-outline" placeholder="Enter 6-digit OTP" keyboardType="number-pad" maxLength={6} value={otp} inputStyle={recoveryStyles.otpInput} returnKeyType="done" onSubmitEditing={handleVerifyOtp} onChangeText={(v) => { setOtp(v.replace(/\D/g, "")); setErrorMsg(""); }} />
+          <AuthOtpInput value={otp} onSubmitEditing={handleVerifyOtp} onChangeText={(v) => { setOtp(v); setErrorMsg(""); }} />
           <View style={recoveryStyles.timerRow}><Ionicons name="time-outline" size={17} color={authTheme.colors.slate} /><Text style={recoveryStyles.timerText}>Expires in <Text style={recoveryStyles.timerValue}>{formatTime(timeLeft)}</Text></Text></View>
           <AuthPrimaryButton title="Verify OTP" onPress={handleVerifyOtp} loading={loading} icon="checkmark" />
         </>
@@ -152,7 +163,6 @@ const recoveryStyles = StyleSheet.create({
   successText: { flex: 1, fontFamily: "Inter_500Medium", color: "#147A58", fontSize: 12.5 },
   errorBanner: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 14, backgroundColor: authTheme.colors.errorSoft, borderWidth: 1, borderColor: "#F5CDD2", marginBottom: 17 },
   errorText: { flex: 1, fontFamily: "Inter_500Medium", color: authTheme.colors.error, fontSize: 12.5, lineHeight: 18 },
-  otpInput: { fontFamily: "SpaceGrotesk_700Bold", fontSize: 20, letterSpacing: 7, textAlign: "center" },
   timerRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: -3, marginBottom: 21 },
   timerText: { fontFamily: "Inter_400Regular", color: authTheme.colors.slate, fontSize: 12.5 },
   timerValue: { fontFamily: "Inter_600SemiBold", color: authTheme.colors.redDeep },

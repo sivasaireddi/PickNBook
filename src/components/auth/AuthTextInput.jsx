@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { authTheme } from "./authStyles";
@@ -16,15 +16,16 @@ export default function AuthTextInput({
   dense = false,
   ...inputProps
 }) {
+  const [focused, setFocused] = useState(false);
   return (
     <View style={[styles.field, dense && styles.fieldDense, containerStyle]}>
       {!!label && <Text style={[styles.label, dense && styles.labelDense]}>{label}</Text>}
-      <View style={[styles.inputRow, dense && styles.inputRowDense, !!error && styles.errored]}>
+      <View style={[styles.inputRow, dense && styles.inputRowDense, focused && styles.focused, !!error && styles.errored]}>
         {!!icon && (
           <Ionicons
             name={icon}
             size={19}
-            color={authTheme.colors.slate}
+            color={focused || error ? authTheme.colors.red : authTheme.colors.slate}
             style={styles.icon}
           />
         )}
@@ -32,8 +33,8 @@ export default function AuthTextInput({
           {...inputProps}
           style={[styles.input, inputStyle]}
           placeholderTextColor="#99A1B3"
-          onFocus={onFocus}
-          onBlur={onBlur}
+          onFocus={(event) => { setFocused(true); onFocus?.(event); }}
+          onBlur={(event) => { setFocused(false); onBlur?.(event); }}
         />
         {!!rightIcon && (
           <TouchableOpacity
@@ -64,16 +65,17 @@ const styles = StyleSheet.create({
   },
   labelDense: { fontSize: 10.5, marginBottom: 3 },
   inputRow: {
-    height: 50,
+    height: 56,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: authTheme.radii.medium,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: authTheme.colors.line,
-    backgroundColor: "#F8F8FB",
+    borderColor: authTheme.colors.authBorder,
+    backgroundColor: authTheme.colors.authField,
     paddingHorizontal: 14,
   },
   inputRowDense: { height: 46, borderRadius: 12, paddingHorizontal: 11 },
+  focused: { borderWidth: 1.5, borderColor: authTheme.colors.red, backgroundColor: "#FFF9F9" },
   errored: { borderColor: authTheme.colors.error, backgroundColor: authTheme.colors.errorSoft },
   icon: { marginRight: 10 },
   input: {

@@ -14,18 +14,16 @@ const MobileLoginScreen = ({ navigation }) => {
       title="Sign in with mobile"
       subtitle="We’ll send a secure one-time code to your registered mobile number."
       onBack={goBack}
+      ticketFooter={(
+        <View style={styles.createRow}>
+          <Text style={styles.createText}>New to Pick&Book?</Text>
+          <TouchableOpacity onPress={() => navigation.navigate("CreateAccount")} style={styles.createHit} accessibilityRole="button">
+            <Text style={styles.createLink}>Create account</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     >
       <PhoneLoginForm navigation={navigation} />
-      <View style={styles.createRow}>
-        <Text style={styles.createText}>New to Pick&Book?</Text>
-        <TouchableOpacity
-          onPress={() => navigation.navigate("CreateAccount")}
-          style={styles.createHit}
-          accessibilityRole="button"
-        >
-          <Text style={styles.createLink}>Create account</Text>
-        </TouchableOpacity>
-      </View>
     </AuthScreenLayout>
   );
 };

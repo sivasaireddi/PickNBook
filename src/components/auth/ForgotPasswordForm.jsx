@@ -6,7 +6,7 @@ import AuthTextInput from "./AuthTextInput";
 import AuthPrimaryButton from "./AuthPrimaryButton";
 import { authTheme } from "./authStyles";
 
-export default function ForgotPasswordForm({ navigation, onBack, showHeading = true }) {
+export default function ForgotPasswordForm({ navigation, onBack, showHeading = true, showBackAction = true }) {
   const [activeTab, setActiveTab] = useState("email");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
@@ -110,10 +110,12 @@ export default function ForgotPasswordForm({ navigation, onBack, showHeading = t
       />
 
       <AuthPrimaryButton title="Send Reset OTP" onPress={handleSubmit} loading={loading} />
-      <TouchableOpacity style={styles.backToLogin} onPress={onBack} accessibilityRole="button">
-        <Ionicons name="arrow-back" size={16} color={authTheme.colors.redDeep} />
-        <Text style={styles.backToLoginText}>Back to sign in</Text>
-      </TouchableOpacity>
+      {showBackAction && (
+        <TouchableOpacity style={styles.backToLogin} onPress={onBack} accessibilityRole="button">
+          <Ionicons name="arrow-back" size={16} color={authTheme.colors.redDeep} />
+          <Text style={styles.backToLoginText}>Back to sign in</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -136,8 +138,8 @@ const styles = StyleSheet.create({
   segmentedControl: {
     flexDirection: "row",
     padding: 4,
-    borderRadius: 14,
-    backgroundColor: "#F1F1F5",
+    borderRadius: authTheme.radii.pill,
+    backgroundColor: authTheme.colors.authBlush,
     marginBottom: 16,
     gap: 4,
   },
@@ -148,7 +150,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
-    borderRadius: 11,
+    borderRadius: authTheme.radii.pill,
   },
   segmentActive: { backgroundColor: authTheme.colors.redDeep },
   segmentText: { fontFamily: "Inter_600SemiBold", color: authTheme.colors.inkSoft, fontSize: 12.5 },
