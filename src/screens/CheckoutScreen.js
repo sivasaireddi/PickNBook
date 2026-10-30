@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,6 +17,14 @@ import { useCashfreePayment } from '../hooks/useCashfreePayment';
 import { getStoredAuthToken } from '../utils/authSession';
 import BookingConfirmationScreen from './BookingConfirmationScreen';
 import BookingFailureScreen from './BookingFailureScreen';
+import {
+  formatBusSeatHoldTime,
+  getBusSeatHoldRemainingMs,
+  areSamePassengerSeatAssignments,
+  validateBusPrePayment,
+} from '../utils/busSeatHold';
+
+const EXPIRED_SEAT_HOLD_MESSAGE = 'Your reserved seat block has expired. Please try booking again.';
 
 const money = (value) =>
   `₹${Number(value || 0).toLocaleString('en-IN', {
@@ -88,10 +98,17 @@ const CheckoutScreen = ({ route, navigation }) => {
     amount,
     bookingType,
     reviewDetails = {},
+    seatHold,
+    bookingAttempt,
   } = route?.params || {};
   const insets = useSafeAreaInsets();
   const [authToken, setAuthToken] = useState(userToken || '');
   const payPressRef = useRef(false);
+  const bypassBackGuardRef = useRef(false);
+  const [leaveDialogVisible, setLeaveDialogVisible] = useState(false);
+  const [holdRemainingMs, setHoldRemainingMs] = useState(() =>
+    getBusSeatHoldRemainingMs(seatHold?.expiresAt)
+  );
 
   useEffect(() => {
     if (!authToken) {
@@ -123,6 +140,126 @@ const CheckoutScreen = ({ route, navigation }) => {
   const seats = Array.isArray(reviewDetails?.seats) ? reviewDetails.seats : [];
   const payableAmount = Number(amount || 0);
   const loading = ['creating_order', 'awaiting_payment', 'verifying'].includes(status);
+  const currentSeatHold = useMemo(() => ({
+    blockKey: seatHold?.blockKey || bookingDetails?.blockKey,
+    blockedAt: seatHold?.blockedAt,
+    expiresAt: seatHold?.expiresAt,
+  }), [bookingDetails?.blockKey, seatHold?.blockKey, seatHold?.blockedAt, seatHold?.expiresAt]);
+  const hasSeatHold = Boolean(
+    String(currentSeatHold.blockKey || '').trim() && Number.isFinite(Number(currentSeatHold.expiresAt))
+  );
+  const holdExpired = isBus && hasSeatHold && holdRemainingMs <= 0;
+  const holdValid = !isBus || (hasSeatHold && holdRemainingMs > 0);
+  const tripIdentityMatches = !isBus || [
+    ['traceId', bookingDetails?.traceId],
+    ['resultIndex', bookingDetails?.resultIndex],
+    ['srdvIndex', bookingDetails?.srdvIndex],
+  ].every(([key, currentValue]) =>
+    String(currentValue ?? '').trim() === String(bookingAttempt?.[key] ?? '').trim()
+  );
+  const passengerAssignmentsMatch = !isBus || areSamePassengerSeatAssignments(
+    passengers,
+    bookingAttempt?.passengers,
+  );
+  const busPrePaymentValidation = useMemo(() => validateBusPrePayment({
+    seatHold: currentSeatHold,
+    currentSeats: seats,
+    heldSeatNames: bookingAttempt?.heldSeatNames,
+    tripIdentityMatches,
+    passengerAssignmentsMatch,
+    pricingPreview: bookingAttempt?.pricingPreview,
+    pricingPreviewStatus: bookingAttempt?.pricingPreviewStatus,
+    payableAmount,
+    authoritativePayableAmount: bookingAttempt?.authoritativePayableAmount,
+  }), [
+    bookingAttempt?.authoritativePayableAmount,
+    bookingAttempt?.heldSeatNames,
+    bookingAttempt?.pricingPreview,
+    bookingAttempt?.pricingPreviewStatus,
+    currentSeatHold,
+    holdRemainingMs,
+    passengerAssignmentsMatch,
+    payableAmount,
+    seats,
+    tripIdentityMatches,
+  ]);
+  const paymentReady = !isBus || busPrePaymentValidation.valid;
+
+  useEffect(() => {
+    if (!isBus) return;
+    console.log('[BusCheckout] Pre-payment validation', {
+      attemptId: bookingAttempt?.attemptId,
+      valid: busPrePaymentValidation.valid,
+      reason: busPrePaymentValidation.reason,
+      seats,
+      pricingPreviewStatus: bookingAttempt?.pricingPreviewStatus,
+    });
+  }, [
+    bookingAttempt?.attemptId,
+    bookingAttempt?.pricingPreviewStatus,
+    busPrePaymentValidation.reason,
+    busPrePaymentValidation.valid,
+    isBus,
+    seats,
+  ]);
+
+  const navigateToSeatSelection = useCallback(() => {
+    console.log('[BusCheckout] Returning to seat selection', {
+      attemptId: bookingAttempt?.attemptId,
+      seats: bookingAttempt?.heldSeatNames || seats,
+    });
+    bypassBackGuardRef.current = true;
+    setLeaveDialogVisible(false);
+    navigation.popTo(
+      bookingAttempt?.seatSelectionRouteName || 'SeaterSleeper2Plus1Standard',
+      {
+        ...(bookingAttempt?.resumeParams || {}),
+        bookingAttempt,
+        selectedSeats: bookingAttempt?.heldSeatNames || seats,
+        selectedSeatDetails: bookingAttempt?.heldSeatDetails || [],
+        seatNumber: (bookingAttempt?.heldSeatNames || seats).join(', '),
+      }
+    );
+    requestAnimationFrame(() => {
+      bypassBackGuardRef.current = false;
+    });
+  }, [bookingAttempt, navigation, seats]);
+
+  const handleReviewBack = useCallback(() => {
+    if (status === 'idle' && holdValid) {
+      setLeaveDialogVisible(true);
+      return;
+    }
+    navigateToSeatSelection();
+  }, [holdValid, navigateToSeatSelection, status]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (bypassBackGuardRef.current || status !== 'idle' || !holdValid) return;
+      event.preventDefault();
+      setLeaveDialogVisible(true);
+    });
+    return unsubscribe;
+  }, [holdValid, navigation, status]);
+
+  useEffect(() => {
+    if (!isBus) return undefined;
+
+    const syncRemainingTime = () => {
+      setHoldRemainingMs(getBusSeatHoldRemainingMs(currentSeatHold.expiresAt));
+    };
+
+    syncRemainingTime();
+    const timer = setInterval(syncRemainingTime, 1000);
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncRemainingTime();
+    });
+
+    return () => {
+      clearInterval(timer);
+      appStateSubscription.remove();
+    };
+  }, [currentSeatHold.expiresAt, isBus]);
 
   const fareRows = useMemo(() => {
     const rows = [];
@@ -134,7 +271,7 @@ const CheckoutScreen = ({ route, navigation }) => {
       rows.push([fare.couponLabel || 'Coupon discount', `-${money(fare.couponAmount)}`]);
     }
     if (Number(fare.gstAmount) > 0) {
-      rows.push([fare.gstPercent != null ? `GST (${fare.gstPercent}%)` : 'GST', money(fare.gstAmount)]);
+      rows.push(['Operator GST', money(fare.gstAmount)]);
     }
     if (Number(fare.convenienceFee) > 0) rows.push(['Convenience fee', money(fare.convenienceFee)]);
     return rows;
@@ -143,6 +280,39 @@ const CheckoutScreen = ({ route, navigation }) => {
   const handlePayPress = async () => {
     if (payPressRef.current || loading) return;
     payPressRef.current = true;
+
+    // Re-read the absolute expiry at tap time so a stale displayed second can
+    // never open Cashfree at the hold boundary.
+    const liveValidation = isBus ? validateBusPrePayment({
+      seatHold: currentSeatHold,
+      currentSeats: seats,
+      heldSeatNames: bookingAttempt?.heldSeatNames,
+      tripIdentityMatches,
+      passengerAssignmentsMatch,
+      pricingPreview: bookingAttempt?.pricingPreview,
+      pricingPreviewStatus: bookingAttempt?.pricingPreviewStatus,
+      payableAmount,
+      authoritativePayableAmount: bookingAttempt?.authoritativePayableAmount,
+      now: Date.now(),
+    }) : { valid: true, reason: null };
+    if (isBus && !liveValidation.valid) {
+      payPressRef.current = false;
+      if (liveValidation.reason === 'hold_expired') {
+        setHoldRemainingMs(0);
+        Alert.alert('Seat reservation expired', EXPIRED_SEAT_HOLD_MESSAGE);
+      } else {
+        const validationMessages = {
+          seat_mismatch: 'The selected seats no longer match your active reservation. Please return to seat selection.',
+          trip_mismatch: 'The trip details no longer match this reservation. Please return to seat selection.',
+          passenger_mismatch: 'The passenger and seat assignments changed. Please review the booking again.',
+          pricing_not_live: 'Unable to verify the latest fare for this reservation. Please review the booking again.',
+          amount_mismatch: 'The payable amount changed after fare verification. Please review the booking again.',
+        };
+        Alert.alert('Checkout needs review', validationMessages[liveValidation.reason] || 'Please review this reservation again.');
+      }
+      return;
+    }
+
     let tokenToUse = authToken;
     if (!tokenToUse) {
       tokenToUse = await getStoredAuthToken().catch(() => '');
@@ -202,7 +372,7 @@ const CheckoutScreen = ({ route, navigation }) => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()} accessibilityLabel="Go back">
+        <TouchableOpacity style={styles.backButton} onPress={handleReviewBack} accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={22} color="#0F172A" />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
@@ -221,8 +391,9 @@ const CheckoutScreen = ({ route, navigation }) => {
             <LinearGradient colors={['#D7192D', '#B40E22', '#171827']} style={styles.tripCard}>
               <View style={styles.tripTopRow}>
                 <View style={styles.busIcon}><MaterialCommunityIcons name="bus" size={22} color="#FFFFFF" /></View>
-                <View style={styles.seatPill}>
-                  <Text style={styles.seatPillText}>{seats.length} {seats.length === 1 ? 'Seat' : 'Seats'} Selected</Text>
+                <View style={[styles.seatPill, !holdValid && styles.seatPillExpired]}>
+                  <Ionicons name="time-outline" size={14} color="#FFFFFF" />
+                  <Text style={styles.seatPillText}>{formatBusSeatHoldTime(holdRemainingMs)}</Text>
                 </View>
               </View>
               <Text style={styles.tripEyebrow}>YOUR TRIP</Text>
@@ -247,6 +418,13 @@ const CheckoutScreen = ({ route, navigation }) => {
                 <View style={styles.metaItem}><Ionicons name="calendar-outline" size={15} color="#FFE4E6" /><Text style={styles.metaText}>{reviewDetails.journeyDate || 'Date unavailable'}</Text></View>
                 <View style={styles.metaItem}><MaterialIcons name="event-seat" size={16} color="#FFE4E6" /><Text style={styles.metaText}>{seats.join(', ') || 'No seats'}</Text></View>
               </View>
+              {!holdValid ? (
+                <Text style={styles.tripHoldError}>
+                  {holdExpired
+                    ? EXPIRED_SEAT_HOLD_MESSAGE
+                    : 'Unable to verify the seat reservation. Please try booking again.'}
+                </Text>
+              ) : null}
             </LinearGradient>
 
             <View style={styles.sectionCard}>
@@ -288,7 +466,7 @@ const CheckoutScreen = ({ route, navigation }) => {
           <Text style={styles.payLabel}>TOTAL PAYABLE</Text>
           <Text style={styles.payAmount}>{money(payableAmount)}</Text>
         </View>
-        <TouchableOpacity style={[styles.payButton, loading && styles.payButtonDisabled]} onPress={handlePayPress} disabled={loading}>
+        <TouchableOpacity style={[styles.payButton, (loading || !paymentReady) && styles.payButtonDisabled]} onPress={handlePayPress} disabled={loading || !paymentReady}>
           {loading ? (
             <><ActivityIndicator color="#FFFFFF" size="small" /><Text style={styles.payButtonText}>{status === 'verifying' ? 'Verifying' : 'Please wait'}</Text></>
           ) : (
@@ -296,6 +474,31 @@ const CheckoutScreen = ({ route, navigation }) => {
           )}
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={leaveDialogVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLeaveDialogVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.leaveDialog}>
+            <View style={styles.leaveDialogIcon}>
+              <Ionicons name="time-outline" size={24} color="#C9152B" />
+            </View>
+            <Text style={styles.leaveDialogTitle}>Leave checkout?</Text>
+            <Text style={styles.leaveDialogText}>
+              Your selected {seats.length === 1 ? 'seat is' : 'seats are'} reserved for {formatBusSeatHoldTime(holdRemainingMs)}. Going back may affect availability or fare.
+            </Text>
+            <TouchableOpacity style={styles.leavePrimary} onPress={() => setLeaveDialogVisible(false)}>
+              <Text style={styles.leavePrimaryText}>Continue booking</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.leaveSecondary} onPress={navigateToSeatSelection}>
+              <Text style={styles.leaveSecondaryText}>Back to seat selection</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -312,7 +515,8 @@ const styles = StyleSheet.create({
   tripCard: { borderRadius: 24, padding: 18, overflow: 'hidden' },
   tripTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   busIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.14)' },
-  seatPill: { paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.14)' },
+  seatPill: { minWidth: 76, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.14)' },
+  seatPillExpired: { backgroundColor: 'rgba(15,23,42,0.34)' },
   seatPillText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
   tripEyebrow: { color: '#FECDD3', fontSize: 11, letterSpacing: 1.4, fontWeight: '800' },
   operatorName: { color: '#FFFFFF', fontSize: 24, fontWeight: '900', marginTop: 4 },
@@ -326,6 +530,7 @@ const styles = StyleSheet.create({
   tripMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 14 },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 100 },
   metaText: { color: '#FFE4E6', fontSize: 12, fontWeight: '600', flexShrink: 1 },
+  tripHoldError: { color: '#FFFFFF', fontSize: 11, lineHeight: 16, fontWeight: '700', marginTop: 12, padding: 10, borderRadius: 12, backgroundColor: 'rgba(15,23,42,0.28)' },
   sectionCard: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#E7EAF0', shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   sectionHeading: { flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 14 },
   sectionIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF1F2' },
@@ -351,6 +556,15 @@ const styles = StyleSheet.create({
   payButton: { minWidth: 154, height: 54, borderRadius: 17, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#D7192D' },
   payButtonDisabled: { opacity: 0.7 },
   payButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  modalBackdrop: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: 'rgba(15,23,42,0.48)' },
+  leaveDialog: { borderRadius: 24, padding: 22, backgroundColor: '#FFFFFF' },
+  leaveDialogIcon: { width: 50, height: 50, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF1F2' },
+  leaveDialogTitle: { color: '#0F172A', fontSize: 22, fontWeight: '900', marginTop: 16 },
+  leaveDialogText: { color: '#64748B', fontSize: 14, lineHeight: 21, marginTop: 8, marginBottom: 20 },
+  leavePrimary: { minHeight: 52, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#D7192D' },
+  leavePrimaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  leaveSecondary: { minHeight: 50, alignItems: 'center', justifyContent: 'center', marginTop: 6 },
+  leaveSecondaryText: { color: '#C9152B', fontSize: 14, fontWeight: '800' },
   statePage: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, backgroundColor: '#F8FAFC' },
   stateIcon: { width: 78, height: 78, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF1F2' },
   stateTitle: { color: '#0F172A', fontSize: 23, fontWeight: '900', textAlign: 'center', marginTop: 20 },

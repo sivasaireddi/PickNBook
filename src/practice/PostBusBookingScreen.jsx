@@ -35,6 +35,7 @@ import {
 } from "@expo/vector-icons";
 
 import { API_BASE_URL } from "../constants/config";
+import { areSameBusSeatSets, createBusSeatHold, isBusSeatHoldValid } from "../utils/busSeatHold";
 
 const BASE_URL = API_BASE_URL;
 
@@ -58,6 +59,10 @@ const redactBookingLog = (value) => {
 
   return Object.fromEntries(
     Object.entries(value).map(([key, child]) => {
+      if (key.toLowerCase().includes("blockkey")) {
+        const blockKey = String(child || "");
+        return [key, blockKey ? `[PRESENT:...${blockKey.slice(-3)}]` : "[MISSING]"];
+      }
       const hidden = ["contactNo", "phone", "phoneNumber", "email", "idNumber", "address", "firstName", "lastName", "fullName", "passengerName"].some((field) =>
         key.toLowerCase().includes(field.toLowerCase())
       );
@@ -204,6 +209,23 @@ const extractApiErrorMessage = (data) => {
   }
 
   return null;
+};
+
+const getBusBlockErrorCode = (data) => String(
+  data?.Error?.ErrorCode ??
+  data?.Error?.errorCode ??
+  data?.errorCode ??
+  data?.ErrorCode ??
+  data?.code ??
+  '',
+).trim().toUpperCase();
+
+const getBusBlockErrorMessage = (code, fallback) => {
+  if (code === '7019') return 'Your seat selection changed. Please refresh availability and choose a completely different seat set.';
+  if (code === '7023') return 'Seat temporarily on hold. Please choose another seat or wait for the hold to expire.';
+  if (code === '7040') return 'This seat is reserved for female passengers. Please adjust your selection.';
+  if (code === 'SESSION_EXPIRED') return 'Session expired. Refreshing bus schedules.';
+  return fallback || 'Seat is no longer available. Please choose another seat.';
 };
 
 const normalizeSeatList = (value) => {
@@ -584,6 +606,11 @@ const SectionCard = ({ title, subtitle, icon, children, style }) => (
 );
 
 const PostBusBookingScreen = ({ route, navigation }) => {
+  const resumedBookingAttempt = route?.params?.bookingAttempt || null;
+  const replacementContact = route?.params?.replacementContact || null;
+  const replacementPassengers = Array.isArray(route?.params?.replacementPassengers)
+    ? route.params.replacementPassengers
+    : [];
   const busId = normalizeIdValue(route?.params?.busId) ?? 11;
   const selectedBus = route?.params?.bus || {};
   const idProofRequired = isIdProofRequiredValue(
@@ -635,37 +662,50 @@ const PostBusBookingScreen = ({ route, navigation }) => {
   const [savedTravelerPickerOpen, setSavedTravelerPickerOpen] = useState(false);
   const [genderPickerIndex, setGenderPickerIndex] = useState(null);
 
-  const [passengerName, setPassengerName] = useState("");
-  const [passengerPhone, setPassengerPhone] = useState("");
-  const [passengerEmail, setPassengerEmail] = useState("");
+  const [passengerName, setPassengerName] = useState(resumedBookingAttempt?.contact?.name || replacementContact?.name || "");
+  const [passengerPhone, setPassengerPhone] = useState(resumedBookingAttempt?.contact?.phone || replacementContact?.phone || "");
+  const [passengerEmail, setPassengerEmail] = useState(resumedBookingAttempt?.contact?.email || replacementContact?.email || "");
   const [idProofErrors, setIdProofErrors] = useState({});
 
-  const [couponCode, setCouponCode] = useState("");
-  const [couponInputText, setCouponInputText] = useState("");
+  const [couponCode, setCouponCode] = useState(resumedBookingAttempt?.couponCode || "");
+  const [couponInputText, setCouponInputText] = useState(resumedBookingAttempt?.couponCode || "");
   const [couponFeedback, setCouponFeedback] = useState("");
-  const [selectedFeaturedOfferId, setSelectedFeaturedOfferId] = useState(normalizeIdValue(route?.params?.selectedFeaturedOfferId) || null);
+  const [selectedFeaturedOfferId, setSelectedFeaturedOfferId] = useState(
+    normalizeIdValue(resumedBookingAttempt?.selectedFeaturedOfferId ?? route?.params?.selectedFeaturedOfferId) || null
+  );
   
   const [availableCoupons, setAvailableCoupons] = useState([]);
   const [featuredOffers, setFeaturedOffers] = useState([]);
   const [dealsLoading, setDealsLoading] = useState(false);
   
-  const [pricing, setPricing] = useState(null);
+  const [pricing, setPricing] = useState(resumedBookingAttempt?.pricing || null);
   const [selectedSeatDetails, setSelectedSeatDetails] = useState(routeSeatDetails);
 
   // Cache block response to prevent double /block calls
-  const [cachedBlockKey, setCachedBlockKey] = useState(null);
-  const [cachedBlockResponse, setCachedBlockResponse] = useState(null);
+  const [cachedBlockKey, setCachedBlockKey] = useState(resumedBookingAttempt?.seatHold?.blockKey || null);
+  const [cachedBlockResponse, setCachedBlockResponse] = useState(resumedBookingAttempt?.blockResponse || null);
+  const [cachedSeatHold, setCachedSeatHold] = useState(resumedBookingAttempt?.seatHold || null);
+  const pricingRequestRef = useRef(resumedBookingAttempt?.pricingPreviewRequest || null);
   const bookingSubmissionRef = useRef(false);
 
-  const [passengers, setPassengers] = useState(
-    selectedSeats.map((seat) => ({
-      fullName: "",
-      gender: "",
-      seatNumber: seat,
-      age: "",
-      idType: "Aadhar",
-      idNumber: "",
-    }))
+  const [passengers, setPassengers] = useState(() =>
+    selectedSeats.map((seat, index) => {
+      const resumedPassenger = resumedBookingAttempt?.passengers?.find(
+        (passenger) => String(passenger.seatNumber) === String(seat)
+      );
+      const replacementPassenger = replacementPassengers[index];
+      return resumedPassenger || (replacementPassenger ? {
+        ...replacementPassenger,
+        seatNumber: seat,
+      } : {
+        fullName: "",
+        gender: "",
+        seatNumber: seat,
+        age: "",
+        idType: "Aadhar",
+        idNumber: "",
+      });
+    })
   );
 
   const fetchSeatCollection = async () => {
@@ -690,9 +730,9 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       setAuthToken(token || "");
 
-      setPassengerName(user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim());
-      setPassengerPhone(removeIndianCountryCode(user?.phoneNumber));
-      setPassengerEmail(user?.email || "");
+      setPassengerName((current) => current || user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim());
+      setPassengerPhone((current) => current || removeIndianCountryCode(user?.phoneNumber));
+      setPassengerEmail((current) => current || user?.email || "");
     } catch (error) {
       console.log("Session Load Error:", error);
     } finally {
@@ -803,7 +843,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
     return "Seater";
   };
 
-  const fetchPricingPreview = async ({ applyPricing = true } = {}) => {
+  const fetchPricingPreview = async ({ applyPricing = true, requestPayload: preservedRequest = null } = {}) => {
     logBusBookingFlow("Pricing preview started", {
       applyPricing,
       selectedSeats,
@@ -823,7 +863,8 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       setPricingLoading(true);
 
       let finalSeats = [];
-      try {
+      if (!preservedRequest) {
+        try {
         const hasBaseFare = selectedSeatDetails.some((d) => d.baseFare !== undefined && d.baseFare !== null);
         if (!hasBaseFare) {
           console.log("[PricingPreview] Fetching layout to resolve seat details...");
@@ -850,17 +891,18 @@ const PostBusBookingScreen = ({ route, navigation }) => {
             };
           });
         }
-      } catch (e) {
-        console.warn("[PricingPreview] Failed to resolve seat details, using fallbacks:", e.message);
-        finalSeats = selectedSeats.map((seatCode) => {
-          const detail = selectedSeatDetails.find((d) => String(d.seatCode) === String(seatCode)) || {};
-          return {
-            seatCode: String(seatCode),
-            baseFare: Number(detail.priceInr ?? 0),
-            seatType: getCleanSeatType(detail.seatType),
-            externalGst: Number(detail.externalGst ?? 0),
-          };
-        });
+        } catch (e) {
+          console.warn("[PricingPreview] Failed to resolve seat details, using fallbacks:", e.message);
+          finalSeats = selectedSeats.map((seatCode) => {
+            const detail = selectedSeatDetails.find((d) => String(d.seatCode) === String(seatCode)) || {};
+            return {
+              seatCode: String(seatCode),
+              baseFare: Number(detail.priceInr ?? 0),
+              seatType: getCleanSeatType(detail.seatType),
+              externalGst: Number(detail.externalGst ?? 0),
+            };
+          });
+        }
       }
 
       const busObj = route?.params?.bus || {};
@@ -883,7 +925,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         (sum, s) => sum + s.baseFare + s.externalGst, 0
       );
 
-      const requestPayload = {
+      const rebuiltRequestPayload = {
         traceId,
         resultIndex: String(route?.params?.resultIndex ?? busObj.resultIndex ?? route?.params?.ResultIndex ?? busObj.ResultIndex ?? ""),
         srdvIndex: Number(route?.params?.srdvIndex ?? busObj.srdvIndex ?? route?.params?.SrdvIndex ?? busObj.SrdvIndex ?? 0) || undefined,
@@ -897,11 +939,20 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         totalFare,
         seats: seatsPayload,
       };
+      const requestPayload = preservedRequest
+        ? {
+            ...preservedRequest,
+            seats: Array.isArray(preservedRequest.seats)
+              ? preservedRequest.seats.map((seat) => ({ ...seat }))
+              : [],
+          }
+        : rebuiltRequestPayload;
 
       logBusBookingFlow("Pricing preview request", requestPayload);
 
       const apiData = await getPricingPreview(requestPayload);
       const pricingPayload = extractPricingPayload(apiData) || apiData;
+      pricingRequestRef.current = requestPayload;
 
       logBusBookingFlow("Pricing preview response", pricingPayload);
 
@@ -1185,8 +1236,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       ? `-${formatCurrencyDetailed(fareSummary.couponAmount)}`
       : "Not applied";
 
-  const gstSummaryLabel =
-    fareSummary.gstPercent !== null ? `GST (${fareSummary.gstPercent}%)` : "GST";
+  const gstSummaryLabel = "Operator GST";
 
   useEffect(() => {
     loadSession();
@@ -1212,9 +1262,15 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       })
     );
 
-    // Reset block cache when seat selection changes
-    setCachedBlockKey(null);
-    setCachedBlockResponse(null);
+    const canResumeCurrentHold =
+      isBusSeatHoldValid(resumedBookingAttempt?.seatHold) &&
+      areSameBusSeatSets(selectedSeats, resumedBookingAttempt?.heldSeatNames);
+
+    if (!canResumeCurrentHold) {
+      setCachedBlockKey(null);
+      setCachedBlockResponse(null);
+      setCachedSeatHold(null);
+    }
   }, [selectedSeats]);
 
   useFocusEffect(
@@ -1258,10 +1314,26 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       return;
     }
 
+    const canRestoreAuthoritativePricing =
+      isBusSeatHoldValid(resumedBookingAttempt?.seatHold) &&
+      areSameBusSeatSets(selectedSeats, resumedBookingAttempt?.heldSeatNames) &&
+      resumedBookingAttempt?.pricingPreviewStatus === "live" &&
+      Boolean(resumedBookingAttempt?.pricingPreview);
+
+    if (canRestoreAuthoritativePricing) {
+      setPricing(resumedBookingAttempt.pricingPreview);
+      pricingRequestRef.current = resumedBookingAttempt.pricingPreviewRequest || null;
+      return;
+    }
+
+    if (seatPricingLoading) {
+      return;
+    }
+
     console.log("Fetching Pricing Preview...");
 
     fetchPricingPreview();
-  }, [authToken, couponCode, selectedFeaturedOfferId, selectedSeats, sessionLoading]);
+  }, [authToken, couponCode, resumedBookingAttempt, seatPricingLoading, selectedFeaturedOfferId, selectedSeats, sessionLoading]);
 
   useEffect(() => {
     let isActive = true;
@@ -1394,9 +1466,27 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       const selectedSeatCodes = normalizedPassengers.map((passenger) => passenger.seatNumber);
 
-      const finalPricingPayload = await fetchPricingPreview({
-        applyPricing: true,
-      });
+      const isSameActiveAttempt =
+        isBusSeatHoldValid(resumedBookingAttempt?.seatHold) &&
+        areSameBusSeatSets(selectedSeatCodes, resumedBookingAttempt?.heldSeatNames);
+      const canReuseAuthoritativePricing =
+        isSameActiveAttempt &&
+        resumedBookingAttempt?.pricingPreviewStatus === "live" &&
+        Boolean(resumedBookingAttempt?.pricingPreview) &&
+        Boolean(resumedBookingAttempt?.pricingPreviewRequest);
+      const finalPricingPayload = canReuseAuthoritativePricing
+        ? resumedBookingAttempt.pricingPreview
+        : await fetchPricingPreview({ applyPricing: true });
+
+      if (canReuseAuthoritativePricing) {
+        pricingRequestRef.current = resumedBookingAttempt.pricingPreviewRequest;
+        setPricing(resumedBookingAttempt.pricingPreview);
+        logBusBookingFlow("Authoritative pricing reused", {
+          attemptId: resumedBookingAttempt.attemptId,
+          seats: resumedBookingAttempt.pricingPreviewRequest.seats,
+          payableAmount: resumedBookingAttempt.authoritativePayableAmount,
+        });
+      }
 
       logBusBookingFlow("Booking pricing result", finalPricingPayload);
 
@@ -1665,12 +1755,14 @@ const PostBusBookingScreen = ({ route, navigation }) => {
       // 1. Block Seats — reuse cached block if available to prevent double /block calls
       let blockResponse;
       let srdvBlockKey;
+      let seatHold;
 
-      if (cachedBlockKey && cachedBlockResponse) {
-        console.log("[PostBusBookingScreen] Reusing cached blockKey:", cachedBlockKey);
+      if (cachedBlockKey && cachedBlockResponse && isBusSeatHoldValid(cachedSeatHold)) {
+        console.log(`[PostBusBookingScreen] Reusing active seat hold (...${String(cachedBlockKey).slice(-3)})`);
         logBusBookingFlow("Seat block response reused", cachedBlockResponse);
         blockResponse = cachedBlockResponse;
         srdvBlockKey = cachedBlockKey;
+        seatHold = cachedSeatHold;
       } else {
         try {
           blockResponse = await blockSeats(finalBlockRequestBody);
@@ -1682,24 +1774,37 @@ const PostBusBookingScreen = ({ route, navigation }) => {
             response: blockError?.response?.data,
           });
           console.log("[PostBusBookingScreen] Seat block failed:", blockError);
+          const errorCode = getBusBlockErrorCode(blockError?.response?.data);
           const apiErrorMessage = extractApiErrorMessage(blockError?.response?.data);
+          if (errorCode === '7019' || errorCode === 'SESSION_EXPIRED') {
+            setCachedBlockKey(null);
+            setCachedBlockResponse(null);
+            setCachedSeatHold(null);
+            navigation.setParams({ bookingAttempt: null });
+          }
           Alert.alert(
             "Seat Block Failed",
-            apiErrorMessage || "Seat is no longer available. Please choose another seat."
+            getBusBlockErrorMessage(errorCode, apiErrorMessage)
           );
           setLoading(false);
           return;
         }
 
         // Check if blocking succeeded on SRDV side
-        const errCode = blockResponse?.Error?.ErrorCode ?? blockResponse?.Error?.errorCode ?? blockResponse?.errorCode ?? blockResponse?.ErrorCode;
+        const errCode = getBusBlockErrorCode(blockResponse);
         const errMsg = blockResponse?.Error?.ErrorMessage ?? blockResponse?.Error?.errorMessage ?? blockResponse?.errorMessage ?? blockResponse?.ErrorMessage ?? "Seat blocking failed.";
 
-        if (errCode !== undefined && errCode !== null && String(errCode).trim() !== "0") {
+        if (errCode && errCode !== "0") {
           console.log("[PostBusBookingScreen] Seat block reported Error:", errCode, errMsg);
+          if (errCode === '7019' || errCode === 'SESSION_EXPIRED') {
+            setCachedBlockKey(null);
+            setCachedBlockResponse(null);
+            setCachedSeatHold(null);
+            navigation.setParams({ bookingAttempt: null });
+          }
           Alert.alert(
             "Seat Block Failed",
-            errMsg
+            getBusBlockErrorMessage(errCode, errMsg)
           );
           setLoading(false);
           return;
@@ -1721,15 +1826,30 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         srdvBlockKey = String(blockKey || "");
         logBusBookingFlow("Seat block key resolved", { srdvBlockKey });
 
+        if (!srdvBlockKey) {
+          Alert.alert(
+            "Seat Block Failed",
+            "Unable to reserve the selected seat. Please choose your seat again."
+          );
+          setLoading(false);
+          return;
+        }
+
+        // The web flow starts its conservative 10-minute hold window only
+        // after the provider confirms the block and returns a BlockKey.
+        seatHold = createBusSeatHold(srdvBlockKey);
+
         // Cache the block response to prevent re-blocking
         setCachedBlockKey(srdvBlockKey);
         setCachedBlockResponse(blockResponse);
+        setCachedSeatHold(seatHold);
       }
 
       // 2. Extract Exact Seat Info from Block Response
       const blockTicketPassengers = 
         blockResponse?.BlockTicket?.Passenger || 
         blockResponse?.Result?.BlockTicket?.Passenger || 
+        blockResponse?.Passengers ||
         blockResponse?.Passenger ||
         blockResponse?.Result?.Passenger ||
         [];
@@ -1758,30 +1878,68 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
       // 3. Dynamic Pricing Preview
       let grandTotalToPay = customerTotalFare;
-      try {
+      let authoritativePricingPreview = finalPricingPayload;
+      let authoritativePricingRequest = pricingRequestRef.current;
+      if (canReuseAuthoritativePricing) {
+        const restoredTotal = Number(
+          authoritativePricingPreview?.grandTotal ??
+          authoritativePricingPreview?.GrandTotal ??
+          authoritativePricingPreview?.finalAmount
+        );
+        if (!Number.isFinite(restoredTotal)) {
+          Alert.alert("Pricing Error", "Unable to verify latest fare before booking.");
+          return;
+        }
+        grandTotalToPay = restoredTotal;
+        logBusBookingFlow("Final authoritative pricing reused", {
+          attemptId: resumedBookingAttempt.attemptId,
+          payableAmount: grandTotalToPay,
+        });
+      } else try {
         const pricingPayload = {
           traceId: String(route?.params?.traceId ?? busObj.traceId ?? ""),
           resultIndex: String(route?.params?.resultIndex ?? busObj.resultIndex ?? route?.params?.ResultIndex ?? busObj.ResultIndex ?? ""),
           srdvIndex: Number(route?.params?.srdvIndex ?? busObj.srdvIndex ?? route?.params?.SrdvIndex ?? busObj.SrdvIndex ?? 0) || undefined,
           couponCode: (couponCode && couponCode.trim()) ? couponCode.trim() : null,
           promotionId: null,
+          selectedFeaturedOfferId: selectedFeaturedOfferId || null,
           seats: previewSeats,
           fromCity,
           toCity,
           departureTime,
+          operatorName,
           busType,
           totalFare: providerTotalFare + previewSeats.reduce((sum, s) => sum + (Number(s.externalGst) || 0), 0)
         };
         const pricingResponse = await getPricingPreview(pricingPayload);
         logBusBookingFlow("Final pricing preview response", pricingResponse);
 
-        if (pricingResponse?.grandTotal) {
-          grandTotalToPay = Number(pricingResponse.grandTotal);
-        } else if (pricingResponse?.GrandTotal) {
-          grandTotalToPay = Number(pricingResponse.GrandTotal);
+        authoritativePricingPreview = extractPricingPayload(pricingResponse) || pricingResponse;
+        authoritativePricingRequest = pricingPayload;
+        pricingRequestRef.current = pricingPayload;
+        setPricing(authoritativePricingPreview);
+
+        if (authoritativePricingPreview?.grandTotal !== undefined) {
+          grandTotalToPay = Number(authoritativePricingPreview.grandTotal);
+        } else if (authoritativePricingPreview?.GrandTotal !== undefined) {
+          grandTotalToPay = Number(authoritativePricingPreview.GrandTotal);
+        } else {
+          throw new Error("Pricing preview did not return an authoritative payable amount.");
         }
       } catch (priceError) {
-        console.error("[PostBusBookingScreen] Pricing Preview failed, continuing with totalFare fallback:", priceError);
+        logBusBookingFlow("Final pricing preview failed", {
+          message: priceError?.message,
+          status: priceError?.response?.status,
+          response: priceError?.response?.data,
+        });
+        setPricing(null);
+        Alert.alert(
+          "Pricing Error",
+          priceError?.response?.data?.message ||
+            priceError?.response?.data?.Message ||
+            "Unable to verify latest fare before booking."
+        );
+        return;
       }
 
       // 4. Build exact bookRequestBody for Cashfree Webhook Fulfillment
@@ -1857,6 +2015,74 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         blockResponse: sanitizedBlockResponse
       };
 
+      const { bookingAttempt: _previousAttempt, ...resumeParams } = route?.params || {};
+      const bookingAttempt = {
+        attemptId: resumedBookingAttempt?.attemptId || `${blockRequestBody.traceId}:${blockRequestBody.resultIndex}:${selectedSeats.slice().sort().join(",")}:${seatHold.blockedAt}`,
+        blockKey: seatHold.blockKey,
+        blockedAt: seatHold.blockedAt,
+        expiresAt: seatHold.expiresAt,
+        seatHold,
+        traceId: blockRequestBody.traceId,
+        resultIndex: blockRequestBody.resultIndex,
+        srdvIndex: blockRequestBody.srdvIndex,
+        heldSeatNames: [...selectedSeats],
+        heldSeatDetails: previewSeats.map((seat) => ({
+          ...seat,
+          priceInr: Number(seat.baseFare || 0) + Number(seat.externalGst || 0),
+        })),
+        blockResponse: sanitizedBlockResponse,
+        originalBlockPayload: blockRequestBody,
+        boardingPoint: {
+          id: blockRequestBody.boardingPointId,
+          name: boardingPointName,
+          time: boardingPointTime || null,
+        },
+        droppingPoint: {
+          id: blockRequestBody.droppingPointId,
+          name: droppingPointName,
+          time: droppingPointTime || null,
+        },
+        passengers: normalizedPassengers.map((passenger) => ({
+          fullName: passenger.fullName,
+          gender: passenger.genderStr,
+          age: passenger.age,
+          seatNumber: passenger.seatNumber,
+          idType: passenger.idType,
+          idNumber: passenger.idNumber,
+        })),
+        contact: {
+          name: passengerName.trim() || normalizedPassengers[0]?.fullName || "",
+          phone: passengerPhone.trim(),
+          email: passengerEmail.trim(),
+        },
+        couponCode: couponCode || null,
+        selectedFeaturedOfferId: selectedFeaturedOfferId || null,
+        pricing: authoritativePricingPreview,
+        pricingPreview: authoritativePricingPreview,
+        pricingPreviewRequest: authoritativePricingRequest,
+        pricingPreviewStatus: "live",
+        authoritativePayableAmount: grandTotalToPay,
+        pricingVerified: true,
+        searchRequest: route?.params?.searchRequest || busObj?.searchRequest || null,
+        resumeParams,
+        seatSelectionRouteName: route?.params?.seatSelectionRouteName || "SeaterSleeper2Plus1Standard",
+      };
+
+      logBusBookingFlow("Booking attempt ready", {
+        attemptId: bookingAttempt.attemptId,
+        blockKey: bookingAttempt.blockKey,
+        blockedAt: bookingAttempt.blockedAt,
+        expiresAt: bookingAttempt.expiresAt,
+        traceId: bookingAttempt.traceId,
+        resultIndex: bookingAttempt.resultIndex,
+        srdvIndex: bookingAttempt.srdvIndex,
+        heldSeatNames: bookingAttempt.heldSeatNames,
+        boardingPointId: bookingAttempt.boardingPoint.id,
+        droppingPointId: bookingAttempt.droppingPoint.id,
+        pricingPreviewStatus: bookingAttempt.pricingPreviewStatus,
+        authoritativePayableAmount: bookingAttempt.authoritativePayableAmount,
+      });
+
       logBusBookingFlow("Checkout navigation payload", {
         amount: grandTotalToPay,
         bookingType: "Bus",
@@ -1872,6 +2098,8 @@ const PostBusBookingScreen = ({ route, navigation }) => {
         amount: grandTotalToPay,
         bookingType: "Bus",
         bookingDetails: bookingPayloadWithBlock,
+        seatHold,
+        bookingAttempt,
         customerDetails: {
           name: passengerName.trim() || passengers[0]?.fullName?.trim(),
           phone: passengerPhone.trim(),
@@ -2149,7 +2377,7 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                     <Text style={styles.emptyStateTitle}>No saved travelers found.</Text>
                     <TouchableOpacity
                       activeOpacity={0.85}
-                      onPress={handleAddNewTraveler}
+                      onPress={() => handleAddNewTraveler(0)}
                       style={styles.addNewTravelerCardBtn}
                     >
                       <Ionicons name="add" size={18} color="#D11A2A" />

@@ -8,6 +8,8 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -39,6 +41,13 @@ import DriverIndicator from "../components/busSeats/DriverIndicator";
 import SeatBottomSheet from "../components/busSeats/SeatBottomSheet";
 import SeatLayoutHeader from "../components/busSeats/SeatLayoutHeader";
 import SeatPriceFilters from "../components/busSeats/SeatPriceFilters";
+import {
+  BUS_SEAT_SET_CHANGE,
+  classifyBusSeatSetChange,
+  findAuthoritativeBusMatch,
+  isBusSeatHoldValid,
+} from "../utils/busSeatHold";
+import { searchBuses } from "../services/busService";
 
 const DEFAULT_BUS_ID = 658;
 const CELL_GAP = 4;
@@ -440,8 +449,21 @@ const DeckCardContainer = memo(
 const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   const { width: screenWidth } = Dimensions.get("window");
   const busId = route?.params?.busId ?? DEFAULT_BUS_ID;
-  const seededLayout = normalizeSeatLayoutPayload(route?.params?.seatLayout ?? null);
+  const seededLayout = useMemo(
+    () => normalizeSeatLayoutPayload(route?.params?.seatLayout ?? null),
+    [route?.params?.seatLayout],
+  );
   const insets = useSafeAreaInsets();
+  const bookingAttempt = route?.params?.bookingAttempt || null;
+  const [holdClock, setHoldClock] = useState(Date.now());
+  const [refreshingSeatAttempt, setRefreshingSeatAttempt] = useState(false);
+  const [overlapDialogVisible, setOverlapDialogVisible] = useState(false);
+  const [choosingReplacementSeats, setChoosingReplacementSeats] = useState(false);
+  const activeOwnHold = isBusSeatHoldValid(bookingAttempt?.seatHold, holdClock);
+  const ownHeldSeats = useMemo(
+    () => activeOwnHold ? bookingAttempt?.heldSeatNames || [] : [],
+    [activeOwnHold, bookingAttempt?.heldSeatNames],
+  );
 
   const [layout, setLayout] = useState(seededLayout);
   const [loading, setLoading] = useState(!seededLayout);
@@ -487,21 +509,42 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
   );
 
   useEffect(() => {
-    setSelectedSeats([]);
+    if (!bookingAttempt?.seatHold?.expiresAt) return undefined;
+    const timer = setInterval(() => setHoldClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [bookingAttempt?.seatHold?.expiresAt]);
+
+  useEffect(() => {
+    setSelectedSeats(activeOwnHold ? [...ownHeldSeats] : []);
     if (seededLayout) {
       setLayout(seededLayout);
       setLoading(false);
       return;
     }
     fetchSeats(true);
-  }, [busId, fetchSeats, seededLayout]);
+  }, [activeOwnHold, busId, fetchSeats, seededLayout]);
+
+  const effectiveLayout = useMemo(() => {
+    if (!layout || !activeOwnHold) return layout;
+    const ownSeatSet = new Set(ownHeldSeats.map(String));
+    return {
+      ...layout,
+      seats: (layout.seats || []).map((seat) =>
+        ownSeatSet.has(String(seat?.seatCode))
+          ? choosingReplacementSeats
+            ? { ...seat, isBooked: true, isAvailable: false }
+            : { ...seat, isBooked: false, isAvailable: true }
+          : seat
+      ),
+    };
+  }, [activeOwnHold, choosingReplacementSeats, layout, ownHeldSeats]);
 
   const seatMap = useMemo(
-    () => new Map((layout?.seats ?? []).map((seat) => [seat?.seatCode, seat])),
-    [layout],
+    () => new Map((effectiveLayout?.seats ?? []).map((seat) => [seat?.seatCode, seat])),
+    [effectiveLayout],
   );
 
-  const deckCards = useMemo(() => buildDeckData(layout), [layout]);
+  const deckCards = useMemo(() => buildDeckData(effectiveLayout), [effectiveLayout]);
   const selectedSeatSet = useMemo(() => new Set(selectedSeats), [selectedSeats]);
 
   const lowerDeckData = useMemo(() => deckCards.find(d => d.isLower), [deckCards]);
@@ -563,15 +606,91 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
     });
   }, [seatMap]);
 
-  const handleNext = useCallback(() => {
-    if (selectedSeats.length === 0 || !navigation?.navigate) return;
+  const handleNext = useCallback(async (seatOverride) => {
+    const seatsToContinue = Array.isArray(seatOverride) ? seatOverride : selectedSeats;
+    if (seatsToContinue.length === 0 || !navigation?.navigate || refreshingSeatAttempt) return;
+
+    const seatSetChange = classifyBusSeatSetChange(
+      bookingAttempt?.heldSeatNames || [],
+      seatsToContinue,
+    );
+    const sameActiveSeatSet = activeOwnHold && seatSetChange === BUS_SEAT_SET_CHANGE.SAME_SET;
+    if (activeOwnHold && seatSetChange === BUS_SEAT_SET_CHANGE.OVERLAPPING_CHANGED_SET) {
+      setOverlapDialogVisible(true);
+      return;
+    }
+
+    const isFullReplacement = Boolean(bookingAttempt && !sameActiveSeatSet);
+    let nextBus = route?.params?.bus || {};
+    let nextBusId = busId;
+    let nextLayout = layout;
+    let nextSeatMap = seatMap;
+
+    if (isFullReplacement) {
+      try {
+        setRefreshingSeatAttempt(true);
+        const searchRequest = bookingAttempt?.searchRequest ||
+          route?.params?.searchRequest ||
+          route?.params?.bus?.searchRequest;
+        if (!searchRequest?.fromCityCode || !searchRequest?.toCityCode || !searchRequest?.departDate) {
+          throw new Error("The original search session is unavailable. Please search for this trip again.");
+        }
+        const freshBuses = await searchBuses(searchRequest);
+        const freshBus = findAuthoritativeBusMatch(freshBuses, route?.params?.bus || {});
+        if (!freshBus) {
+          throw new Error("This bus is no longer available in the latest search. Please choose another bus.");
+        }
+
+        const freshLayout = await fetchSeatLayout(freshBus);
+        const freshSeatMap = new Map(
+          (freshLayout?.seats || []).map((seat) => [String(seat?.seatCode), seat]),
+        );
+        const unavailableSeats = seatsToContinue.filter((seatCode) => {
+          const seat = freshSeatMap.get(String(seatCode));
+          return !seat || Boolean(seat?.isBooked) || seat?.isAvailable === false;
+        });
+        if (unavailableSeats.length > 0) {
+          setLayout(freshLayout);
+          setSelectedSeats((current) => current.filter((seatCode) => !unavailableSeats.includes(seatCode)));
+          throw new Error(`Seat${unavailableSeats.length > 1 ? "s" : ""} ${unavailableSeats.join(", ")} became unavailable. Please choose another available seat.`);
+        }
+
+        nextBus = freshBus;
+        nextBusId = freshBus?.busId ?? freshBus?.id ?? busId;
+        nextLayout = freshLayout;
+        nextSeatMap = freshSeatMap;
+        console.log("[BusSeatChange] Fresh booking attempt prepared", {
+          previousTraceId: bookingAttempt?.traceId,
+          traceId: freshBus?.traceId,
+          resultIndex: freshBus?.resultIndex,
+          seats: seatsToContinue,
+        });
+      } catch (seatChangeError) {
+        Alert.alert("Refresh seats", seatChangeError?.message || "Unable to refresh this bus for a new seat selection.");
+        return;
+      } finally {
+        setRefreshingSeatAttempt(false);
+      }
+    }
+
     navigation.navigate("BordingNDroppingPoints", {
       ...route?.params,
-      busId,
-      selectedSeats,
-      selectedSeatDetails: selectedSeats.map((seatCode) => {
-        const seat = seatMap.get(seatCode) || {};
-        const rawPrice = getSeatPrice(seat, layout?.priceInr);
+      busId: nextBusId,
+      bus: nextBus,
+      traceId: nextBus?.traceId,
+      resultIndex: nextBus?.resultIndex,
+      srdvIndex: nextBus?.srdvIndex,
+      seatLayout: nextLayout,
+      selectedSeats: seatsToContinue,
+      bookingAttempt: sameActiveSeatSet ? bookingAttempt : null,
+      searchRequest: nextBus?.searchRequest || bookingAttempt?.searchRequest || route?.params?.searchRequest,
+      replacementContact: isFullReplacement ? bookingAttempt?.contact || null : null,
+      replacementPassengers: isFullReplacement ? bookingAttempt?.passengers || [] : [],
+      rematchBoardingPoints: isFullReplacement,
+      seatSelectionRouteName: "SeaterSleeper2Plus1Standard",
+      selectedSeatDetails: seatsToContinue.map((seatCode) => {
+        const seat = nextSeatMap.get(seatCode) || {};
+        const rawPrice = getSeatPrice(seat, nextLayout?.priceInr);
         const rawBase = seat.Price?.BaseFare ?? seat.Price?.baseFare ?? seat.BaseFare ?? seat.baseFare ?? seat.SeatFare ?? rawPrice ?? 0;
         const rawGst = seat.Price?.GSTAmount ?? seat.Price?.gstAmount ?? seat.GSTAmount ?? seat.gstAmount ?? 0;
         return {
@@ -582,13 +701,13 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
           externalGst: Number(rawGst),
         };
       }),
-      seatNumber: selectedSeats.join(", "),
+      seatNumber: seatsToContinue.join(", "),
       boardingPoints:
-        route?.params?.boardingPoints ?? layout?.boardingPoints ?? route?.params?.bus?.boardingPoints ?? [],
+        isFullReplacement ? [] : nextLayout?.boardingPoints ?? nextBus?.boardingPoints ?? [],
       droppingPoints:
-        route?.params?.droppingPoints ?? layout?.droppingPoints ?? route?.params?.bus?.droppingPoints ?? [],
+        isFullReplacement ? [] : nextLayout?.droppingPoints ?? nextBus?.droppingPoints ?? [],
     });
-  }, [busId, layout?.boardingPoints, layout?.droppingPoints, layout?.priceInr, navigation, route?.params, seatMap, selectedSeats]);
+  }, [activeOwnHold, bookingAttempt, busId, layout, navigation, ownHeldSeats, refreshingSeatAttempt, route?.params, seatMap, selectedSeats]);
 
   const numDecks = (lowerDeckData ? 1 : 0) + (upperDeckData ? 1 : 0);
   // Keep both deck cards in the viewport. The deck renderer scales its three
@@ -693,12 +812,52 @@ const SeaterSleeper2Plus1Standard = ({ navigation, route }) => {
             selectedSeats={selectedSeats}
             totalPrice={totalPrice}
             onNext={handleNext}
-            disabled={selectedSeats.length === 0}
+            disabled={selectedSeats.length === 0 || refreshingSeatAttempt}
             insets={insets}
             operatorName={operatorName}
             rating={busRating}
           />
         </View>
+
+        <Modal
+          visible={overlapDialogVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setOverlapDialogVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.overlapDialog}>
+              <View style={styles.overlapDialogIcon}>
+                <Ionicons name="layers-outline" size={25} color={BUS_SEAT_COLORS.primaryRed} />
+              </View>
+              <Text style={styles.overlapDialogTitle}>Seat selection can't be combined</Text>
+              <Text style={styles.overlapDialogText}>
+                Your current seats are already reserved. Continue with them, choose a completely different seat set, or wait for the hold to expire.
+              </Text>
+              <Pressable
+                style={styles.overlapPrimary}
+                onPress={() => {
+                  setChoosingReplacementSeats(false);
+                  setSelectedSeats([...ownHeldSeats]);
+                  setOverlapDialogVisible(false);
+                  handleNext([...ownHeldSeats]);
+                }}
+              >
+                <Text style={styles.overlapPrimaryText}>Continue with current seats</Text>
+              </Pressable>
+              <Pressable
+                style={styles.overlapSecondary}
+                onPress={() => {
+                  setChoosingReplacementSeats(true);
+                  setSelectedSeats([]);
+                  setOverlapDialogVisible(false);
+                }}
+              >
+                <Text style={styles.overlapSecondaryText}>Choose different seats</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </View>
     </SafeAreaView>
   );
@@ -813,4 +972,13 @@ const styles = StyleSheet.create({
     position: "relative",
     width: "100%",
   },
+  modalBackdrop: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "rgba(15,23,42,0.48)" },
+  overlapDialog: { borderRadius: 24, padding: 22, backgroundColor: "#FFFFFF" },
+  overlapDialogIcon: { width: 52, height: 52, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#FFF1F2" },
+  overlapDialogTitle: { marginTop: 16, color: "#0F172A", fontSize: 21, lineHeight: 27, fontWeight: "900" },
+  overlapDialogText: { marginTop: 9, marginBottom: 20, color: "#64748B", fontSize: 14, lineHeight: 21 },
+  overlapPrimary: { minHeight: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, backgroundColor: BUS_SEAT_COLORS.primaryRed },
+  overlapPrimaryText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
+  overlapSecondary: { minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 6 },
+  overlapSecondaryText: { color: BUS_SEAT_COLORS.primaryRed, fontSize: 14, fontWeight: "800" },
 });

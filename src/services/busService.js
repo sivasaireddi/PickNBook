@@ -43,12 +43,19 @@ const redactBusLog = (value) => {
   if (Array.isArray(value)) return value.map(redactBusLog);
   if (!value || typeof value !== "object") return value;
   const hiddenKeys = ["authorization", "token", "password", "phone", "email", "idnumber", "address"];
-  return Object.fromEntries(Object.entries(value).map(([key, child]) => [
-    key,
-    hiddenKeys.some((hidden) => key.toLowerCase().includes(hidden))
-      ? "[REDACTED]"
-      : redactBusLog(child),
-  ]));
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+    const normalizedKey = key.toLowerCase();
+    if (normalizedKey.includes("blockkey")) {
+      const blockKey = String(child || "");
+      return [key, blockKey ? `[PRESENT:...${blockKey.slice(-3)}]` : "[MISSING]"];
+    }
+    return [
+      key,
+      hiddenKeys.some((hidden) => normalizedKey.includes(hidden))
+        ? "[REDACTED]"
+        : redactBusLog(child),
+    ];
+  }));
 };
 
 const busFlowLog = (stage, data) => {
@@ -284,6 +291,9 @@ export async function searchBuses(params = {}, options = {}) {
 
       return {
         ...bus,
+        // Preserve the exact normalized request that produced this trace.
+        // Seat replacement must never reconstruct it from display labels.
+        searchRequest: { ...payload },
         // Storing bus Id for URLs
         busId: busIdVal,
         id: busIdVal,
@@ -805,8 +815,6 @@ export async function blockSeats(payload) {
   busFlowLog("SEAT BLOCK REQUEST", payload);
   try {
     // Make request without Authorization header
-    const serializedPayload = JSON.stringify(payload);
-    console.log("[BusService] FINAL serialized Seat Block payload:", serializedPayload);
     const response = await client.post("/api/BusBookings/block", payload);
     busFlowLog("SEAT BLOCK RESPONSE", response.data);
     return response.data;

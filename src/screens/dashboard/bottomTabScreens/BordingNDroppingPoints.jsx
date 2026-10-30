@@ -196,6 +196,33 @@ const buildPointOptions = (value, kind, fallbackLabel) => {
   );
 };
 
+const normalizePointMatchText = (value) =>
+  String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const normalizePointMatchTime = (value) => {
+  const text = String(value ?? '').trim();
+  const match = text.match(/(?:^|[T\s])(\d{1,2}):(\d{2})(?::\d{2})?/) ||
+    text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/);
+  return match ? `${String(Number(match[1])).padStart(2, '0')}:${match[2]}` : '';
+};
+
+const findPointByDescription = (options, previousPoint) => {
+  if (!previousPoint) return null;
+  const previousName = normalizePointMatchText(
+    previousPoint.name ?? previousPoint.Name ?? previousPoint.Location ?? previousPoint.location,
+  );
+  const previousTime = normalizePointMatchTime(
+    previousPoint.rawTime ?? previousPoint.time ?? previousPoint.Time,
+  );
+  if (!previousName) return null;
+
+  const exact = options.find((option) =>
+    normalizePointMatchText(option.name) === previousName &&
+    Boolean(previousTime && normalizePointMatchTime(option.rawTime ?? option.time) === previousTime),
+  );
+  return exact || options.find((option) => normalizePointMatchText(option.name) === previousName) || null;
+};
+
 // ─── Responsive Font Utility ───────────────────────────────────────────────
 const useResponsiveFont = () => {
   const { width } = useWindowDimensions();
@@ -348,6 +375,7 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    const requireFreshPoints = Boolean(routeParams.rematchBoardingPoints);
     const isObjectList = (list) =>
       Array.isArray(list) &&
       list.length > 0 &&
@@ -373,8 +401,8 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
         [],
     );
 
-    const validBp = isObjectList(rawBp) ? rawBp : [];
-    const validDp = isObjectList(rawDp) ? rawDp : [];
+    const validBp = !requireFreshPoints && isObjectList(rawBp) ? rawBp : [];
+    const validDp = !requireFreshPoints && isObjectList(rawDp) ? rawDp : [];
 
     setBoardingPointsList(validBp);
     setDroppingPointsList(validDp);
@@ -384,7 +412,7 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
     const resultIndex = routeParams.resultIndex ?? routeBus.resultIndex ?? '';
 
     if (traceId && resultIndex) {
-      if (validBp.length === 0 || validDp.length === 0) {
+      if (requireFreshPoints || validBp.length === 0 || validDp.length === 0) {
         setLoading(true);
       }
       import('../../../services/busService')
@@ -477,7 +505,9 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
 
   useEffect(() => {
     setSelectedBoardingId((currentId) => {
+      const rematchByDescription = Boolean(routeParams.rematchBoardingPoints);
       if (
+        !rematchByDescription &&
         currentId !== null &&
         boardingOptions.some(
           (option) => String(option.id) === String(currentId),
@@ -489,6 +519,9 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
       const explicitSelection =
         getObjectValue(routeParams.selectedBoardingPoint) ??
         getObjectValue(routeParams.boardingPoint);
+      if (rematchByDescription) {
+        return findPointByDescription(boardingOptions, explicitSelection)?.id ?? null;
+      }
       const explicitId = normalizeIdValue(
         routeParams.boardingPointId ??
           routeParams.BoardingPointId ??
@@ -507,7 +540,9 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
 
   useEffect(() => {
     setSelectedDroppingId((currentId) => {
+      const rematchByDescription = Boolean(routeParams.rematchBoardingPoints);
       if (
+        !rematchByDescription &&
         currentId !== null &&
         droppingOptions.some(
           (option) => String(option.id) === String(currentId),
@@ -519,6 +554,9 @@ const BordingNDroppingPoints = ({ navigation, route }) => {
       const explicitSelection =
         getObjectValue(routeParams.selectedDroppingPoint) ??
         getObjectValue(routeParams.droppingPoint);
+      if (rematchByDescription) {
+        return findPointByDescription(droppingOptions, explicitSelection)?.id ?? null;
+      }
       const explicitId = normalizeIdValue(
         routeParams.droppingPointId ??
           routeParams.DroppingPointId ??
