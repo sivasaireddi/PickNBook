@@ -43,6 +43,8 @@ const baseExpoConfig = {
   "plugins": [
     "@react-native-community/datetimepicker",
     "expo-secure-store",
+    "expo-image-picker",
+    "./plugins/withProfileCropperTheme",
     [
       "expo-location",
       {

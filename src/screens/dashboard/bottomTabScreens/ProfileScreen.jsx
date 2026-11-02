@@ -2,6 +2,7 @@ import React, { useCallback, useContext, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
   Linking,
   Modal,
@@ -15,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view'
 import { Ionicons } from '@expo/vector-icons'
 import { LinearGradient } from 'expo-linear-gradient'
 import * as SecureStore from 'expo-secure-store'
@@ -27,9 +29,17 @@ import { getWalletSummary } from '../../../services/WalletService'
 import { BUS_FLOW_COLORS } from '../../../constants/colors'
 import AppHeader from '../../../components/AppHeader'
 import LegalEntityFooter from '../../../components/common/LegalEntityFooter'
+import {
+  isValidProfileName,
+  normalizeIndianPhone,
+  sanitizeProfileName,
+} from '../../../utils/profileInput'
 
 const PROFILE_API_URL = `${API_BASE_URL}/api/profile`
 const PRIVACY_POLICY_URL = 'https://picknbook.in/legal/privacy-policy'
+const PHYSICAL_SCREEN_HEIGHT = Dimensions.get('screen').height
+const EDIT_PROFILE_SHEET_HEIGHT = Math.round(PHYSICAL_SCREEN_HEIGHT * 0.8)
+const EDIT_PROFILE_SHEET_TOP = Math.max(0, PHYSICAL_SCREEN_HEIGHT - EDIT_PROFILE_SHEET_HEIGHT)
 
 const getObjectValue = (value) =>
   value && typeof value === 'object' ? value : null
@@ -164,9 +174,9 @@ const ProfileScreen = () => {
 
   const applyUserState = (nextUser) => {
     setUser(nextUser)
-    setFirstName(nextUser?.firstName || '')
-    setLastName(nextUser?.lastName || '')
-    setPhoneNumber(nextUser?.phoneNumber || '')
+    setFirstName(sanitizeProfileName(nextUser?.firstName || ''))
+    setLastName(sanitizeProfileName(nextUser?.lastName || ''))
+    setPhoneNumber(normalizeIndianPhone(nextUser?.phoneNumber || ''))
   }
 
   useEffect(() => {
@@ -281,8 +291,20 @@ const ProfileScreen = () => {
   }
 
   const handleUpdateProfile = async () => {
-    if (!firstName || !lastName || !phoneNumber) {
+    const cleanFirstName = firstName.trim()
+    const cleanLastName = lastName.trim()
+    const cleanPhoneNumber = normalizeIndianPhone(phoneNumber)
+
+    if (!cleanFirstName || !cleanLastName || !cleanPhoneNumber) {
       Alert.alert('Validation', 'All fields are required')
+      return
+    }
+    if (!isValidProfileName(cleanFirstName) || !isValidProfileName(cleanLastName)) {
+      Alert.alert('Validation', 'First and last name may contain letters and spaces only.')
+      return
+    }
+    if (cleanPhoneNumber.length !== 10) {
+      Alert.alert('Validation', 'Enter a valid 10-digit phone number.')
       return
     }
 
@@ -291,9 +313,9 @@ const ProfileScreen = () => {
       const token = await requireAuthToken('Session expired. Please sign in again.')
 
       const formData = new FormData()
-      formData.append('FirstName', firstName)
-      formData.append('LastName', lastName)
-      formData.append('PhoneNumber', phoneNumber)
+      formData.append('FirstName', cleanFirstName)
+      formData.append('LastName', cleanLastName)
+      formData.append('PhoneNumber', cleanPhoneNumber)
 
       if (imageUri) {
         formData.append('ProfileImage', {
@@ -582,7 +604,7 @@ const ProfileScreen = () => {
         onRequestClose={() => setEditModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, styles.editProfileModalContent]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Edit Profile</Text>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
@@ -590,6 +612,16 @@ const ProfileScreen = () => {
               </TouchableOpacity>
             </View>
 
+            <KeyboardAwareScrollView
+              style={styles.editProfileScroll}
+              contentContainerStyle={styles.editProfileScrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+              enableOnAndroid
+              extraScrollHeight={20}
+              keyboardOpeningTime={0}
+            >
             <View style={styles.modalAvatarContainer}>
               {renderAvatar(styles.modalAvatar, styles.modalAvatarInitialText)}
               <TouchableOpacity style={styles.modalChangePhotoButton} onPress={pickImage}>
@@ -602,7 +634,7 @@ const ProfileScreen = () => {
             <TextInput
               style={styles.modalInput}
               value={firstName}
-              onChangeText={setFirstName}
+              onChangeText={(value) => setFirstName(sanitizeProfileName(value))}
               placeholder="First Name"
               placeholderTextColor="#94A3B8"
             />
@@ -611,20 +643,25 @@ const ProfileScreen = () => {
             <TextInput
               style={styles.modalInput}
               value={lastName}
-              onChangeText={setLastName}
+              onChangeText={(value) => setLastName(sanitizeProfileName(value))}
               placeholder="Last Name"
               placeholderTextColor="#94A3B8"
             />
 
             <Text style={styles.inputLabel}>Phone Number</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              keyboardType="phone-pad"
-              placeholder="Phone Number"
-              placeholderTextColor="#94A3B8"
-            />
+            <View style={styles.phoneInputRow}>
+              <Text style={styles.phonePrefix}>+91</Text>
+              <View style={styles.phoneDivider} />
+              <TextInput
+                style={styles.phoneInput}
+                value={phoneNumber}
+                onChangeText={(value) => setPhoneNumber(normalizeIndianPhone(value))}
+                keyboardType="number-pad"
+                maxLength={10}
+                placeholder="10-digit phone number"
+                placeholderTextColor="#94A3B8"
+              />
+            </View>
 
             <TouchableOpacity
               style={styles.saveButton}
@@ -637,6 +674,7 @@ const ProfileScreen = () => {
                 <Text style={styles.saveButtonText}>Save Changes</Text>
               )}
             </TouchableOpacity>
+            </KeyboardAwareScrollView>
           </View>
         </View>
       </Modal>
@@ -950,6 +988,22 @@ const styles = StyleSheet.create({
     padding: 24,
     maxHeight: '85%',
   },
+  editProfileModalContent: {
+    position: 'absolute',
+    top: EDIT_PROFILE_SHEET_TOP,
+    left: 0,
+    right: 0,
+    height: EDIT_PROFILE_SHEET_HEIGHT,
+    maxHeight: EDIT_PROFILE_SHEET_HEIGHT,
+    paddingBottom: 0,
+  },
+  editProfileScroll: {
+    flex: 1,
+  },
+  editProfileScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
+  },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -997,6 +1051,35 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     marginBottom: 16,
     backgroundColor: '#F8FAFC',
+  },
+  phoneInputRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    marginBottom: 16,
+    backgroundColor: '#F8FAFC',
+  },
+  phonePrefix: {
+    paddingLeft: 14,
+    paddingRight: 12,
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  phoneDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#CBD5E1',
+  },
+  phoneInput: {
+    flex: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    color: '#0F172A',
+    fontSize: 15,
   },
   saveButton: {
     backgroundColor: '#2563EB',

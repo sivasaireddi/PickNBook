@@ -1216,8 +1216,8 @@ const PostBusBookingScreen = ({ route, navigation }) => {
 
   const fareSummaryNote = fareSummary.isEstimated
     ? (couponCode || selectedFeaturedOfferId)
-      ? "Estimated from selected seat fares. Deal, GST, and convenience fee will refresh when pricing preview becomes available."
-      : "Estimated from selected seat fares. GST and convenience fee will refresh when pricing preview becomes available."
+      ? "Estimated from the current selection. Deal, GST, and convenience fee will refresh when pricing preview becomes available."
+      : "Estimated from the current selection. GST and convenience fee will refresh when pricing preview becomes available."
     : "Final payable amount including discounts, GST, and convenience fee.";
 
   const couponSummaryLabel = couponCode
@@ -2830,15 +2830,6 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                       Review the final checkout amount before confirming.
                     </Text>
                   </View>
-
-                  <Text
-                    style={[
-                      styles.summaryBadge,
-                      fareSummary.isEstimated && styles.summaryBadgeEstimated,
-                    ]}
-                  >
-                    {fareSummary.isEstimated ? "Estimated" : "Live"}
-                  </Text>
                 </View>
 
                 {selectedSeats.length === 0 ? (
@@ -2864,24 +2855,6 @@ const PostBusBookingScreen = ({ route, navigation }) => {
                     </View>
 
                     <View style={styles.summarySection}>
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Seat fares</Text>
-                        <Text style={styles.summaryValue}>
-                          {formatCurrencyDetailed(fareSummary.subtotal)}
-                        </Text>
-                      </View>
-
-                      {seatBreakdown.map((seat) => (
-                        <View key={seat.seatCode} style={styles.summarySeatRow}>
-                          <Text style={styles.summarySeatLabel}>Seat {seat.seatCode}</Text>
-                          <Text style={styles.summarySeatValue}>
-                            {seat.priceInr > 0 ? formatCurrencyDetailed(seat.priceInr) : "--"}
-                          </Text>
-                        </View>
-                      ))}
-
-                      <View style={styles.summaryDivider} />
-
                       <View style={styles.summaryRow}>
                         <Text style={styles.summaryLabel}>Base Fare</Text>
                         <Text style={styles.summaryValue}>
@@ -3591,19 +3564,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748B",
     lineHeight: 16,
-  },
-  summaryBadge: {
-    backgroundColor: "#DCFCE7",
-    color: "#166534",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  summaryBadgeEstimated: {
-    backgroundColor: "#FFE4E6",
-    color: "#D11A2A",
   },
   summaryLoadingRow: {
     flexDirection: "row",

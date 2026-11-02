@@ -14,6 +14,11 @@ import {
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { searchCities } from "../../../services/busService";
+import { createBusSearchNavigationParams } from "../../../utils/busSearchParams";
+import {
+  flattenBusLocationResults,
+  normalizeBusLocationResults,
+} from "../../../utils/busLocationResults";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -91,6 +96,13 @@ const EditorModal = ({
   onPressFrom,
   onPressTo,
   onSelectDate,
+  activeLocationField,
+  locationQuery,
+  locationResults,
+  locationLoading,
+  locationError,
+  onLocationQueryChange,
+  onSelectLocation,
   onSwap,
   onApply,
   onClose,
@@ -126,29 +138,10 @@ const EditorModal = ({
         <View style={styles.editorCard}>
           <View style={[styles.fieldWrapper, { zIndex: 20 }]}>
             <Pressable style={styles.inputRow} onPress={onPressFrom}>
-              <View style={styles.iconBubble}>
-                <Text style={styles.iconBubbleText}>A</Text>
-              </View>
+              <Ionicons name="radio-button-on" size={20} color="#D11A2A" style={styles.locationIcon} />
 
               <Text style={[styles.locationInput, !from.cityName && { color: "#9ca3af" }]}>
                 {from.cityName || "From city"}
-              </Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={[styles.fieldWrapper, { zIndex: 10 }]}>
-            <Pressable style={styles.inputRow} onPress={onPressTo}>
-              <Ionicons
-                name="location"
-                size={22}
-                color="#D11A2A"
-                style={styles.locationPin}
-              />
-
-              <Text style={[styles.locationInput, !to.cityName && { color: "#9ca3af" }]}>
-                {to.cityName || "To city"}
               </Text>
             </Pressable>
           </View>
@@ -158,9 +151,61 @@ const EditorModal = ({
             onPress={onSwap}
             activeOpacity={0.88}
           >
-            <Ionicons name="swap-vertical" size={16} color="#ef4444" />
+            <Ionicons name="swap-vertical" size={16} color="#D11A2A" />
             <Text style={styles.swapButtonText}>Swap</Text>
           </TouchableOpacity>
+
+          <View style={[styles.fieldWrapper, { zIndex: 10 }]}>
+            <Pressable style={styles.inputRow} onPress={onPressTo}>
+              <Ionicons
+                name="location"
+                size={22}
+                color="#D11A2A"
+                style={styles.locationIcon}
+              />
+
+              <Text style={[styles.locationInput, !to.cityName && { color: "#9ca3af" }]}>
+                {to.cityName || "To city"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {activeLocationField ? (
+            <View style={styles.locationPickerPanel}>
+              <View style={styles.locationSearchRow}>
+                <Ionicons name="search" size={18} color="#64748B" />
+                <TextInput
+                  autoFocus
+                  value={locationQuery}
+                  onChangeText={onLocationQueryChange}
+                  placeholder={activeLocationField === "from" ? "Search From city" : "Search To city"}
+                  placeholderTextColor="#94A3B8"
+                  style={styles.locationSearchInput}
+                />
+                {locationLoading ? <ActivityIndicator size="small" color="#D11A2A" /> : null}
+              </View>
+              {locationError ? <Text style={styles.locationError}>{locationError}</Text> : null}
+              <ScrollView keyboardShouldPersistTaps="handled" style={styles.locationResults} nestedScrollEnabled>
+                {locationResults.map((item) => (
+                  <TouchableOpacity
+                    key={item.key}
+                    style={styles.locationResultRow}
+                    onPress={() => onSelectLocation(item.payload)}
+                  >
+                    <Ionicons
+                      name={item.kind === "city" ? "business-outline" : "location-outline"}
+                      size={18}
+                      color="#D11A2A"
+                    />
+                    <View style={styles.locationResultText}>
+                      <Text style={styles.locationResultTitle}>{item.title}</Text>
+                      {item.subtitle ? <Text style={styles.locationResultSubtitle}>{item.subtitle}</Text> : null}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
 
           <View style={styles.divider} />
 
@@ -229,6 +274,7 @@ export default function RouteHeader({
   to: toProp,
   date: dateProp,
   dateValue: dateValueProp,
+  onSearchApplied,
 }) {
   const navigation = useNavigation();
 
@@ -242,15 +288,18 @@ export default function RouteHeader({
 
   const normalizeCity = (val) => {
     if (val && typeof val === "object") {
+      const cityName = val.cityName || val.name || val.city || "";
       return {
-        cityId: val.cityId || val.code || "",
-        cityName: val.cityName || val.name || "",
+        cityId: val.cityId || val.cityCode || val.code || val.id || "",
+        cityName,
+        label: val.label || cityName,
         stateName: val.stateName || val.state || "",
       };
     }
     return {
       cityId: "",
       cityName: String(val || ""),
+      label: String(val || ""),
       stateName: "",
     };
   };
@@ -259,30 +308,40 @@ export default function RouteHeader({
   const [draftFrom, setDraftFrom] = useState(() => normalizeCity(fromProp ?? route?.params?.from));
   const [draftTo, setDraftTo] = useState(() => normalizeCity(toProp ?? route?.params?.to));
   const [selectedDate, setSelectedDate] = useState(journeyDate);
-  const lastLocationSelection = useRef(null);
+  const [activeLocationField, setActiveLocationField] = useState(null);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const locationSearchSequence = useRef(0);
 
   useEffect(() => {
-    const selectionId = route?.params?.busLocationSelectionRequestId;
-    const selection = route?.params?.busLocationSelection;
-    const selectionType = route?.params?.busLocationSelectionType;
-
-    if (!selectionId || !selection || lastLocationSelection.current === selectionId) {
-      return;
+    if (!activeLocationField || !locationQuery.trim()) {
+      setLocationResults([]);
+      setLocationLoading(false);
+      setLocationError("");
+      return undefined;
     }
 
-    lastLocationSelection.current = selectionId;
-    if (selectionType === "from") {
-      setDraftFrom(normalizeCity(selection));
-    } else if (selectionType === "to") {
-      setDraftTo(normalizeCity(selection));
-    }
+    const requestId = ++locationSearchSequence.current;
+    const timeoutId = setTimeout(async () => {
+      setLocationLoading(true);
+      setLocationError("");
+      try {
+        const results = await searchCities(locationQuery.trim(), { throwOnError: true });
+        if (requestId !== locationSearchSequence.current) return;
+        setLocationResults(flattenBusLocationResults(normalizeBusLocationResults(results), 8));
+      } catch {
+        if (requestId !== locationSearchSequence.current) return;
+        setLocationResults([]);
+        setLocationError("Unable to load places. Try again.");
+      } finally {
+        if (requestId === locationSearchSequence.current) setLocationLoading(false);
+      }
+    }, 300);
 
-    navigation.setParams({
-      busLocationSelection: undefined,
-      busLocationSelectionType: undefined,
-      busLocationSelectionRequestId: undefined,
-    });
-  }, [navigation, route?.params?.busLocationSelectionRequestId]);
+    return () => clearTimeout(timeoutId);
+  }, [activeLocationField, locationQuery]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -298,6 +357,9 @@ export default function RouteHeader({
     setDraftFrom(normalizeCity(fromProp ?? route?.params?.from));
     setDraftTo(normalizeCity(toProp ?? route?.params?.to));
     setSelectedDate(journeyDate);
+    setActiveLocationField(null);
+    setLocationQuery("");
+    setLocationResults([]);
     setIsExpanded(true);
   };
 
@@ -327,15 +389,36 @@ export default function RouteHeader({
       );
       return;
     }
+    if (!selectedDate || Number.isNaN(new Date(selectedDate).getTime())) {
+      Alert.alert("Validation Error", "Please select a valid travel date.");
+      return;
+    }
 
-    navigation.setParams({
+    navigation.setParams(createBusSearchNavigationParams({
       from: draftFrom,
       to: draftTo,
-      date: formatHeaderDate(selectedDate),
-      dateValue: selectedDate.toISOString(),
-    });
+      date: selectedDate,
+    }));
 
+    onSearchApplied?.();
     setIsExpanded(false);
+  };
+
+  const openLocationPicker = (field) => {
+    const current = field === "from" ? draftFrom : draftTo;
+    setActiveLocationField(field);
+    setLocationQuery(current.cityName || "");
+    setLocationResults([]);
+    setLocationError("");
+  };
+
+  const handleSelectLocation = (selection) => {
+    const normalized = normalizeCity(selection);
+    if (activeLocationField === "from") setDraftFrom(normalized);
+    if (activeLocationField === "to") setDraftTo(normalized);
+    setActiveLocationField(null);
+    setLocationQuery("");
+    setLocationResults([]);
   };
 
   return (
@@ -382,22 +465,15 @@ export default function RouteHeader({
           to={draftTo}
           baseDate={journeyDate}
           selectedDate={selectedDate}
-          onPressFrom={() => {
-            navigation.navigate("BusLocationSearchScreen", {
-              type: "from",
-              currentValue: draftFrom.cityName,
-              returnTo: route?.name,
-              selectionRequestId: String(Date.now()),
-            });
-          }}
-          onPressTo={() => {
-            navigation.navigate("BusLocationSearchScreen", {
-              type: "to",
-              currentValue: draftTo.cityName,
-              returnTo: route?.name,
-              selectionRequestId: String(Date.now()),
-            });
-          }}
+          onPressFrom={() => openLocationPicker("from")}
+          onPressTo={() => openLocationPicker("to")}
+          activeLocationField={activeLocationField}
+          locationQuery={locationQuery}
+          locationResults={locationResults}
+          locationLoading={locationLoading}
+          locationError={locationError}
+          onLocationQueryChange={setLocationQuery}
+          onSelectLocation={handleSelectLocation}
           onSelectDate={setSelectedDate}
           onSwap={handleSwap}
           onApply={handleApply}
@@ -492,21 +568,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     minHeight: 52,
   },
-  iconBubble: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fee2e2",
-    marginRight: 10,
-  },
-  iconBubbleText: {
-    color: "#D11A2A",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  locationPin: {
+  locationIcon: {
     width: 26,
     marginRight: 10,
     textAlign: "center",
@@ -523,12 +585,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#ececec",
   },
   swapButton: {
-    alignSelf: "flex-end",
+    alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginTop: 8,
-    marginBottom: 8,
+    marginVertical: 2,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
@@ -538,6 +599,59 @@ const styles = StyleSheet.create({
     color: "#D11A2A",
     fontSize: 12,
     fontWeight: "600",
+  },
+  locationPickerPanel: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  locationSearchRow: {
+    minHeight: 46,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F8FAFC",
+  },
+  locationSearchInput: {
+    flex: 1,
+    color: "#111827",
+    fontSize: 14,
+    paddingVertical: 10,
+  },
+  locationResults: {
+    maxHeight: 180,
+  },
+  locationResultRow: {
+    minHeight: 48,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#E2E8F0",
+  },
+  locationResultText: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  locationResultTitle: {
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  locationResultSubtitle: {
+    marginTop: 2,
+    color: "#64748B",
+    fontSize: 11,
+  },
+  locationError: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: "#B91C1C",
+    fontSize: 12,
   },
   dateRow: {
     flexDirection: "row",

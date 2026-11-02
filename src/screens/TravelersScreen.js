@@ -16,9 +16,10 @@ import {
   RefreshControl,
   Animated,
   Dimensions,
-  KeyboardAvoidingView,
   ToastAndroid,
+  Keyboard,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import {
@@ -37,6 +38,10 @@ import {
 } from "../utils/travelerValidation";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const PHYSICAL_SCREEN_HEIGHT = Dimensions.get("screen").height;
+const TRAVELER_SHEET_HEIGHT = Math.round(PHYSICAL_SCREEN_HEIGHT * 0.8);
+const TRAVELER_SHEET_TOP = Math.max(0, PHYSICAL_SCREEN_HEIGHT - TRAVELER_SHEET_HEIGHT);
+const DISPLAY_GENDERS = GENDERS.filter((gender) => gender === "Male" || gender === "Female");
 
 // ─── Toast helper ───────────────────────────────────────────────────────────
 function showToast(message) {
@@ -99,9 +104,7 @@ function SkeletonCard() {
 }
 
 // ─── Dropdown Picker Component ──────────────────────────────────────────────
-function DropdownPicker({ label, value, options, onSelect, error }) {
-  const [open, setOpen] = useState(false);
-
+function DropdownPicker({ id, label, value, options, onSelect, error, open, onToggle, onClose }) {
   return (
     <View style={styles.fieldContainer}>
       <Text style={styles.fieldLabel}>
@@ -110,7 +113,10 @@ function DropdownPicker({ label, value, options, onSelect, error }) {
       <TouchableOpacity
         style={[styles.dropdownButton, error ? styles.inputError : null]}
         activeOpacity={0.7}
-        onPress={() => setOpen(true)}
+        onPress={() => {
+          Keyboard.dismiss();
+          onToggle(id);
+        }}
       >
         <Text style={[styles.dropdownButtonText, !value && { color: "#94A3B8" }]}>
           {value || `Select ${label}`}
@@ -119,47 +125,27 @@ function DropdownPicker({ label, value, options, onSelect, error }) {
       </TouchableOpacity>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      <Modal
-        transparent
-        visible={open}
-        animationType="fade"
-        onRequestClose={() => setOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.dropdownOverlay}
-          activeOpacity={1}
-          onPress={() => setOpen(false)}
-        >
-          <View style={styles.dropdownMenu}>
-            <Text style={styles.dropdownMenuTitle}>{label}</Text>
-            {options.map((opt) => (
-              <TouchableOpacity
-                key={opt}
-                style={[
-                  styles.dropdownOption,
-                  opt === value && styles.dropdownOptionActive,
-                ]}
-                onPress={() => {
-                  onSelect(opt);
-                  setOpen(false);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.dropdownOptionText,
-                    opt === value && styles.dropdownOptionTextActive,
-                  ]}
-                >
-                  {opt}
-                </Text>
-                {opt === value && (
-                  <Ionicons name="checkmark-circle" size={20} color="#2563EB" />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+      {open ? (
+        <View style={styles.inlineDropdownMenu}>
+          <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.inlineDropdownScroll}>
+          {options.map((opt) => (
+            <TouchableOpacity
+              key={opt}
+              style={[styles.inlineDropdownOption, opt === value && styles.dropdownOptionActive]}
+              onPress={() => {
+                onSelect(opt);
+                onClose();
+              }}
+            >
+              <Text style={[styles.dropdownOptionText, opt === value && styles.dropdownOptionTextActive]}>
+                {opt}
+              </Text>
+              {opt === value ? <Ionicons name="checkmark" size={18} color="#2563EB" /> : null}
+            </TouchableOpacity>
+          ))}
+          </ScrollView>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -181,6 +167,8 @@ export default function TravelersScreen({ route }) {
   const [editingTraveler, setEditingTraveler] = useState(null); // null = add mode
   const [isLoadingEdit, setIsLoadingEdit] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const travelerScrollRef = useRef(null);
 
   // Form state
   const emptyForm = {
@@ -249,6 +237,7 @@ export default function TravelersScreen({ route }) {
     setEditingTraveler(null);
     setForm(emptyForm);
     setFormErrors({});
+    setOpenDropdown(null);
     setModalVisible(true);
   };
 
@@ -263,6 +252,7 @@ export default function TravelersScreen({ route }) {
   const openEditModal = async (traveler) => {
     setEditingTraveler(traveler);
     setFormErrors({});
+    setOpenDropdown(null);
     setIsLoadingEdit(true);
     setModalVisible(true);
 
@@ -394,6 +384,17 @@ export default function TravelersScreen({ route }) {
       });
     }
   };
+
+  const focusFormInput = useCallback((event) => {
+    const target = event?.target || event?.nativeEvent?.target;
+    if (!target) return;
+    setOpenDropdown(null);
+    setTimeout(() => travelerScrollRef.current?.scrollToFocusedInput(target, 88), 80);
+  }, []);
+
+  const toggleDropdown = useCallback((id) => {
+    setOpenDropdown((current) => current === id ? null : id);
+  }, []);
 
   // ─── Render Traveler Card ───────────────────────────────────────────────────
   const renderCard = ({ item }) => {
@@ -610,14 +611,10 @@ export default function TravelersScreen({ route }) {
         onRequestClose={() => {
           setModalVisible(false);
           setEditingTraveler(null);
+          setOpenDropdown(null);
         }}
       >
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            style={styles.keyboardModalContainer}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
-          >
             <View style={styles.modalContent}>
             {/* Modal header */}
             <View style={styles.modalHeader}>
@@ -628,6 +625,7 @@ export default function TravelersScreen({ route }) {
                 onPress={() => {
                   setModalVisible(false);
                   setEditingTraveler(null);
+                  setOpenDropdown(null);
                 }}
               >
                 <Ionicons name="close" size={24} color="#64748B" />
@@ -640,42 +638,60 @@ export default function TravelersScreen({ route }) {
                 <Text style={styles.modalLoadingText}>Loading traveler data...</Text>
               </View>
             ) : (
-              <ScrollView
+              <KeyboardAwareScrollView
+                ref={travelerScrollRef}
                 style={styles.modalFormScroll}
                 contentContainerStyle={styles.modalFormScrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
+                enableOnAndroid
+                enableAutomaticScroll
+                extraHeight={88}
+                extraScrollHeight={88}
+                keyboardOpeningTime={0}
               >
                 {/* Dropdowns row */}
                 <View style={styles.dropdownRow}>
                   <View style={{ flex: 1 }}>
                     <DropdownPicker
+                      id="type"
                       label="Type"
                       value={form.type}
                       options={TRAVELER_TYPES}
                       onSelect={(v) => updateField("type", v)}
                       error={formErrors.type}
+                      open={openDropdown === "type"}
+                      onToggle={toggleDropdown}
+                      onClose={() => setOpenDropdown(null)}
                     />
                   </View>
                   <View style={{ width: 12 }} />
                   <View style={{ flex: 1 }}>
                     <DropdownPicker
+                      id="title"
                       label="Title"
                       value={form.title}
                       options={TITLES}
                       onSelect={(v) => updateField("title", v)}
                       error={formErrors.title}
+                      open={openDropdown === "title"}
+                      onToggle={toggleDropdown}
+                      onClose={() => setOpenDropdown(null)}
                     />
                   </View>
                 </View>
 
                 <DropdownPicker
+                  id="gender"
                   label="Gender"
                   value={form.gender}
-                  options={GENDERS}
+                  options={DISPLAY_GENDERS}
                   onSelect={(v) => updateField("gender", v)}
                   error={formErrors.gender}
+                  open={openDropdown === "gender"}
+                  onToggle={toggleDropdown}
+                  onClose={() => setOpenDropdown(null)}
                 />
 
                 {/* Text inputs */}
@@ -686,6 +702,7 @@ export default function TravelersScreen({ route }) {
                   onChangeText={(v) => updateField("firstName", v)}
                   error={formErrors.firstName}
                   placeholder="Enter first name"
+                  onFocus={focusFormInput}
                 />
                 <FormInput
                   label="Last Name"
@@ -694,6 +711,7 @@ export default function TravelersScreen({ route }) {
                   onChangeText={(v) => updateField("lastName", v)}
                   error={formErrors.lastName}
                   placeholder="Enter last name"
+                  onFocus={focusFormInput}
                 />
                 <FormInput
                   label="Age"
@@ -703,6 +721,7 @@ export default function TravelersScreen({ route }) {
                   error={formErrors.age}
                   placeholder="Enter age"
                   keyboardType="number-pad"
+                  onFocus={focusFormInput}
                 />
                 <FormInput
                   label="Country"
@@ -711,6 +730,7 @@ export default function TravelersScreen({ route }) {
                   onChangeText={(v) => updateField("country", v)}
                   error={formErrors.country}
                   placeholder="Enter country"
+                  onFocus={focusFormInput}
                 />
                 <FormInput
                   label="Email"
@@ -720,6 +740,7 @@ export default function TravelersScreen({ route }) {
                   placeholder="Enter email (optional)"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  onFocus={focusFormInput}
                 />
                 <FormInput
                   label="Phone Number"
@@ -729,6 +750,7 @@ export default function TravelersScreen({ route }) {
                   placeholder="Enter phone (optional)"
                   keyboardType="phone-pad"
                   maxLength={30}
+                  onFocus={focusFormInput}
                 />
                 <FormInput
                   label="Passport Number"
@@ -737,6 +759,7 @@ export default function TravelersScreen({ route }) {
                   error={formErrors.passportNo}
                   placeholder="Enter passport (optional)"
                   autoCapitalize="characters"
+                  onFocus={focusFormInput}
                 />
 
                 {/* Save button */}
@@ -757,10 +780,9 @@ export default function TravelersScreen({ route }) {
 
                 {/* Bottom spacer */}
                 <View style={{ height: 24 }} />
-              </ScrollView>
+              </KeyboardAwareScrollView>
             )}
             </View>
-          </KeyboardAvoidingView>
         </View>
       </Modal>
     </SafeAreaView>
@@ -778,6 +800,7 @@ function FormInput({
   keyboardType,
   autoCapitalize,
   maxLength,
+  onFocus,
 }) {
   return (
     <View style={styles.fieldContainer}>
@@ -793,6 +816,7 @@ function FormInput({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         maxLength={maxLength}
+        onFocus={onFocus}
       />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
@@ -1076,19 +1100,19 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.5)",
-    justifyContent: "flex-end",
-  },
-  keyboardModalContainer: {
-    flex: 1,
-    justifyContent: "flex-end",
   },
   modalContent: {
+    position: "absolute",
+    top: TRAVELER_SHEET_TOP,
+    left: 0,
+    right: 0,
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 24,
-    maxHeight: "90%",
-    minHeight: "45%",
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 0,
+    height: TRAVELER_SHEET_HEIGHT,
   },
   modalHeader: {
     flexDirection: "row",
@@ -1114,7 +1138,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalFormScrollContent: {
-    paddingBottom: 24,
+    flexGrow: 1,
+    paddingBottom: 180,
   },
 
   // ── Form Fields ─────────────────────────────────────────────────────────────
@@ -1197,6 +1222,26 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
+  },
+  inlineDropdownMenu: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+  },
+  inlineDropdownScroll: {
+    maxHeight: 180,
+  },
+  inlineDropdownOption: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E2E8F0",
   },
   dropdownOption: {
     flexDirection: "row",

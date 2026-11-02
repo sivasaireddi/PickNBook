@@ -143,7 +143,13 @@ export default function BusListScreen({ route }) {
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       {/* HEADER (dynamic data passed) */}
-      <RouteHeader from={from} to={to} date={date} dateValue={dateValue} />
+      <RouteHeader
+        from={from}
+        to={to}
+        date={date}
+        dateValue={dateValue}
+        onSearchApplied={clearFiltersAndSort}
+      />
 
       <SortBar
         onOpenFilters={() => setShowFilters(true)}
