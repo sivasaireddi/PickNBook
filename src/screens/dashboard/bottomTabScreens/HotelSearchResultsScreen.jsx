@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import MapView, { Marker, Callout } from "react-native-maps";
+import MapView from "react-native-maps";
 import BottomSheet, { BottomSheetFlatList, useBottomSheetSpringConfigs } from "@gorhom/bottom-sheet";
 import { useHotelBooking } from "../../../context/HotelBookingContext";
+import { theme } from "../../../theme/tokens";
 import HotelFilterModal, { createDefaultHotelFilters } from "./HotelFilterModal";
 import {
   getHotelPrice,
@@ -20,6 +21,44 @@ import {
 } from "../../../utils/hotelFilters";
 
 const getHotelDisplayPrice = (hotel) => getHotelPrice(hotel);
+const HOTEL_COLORS = {
+  red: theme.colors.redDeep,
+  redBright: theme.colors.red,
+  ink: "#1A1216",
+  muted: "#6B6168",
+  border: "#EBD5D7",
+  blush: "#FBF6F6",
+  white: theme.colors.card,
+};
+
+const getHotelId = (hotel) => {
+  const providerIds = [hotel?.hotelCode, hotel?.hotelId, hotel?.resultIndex]
+    .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
+    .map(String);
+  if (providerIds.length > 0) return providerIds.join("|");
+  return `${hotel?.hotelName || hotel?.name || "Hotel"}|${hotel?.hotelAddress || hotel?.address || ""}|${hotel?.latitude || ""}|${hotel?.longitude || ""}`.trim();
+};
+
+const getHotelName = (hotel) => hotel?.hotelName || hotel?.name || "Hotel";
+
+const formatCompactMapPrice = (value) => {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return "View";
+  if (amount >= 1000) return `₹${(amount / 1000).toFixed(1)}k`;
+  return `₹${Math.round(amount).toLocaleString("en-IN")}`;
+};
+
+const parseApiDate = (value) => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatShortDate = (value) => {
+  const date = parseApiDate(value);
+  return date ? date.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" }) : "";
+};
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -65,159 +104,116 @@ const getMapRegion = (hotels) => {
 const HotelCard = React.memo(({ item, isSelected, onSelect }) => {
   const imageUri = item?.hotelPicture || (Array.isArray(item?.images) && item.images[0]) || null;
   const name = item?.hotelName || item?.name || "Hotel";
-  const category = item?.hotelCategory || "Premium Stay";
-  const rating = Number(item?.starRating ?? item?.rating) || 4.0;
+  const category = item?.hotelCategory || "Hotel";
+  const rating = Number(item?.starRating ?? item?.rating);
+  const hasRating = Number.isFinite(rating) && rating > 0;
   const address = item?.hotelAddress || item?.address || "Address not available";
-  const city = item?.city || "";
-  const country = item?.country || "";
+  const city = item?.city || item?.cityName || "";
+  const country = item?.country || item?.countryName || "";
+  const location = [city, country].filter(Boolean).join(", ");
 
-  const roomCategory = item?.rooms?.[0]?.category ?? item?.rooms?.[0]?.cateogry ?? "Standard Room";
-  const facilitiesList = item?.facilities?.[0]?.facilitiesNames ?? [];
+  const roomCategory = item?.rooms?.[0]?.category ?? item?.rooms?.[0]?.cateogry ?? "";
 
   const priceObj = item?.price || {};
   const currency = priceObj.currencyCode || "INR";
   const offeredPrice = getHotelDisplayPrice(item);
-  const publishedPrice = priceObj.publishedPrice ?? offeredPrice;
-  const discount = priceObj.discount ?? 0;
+  const hasPrice = Number.isFinite(Number(offeredPrice)) && Number(offeredPrice) > 0;
 
   return (
     <Pressable
-      onPress={() => onSelect(item, name, imageUri, address, category, rating, offeredPrice, priceObj)}
+      onPress={() => onSelect(
+        item,
+        name,
+        imageUri,
+        address,
+        item?.hotelCategory || "Premium Stay",
+        Number(item?.starRating ?? item?.rating) || 4.0,
+        offeredPrice,
+        priceObj
+      )}
       style={({ pressed }) => [
         styles.card,
         isSelected && styles.cardSelected,
         pressed && styles.cardPressed,
       ]}
     >
-      {imageUri ? (
-        <Image source={{ uri: imageUri }} style={styles.cardImage} resizeMode="cover" />
-      ) : (
-        <View style={styles.noImageCardBox}>
-          <Ionicons name="image-outline" size={32} color="#94A3B8" />
-          <Text style={styles.noImageText}>No image available</Text>
-        </View>
-      )}
+      <View style={styles.cardImageWrap}>
+        {imageUri ? <Image source={{ uri: imageUri }} style={styles.cardImage} resizeMode="cover" /> : <View style={styles.noImageCardBox}><Ionicons name="image-outline" size={28} color="#AFA3A8" /><Text style={styles.noImageText}>No image</Text></View>}
+        {isSelected && <View style={styles.onMapBadge}><Ionicons name="location-sharp" size={11} color="#FFFFFF" /><Text style={styles.onMapText}>ON MAP</Text></View>}
+      </View>
 
       <View style={styles.cardBody}>
         <View style={styles.cardTopRow}>
           <View style={styles.cardTitleWrap}>
-            <Text style={styles.cardName} numberOfLines={1}>
+            <Text style={styles.cardName} numberOfLines={2}>
               {name}
             </Text>
             <Text style={styles.cardCategory}>
-              {category} · {city ? `${city}, ` : ""}{country || ""}
+              {category}{location ? ` · ${location}` : ""}
             </Text>
             <Text style={styles.cardAddress} numberOfLines={1}>
               {address}
             </Text>
           </View>
 
-          <View style={styles.cardRating}>
+          {hasRating && <View style={styles.cardRating}>
             <Ionicons name="star" size={10} color="#FFB300" />
-            <Text style={styles.cardRatingText}>
-              {rating.toFixed(1)}
-            </Text>
-          </View>
+            <Text style={styles.cardRatingText}>{rating.toFixed(1)}</Text>
+          </View>}
         </View>
 
-        {(roomCategory || facilitiesList.length > 0) ? (
-          <Text style={styles.roomFacilitiesCombined} numberOfLines={1}>
-            {roomCategory ? `Room: ${roomCategory}` : ""}
-            {roomCategory && facilitiesList.length > 0 ? " · " : ""}
-            {facilitiesList.length > 0 ? `Facilities: ${facilitiesList.join(", ")}` : ""}
-          </Text>
-        ) : null}
+        {!!roomCategory && <View style={styles.roomRow}><Ionicons name="bed-outline" size={12} color={HOTEL_COLORS.red} /><Text style={styles.roomFacilitiesCombined} numberOfLines={1}>{roomCategory}</Text></View>}
 
         <View style={styles.cardBottomRow}>
           <View>
-            <View style={styles.priceRow}>
-              <Text style={styles.cardPrice}>
-                {formatCurrency(offeredPrice, currency)}
-              </Text>
-              {discount > 0 ? (
-                <Text style={styles.cardPublishedPrice}>
-                  {formatCurrency(publishedPrice, currency)}
-                </Text>
-              ) : null}
-            </View>
-            <Text style={styles.cardNights}>per night</Text>
+            <View style={styles.priceRow}><Text style={styles.cardPrice}>{hasPrice ? formatCurrency(Math.round(Number(offeredPrice)), currency) : "Price unavailable"}</Text>{hasPrice && <Text style={styles.cardNights}>/ night</Text>}</View>
           </View>
-
-          {discount > 0 ? (
-            <View style={styles.discountPill}>
-              <Text style={styles.discountText}>
-                {formatCurrency(discount, currency)} OFF
-              </Text>
-            </View>
-          ) : null}
+          <View style={styles.cardArrow}><Ionicons name="chevron-forward" size={20} color="#FFFFFF" /></View>
         </View>
       </View>
     </Pressable>
   );
 });
 
-const HotelNativeMarker = React.memo(({ hotel, isSelected, onPress, onCalloutPress, markerRef }) => {
-  const lat = Number(hotel?.latitude);
-  const lon = Number(hotel?.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+const HotelPriceMarker = React.memo(({ hotel, isSelected, onPress, point }) => {
+  const name = getHotelName(hotel);
+  const compactPrice = formatCompactMapPrice(getHotelDisplayPrice(hotel));
 
-  const offeredPrice = getHotelDisplayPrice(hotel);
-  const formattedPrice = `₹${offeredPrice.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-
-  const name = hotel?.hotelName || hotel?.name || "Hotel";
-  const rating = Number(hotel?.starRating ?? hotel?.rating) || 0;
-  const address = hotel?.hotelAddress || hotel?.address || "";
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
 
   return (
-    <Marker
-      ref={markerRef}
-      coordinate={{ latitude: lat, longitude: lon }}
-      pinColor={isSelected ? "#D32F2F" : "red"}
+    <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${compactPrice} per night`}
+      style={[
+        styles.mapPriceMarker,
+        { left: point.x - 29, top: point.y - 40 },
+        isSelected && styles.mapPriceMarkerSelectedLayer,
+      ]}
     >
-      <Callout tooltip onPress={onCalloutPress}>
-        <View style={styles.calloutContainer}>
-          <Text style={styles.calloutHotelName} numberOfLines={1}>
-            {name}
-          </Text>
-
-          <Text style={styles.calloutPrice}>{formattedPrice}</Text>
-
-          {rating > 0 && (
-            <Text style={styles.calloutRating}>
-              ⭐ {rating.toFixed(1)}
-            </Text>
-          )}
-
-          {address ? (
-            <Text style={styles.calloutAddress} numberOfLines={2}>
-              {address}
-            </Text>
-          ) : null}
+      {isSelected && (
+        <View style={styles.mapHotelName} pointerEvents="none">
+          <Text style={styles.mapHotelNameText} numberOfLines={2}>{name}</Text>
         </View>
-      </Callout>
-    </Marker>
-  );
-});
-
-const HotelClusterMarker = React.memo(({ cluster, onPress }) => {
-  return (
-    <Marker
-      coordinate={cluster.coordinate}
-      onPress={onPress}
-      tracksViewChanges={false}
-    >
-      <View style={styles.clusterMarker}>
-        <Text style={styles.clusterMarkerText}>{cluster.count}</Text>
+      )}
+      <View style={[styles.mapPriceBubble, isSelected && styles.mapPriceBubbleSelected]}>
+        <Text style={[styles.mapPriceText, isSelected && styles.mapPriceTextSelected]} numberOfLines={1} allowFontScaling={false}>
+          {compactPrice}
+        </Text>
       </View>
-    </Marker>
+      <Ionicons
+        name="location-sharp"
+        size={18}
+        color={isSelected ? HOTEL_COLORS.redBright : HOTEL_COLORS.white}
+        style={styles.mapPriceLocationIcon}
+      />
+    </Pressable>
   );
 });
 
 const HotelSearchResultsScreen = ({ navigation, route }) => {
+  const insets = useSafeAreaInsets();
   const { setSelectedHotel, session, searchParams: contextSearchParams } = useHotelBooking();
   const rawHotels = Array.isArray(route?.params?.hotels) ? route.params.hotels : [];
   const searchParams = route?.params?.searchParams || contextSearchParams || {};
@@ -306,22 +302,23 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   }, [filters, priceBounds]);
 
   const [selectedHotelId, setSelectedHotelId] = useState(
-    filteredHotels[0]?.hotelCode ?? filteredHotels[0]?.hotelId ?? null
+    getHotelId(filteredHotels[0]) || null
   );
 
   useEffect(() => {
-    if (filteredHotels.length > 0) {
-      const exists = filteredHotels.some(
-        (h) => String(h?.hotelCode ?? h?.hotelId) === String(selectedHotelId)
-      );
-      if (!exists) {
-        setSelectedHotelId(filteredHotels[0]?.hotelCode ?? filteredHotels[0]?.hotelId);
-      }
+    if (filteredHotels.length === 0) {
+      setSelectedHotelId(null);
+      return;
+    }
+    const exists = filteredHotels.some((hotel) => getHotelId(hotel) === selectedHotelId);
+    if (!exists) {
+      setSelectedHotelId(getHotelId(filteredHotels[0]) || null);
     }
   }, [filteredHotels, selectedHotelId]);
 
   const bottomSheetRef = useRef(null);
-  const snapPoints = useMemo(() => ["18%", "45%", "85%"], []);
+  const [sheetIndex, setSheetIndex] = useState(1);
+  const snapPoints = useMemo(() => ["18%", "62%", "88%"], []);
 
   const animationConfigs = useBottomSheetSpringConfigs({
     damping: 80,
@@ -332,66 +329,82 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   });
 
   const title = useMemo(() => {
-    const code = String(searchParams.cityCode || searchParams.cityId || "").trim();
-    return code ? `${code} Stays` : "Hotel Stays";
-  }, [searchParams]);
+    const destinationHotel = rawHotels.find((hotel) => hotel?.city || hotel?.cityName);
+    const hotelDestination = destinationHotel?.city || destinationHotel?.cityName;
+    return String(searchParams.destinationName || hotelDestination || "Hotel Stays").trim();
+  }, [rawHotels, searchParams.destinationName]);
 
   const subtitle = useMemo(() => {
-    const parts = [];
-    if (searchParams.checkInDate && searchParams.checkOutDate) {
-      parts.push(`${searchParams.checkInDate} to ${searchParams.checkOutDate}`);
-    }
-    if (searchParams.noOfRooms || searchParams.rooms) {
-      parts.push(`${searchParams.noOfRooms || searchParams.rooms || 1} Room(s)`);
-    }
-    return parts.join(" · ") || "Selected destination";
+    const checkIn = parseApiDate(searchParams.checkInDate);
+    const checkOut = parseApiDate(searchParams.checkOutDate);
+    const nights = checkIn && checkOut
+      ? Math.max(1, Math.round((checkOut.getTime() - checkIn.getTime()) / 86400000))
+      : 1;
+    const rooms = Math.max(1, Number(searchParams.noOfRooms || searchParams.rooms || 1));
+    const dateRange = [formatShortDate(searchParams.checkInDate), formatShortDate(searchParams.checkOutDate)]
+      .filter(Boolean)
+      .join(" – ");
+    return `${dateRange || "Select dates"} · ${nights} ${nights === 1 ? "night" : "nights"} · ${rooms} ${rooms === 1 ? "room" : "rooms"}`;
   }, [searchParams]);
 
   const mapRef = useRef(null);
   const listRef = useRef(null);
-  const markerRefs = useRef({});
+  const [markerPoints, setMarkerPoints] = useState({});
+  const markerScrollTimerRef = useRef(null);
+  const markerScrollFrameRef = useRef(null);
+  const markerScrollRetryRef = useRef(null);
+  const latestSelectionRef = useRef({ selectedHotelId, filteredHotels });
+  latestSelectionRef.current = { selectedHotelId, filteredHotels };
 
-  useEffect(() => {
-    if (selectedHotelId && markerRefs.current[selectedHotelId]) {
-      const timer = setTimeout(() => {
-        markerRefs.current[selectedHotelId]?.showCallout();
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [selectedHotelId]);
+  const displayedHotels = useMemo(() => {
+    if (!selectedHotelId) return filteredHotels;
+    const selectedHotel = filteredHotels.find((hotel) => getHotelId(hotel) === selectedHotelId);
+    if (!selectedHotel) return filteredHotels;
+    return [selectedHotel, ...filteredHotels.filter((hotel) => getHotelId(hotel) !== selectedHotelId)];
+  }, [filteredHotels, selectedHotelId]);
+
+  const scrollToLatestSelectedCard = useCallback(() => {
+    const latestSelection = latestSelectionRef.current;
+    const selectedIndex = latestSelection.filteredHotels.findIndex(
+      (hotel) => getHotelId(hotel) === latestSelection.selectedHotelId
+    );
+    if (selectedIndex < 0) return;
+    listRef.current?.scrollToOffset({
+      offset: 0,
+      animated: true,
+    });
+  }, []);
 
   const region = useMemo(() => getMapRegion(filteredHotels), [filteredHotels]);
-  const mapClusters = useMemo(() => {
-    const clusters = new Map();
-    (Array.isArray(filteredHotels) ? filteredHotels : []).forEach((hotel, index) => {
+  const refreshMarkerPoints = useCallback(async () => {
+    const activeMap = mapRef.current;
+    if (!activeMap) return;
+
+    const projected = await Promise.all(filteredHotels.map(async (hotel) => {
+      const hotelId = getHotelId(hotel);
       const latitude = Number(hotel?.latitude);
       const longitude = Number(hotel?.longitude);
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-
-      // Group nearby hotels into visual clusters so dense destinations stay readable.
-      const key = `${latitude.toFixed(2)}:${longitude.toFixed(2)}`;
-      const existing = clusters.get(key);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        clusters.set(key, {
-          count: 1,
-          coordinate: { latitude, longitude },
-          hotel,
-          index,
-        });
+      if (!hotelId || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      try {
+        const point = await activeMap.pointForCoordinate({ latitude, longitude });
+        return [hotelId, point];
+      } catch {
+        return null;
       }
-    });
-    return Array.from(clusters.values());
+    }));
+
+    setMarkerPoints(Object.fromEntries(projected.filter(Boolean)));
   }, [filteredHotels]);
-  const selectedHotel =
-    filteredHotels.find((hotel) => String(hotel?.hotelCode ?? hotel?.hotelId) === String(selectedHotelId)) ||
-    filteredHotels[0] ||
-    null;
+
+  useEffect(() => {
+    const timer = setTimeout(refreshMarkerPoints, 250);
+    return () => clearTimeout(timer);
+  }, [refreshMarkerPoints]);
 
   const handleMarkerPress = useCallback(
-    (hotel, index) => {
-      const hId = String(hotel?.hotelCode ?? hotel?.hotelId);
+    (hotel) => {
+      const hId = getHotelId(hotel);
+      if (!hId) return;
       setSelectedHotelId(hId);
 
       const lat = Number(hotel?.latitude);
@@ -399,7 +412,7 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
       if (mapRef.current && Number.isFinite(lat) && Number.isFinite(lon)) {
         mapRef.current.animateToRegion(
           {
-            latitude: lat,
+            latitude: lat - 0.0075,
             longitude: lon,
             latitudeDelta: 0.03,
             longitudeDelta: 0.03,
@@ -407,25 +420,43 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
           400
         );
       }
-
-      if (listRef.current && index >= 0) {
-        try {
-          listRef.current.scrollToIndex({
-            index,
-            animated: true,
-            viewPosition: 0.2,
-          });
-        } catch (err) {
-          // Fallback if list layout isn't measured yet
-        }
-      }
     },
     []
   );
 
+  useEffect(() => {
+    if (!selectedHotelId) return undefined;
+    const index = filteredHotels.findIndex((hotel) => getHotelId(hotel) === selectedHotelId);
+    if (index < 0) return undefined;
+    markerScrollRetryRef.current = null;
+
+    bottomSheetRef.current?.snapToIndex(1);
+    if (markerScrollFrameRef.current !== null) cancelAnimationFrame(markerScrollFrameRef.current);
+    if (markerScrollTimerRef.current !== null) clearTimeout(markerScrollTimerRef.current);
+
+    markerScrollFrameRef.current = requestAnimationFrame(() => {
+      markerScrollFrameRef.current = null;
+      markerScrollTimerRef.current = setTimeout(() => {
+        markerScrollTimerRef.current = null;
+        scrollToLatestSelectedCard();
+      }, 850);
+    });
+
+    return () => {
+      if (markerScrollFrameRef.current !== null) {
+        cancelAnimationFrame(markerScrollFrameRef.current);
+        markerScrollFrameRef.current = null;
+      }
+      if (markerScrollTimerRef.current !== null) {
+        clearTimeout(markerScrollTimerRef.current);
+        markerScrollTimerRef.current = null;
+      }
+    };
+  }, [filteredHotels, scrollToLatestSelectedCard, selectedHotelId]);
+
   const handleSelectHotel = useCallback(
     (item, name, imageUri, address, category, rating, offeredPrice, priceObj) => {
-      setSelectedHotelId(item?.hotelCode ?? item?.hotelId);
+      setSelectedHotelId(getHotelId(item) || null);
       const activeTraceId = String(item?.traceId || session?.traceId || searchParams?.traceId || "");
       const activeSrdvIndex = String(item?.srdvIndex || session?.srdvIndex || "15");
       const activeSrdvType = String(item?.srdvType || session?.srdvType || "MixAPI");
@@ -481,14 +512,14 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
 
   const renderCard = useCallback(
     ({ item }) => {
-      const isSelected = String(item?.hotelCode ?? item?.hotelId) === String(selectedHotelId);
+      const isSelected = getHotelId(item) === selectedHotelId;
       return <HotelCard item={item} isSelected={isSelected} onSelect={handleSelectHotel} />;
     },
     [selectedHotelId, handleSelectHotel]
   );
 
   const keyExtractor = useCallback(
-    (item, index) => String(item?.hotelCode ?? item?.hotelId ?? item?.hotelName ?? item?.name ?? index),
+    (item, index) => getHotelId(item) || String(index),
     []
   );
 
@@ -513,25 +544,26 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      <View style={styles.header}>
+    <View style={styles.container}>
+      <View style={[styles.header, { top: insets.top + 8 }]}>
         <Pressable style={styles.iconBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color="#0F172A" />
         </Pressable>
 
         <View style={styles.searchPill}>
-          <Text style={styles.searchTitle} numberOfLines={1}>
-            {title}
-          </Text>
-          <Text style={styles.searchSubtitle} numberOfLines={1}>
-            {subtitle}
-          </Text>
+          <View style={styles.searchCopy}>
+            <Text style={styles.searchTitle} numberOfLines={1}>{title}</Text>
+            <Text style={styles.searchSubtitle} numberOfLines={1}>{subtitle}</Text>
+          </View>
+          <Pressable style={styles.editBtn} onPress={() => navigation.goBack()} accessibilityLabel="Edit hotel search">
+            <Ionicons name="pencil" size={17} color="#FFFFFF" />
+          </Pressable>
         </View>
       </View>
 
       {/* Active Filter Chips */}
       {activeFilterCount > 0 && (
-        <View style={styles.activeFiltersContainer}>
+        <View style={[styles.activeFiltersContainer, { top: insets.top + 72 }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activeFiltersScroll}>
             {/* Price Filter */}
             {(filters.priceMin > priceBounds.min || filters.priceMax < priceBounds.max) && (
@@ -596,58 +628,34 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
         </View>
       )}
 
-      <View style={styles.mapWrap}>
-        <MapView ref={mapRef} style={styles.map} initialRegion={region}>
-          {mapClusters.map((cluster) => {
-            const hotel = cluster.hotel;
-            const hId = String(hotel?.hotelCode ?? hotel?.hotelId);
-            if (cluster.count > 1) {
-              return (
-                <HotelClusterMarker
-                  key={`cluster-${hId}-${cluster.count}`}
-                  cluster={cluster}
-                  onPress={() => handleMarkerPress(hotel, cluster.index)}
-                />
-              );
-            }
-
-            const isSelected = hId === String(selectedHotelId);
-            return (
-              <HotelNativeMarker
-                key={hId}
-                hotel={hotel}
-                isSelected={isSelected}
-                onPress={() => handleMarkerPress(hotel, cluster.index)}
-                onCalloutPress={() =>
-                  handleSelectHotel(
-                    hotel,
-                    hotel?.hotelName || hotel?.name || "Hotel",
-                    hotel?.hotelPicture || (Array.isArray(hotel?.images) && hotel.images[0]) || null,
-                    hotel?.hotelAddress || hotel?.address || "",
-                    hotel?.hotelCategory || "Premium Stay",
-                    Number(hotel?.starRating ?? hotel?.rating) || 4.0,
-                    getHotelDisplayPrice(hotel),
-                    hotel?.price
-                  )
-                }
-                markerRef={(ref) => {
-                  if (ref) {
-                    markerRefs.current[hId] = ref;
-                  }
-                }}
-              />
-            );
-          })}
-        </MapView>
-
-        <View style={styles.mapOverlay}>
-          <View style={styles.mapChip}>
-            <Ionicons name="business-outline" size={14} color="#fff" />
-            <Text style={styles.mapChipText}>
-              {filteredHotels.length} of {rawHotels.length} hotel{rawHotels.length === 1 ? "" : "s"}
-            </Text>
-          </View>
-        </View>
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        initialRegion={region}
+        onMapReady={refreshMarkerPoints}
+        onRegionChangeComplete={refreshMarkerPoints}
+      />
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.mapMarkerLayer,
+          { height: sheetIndex === 0 ? "82%" : sheetIndex === 1 ? "38%" : "12%" },
+        ]}
+      >
+        {filteredHotels.map((hotel, index) => {
+          const hotelId = getHotelId(hotel);
+          if (!hotelId) return null;
+          const isSelected = hotelId === selectedHotelId;
+          return (
+            <HotelPriceMarker
+              key={`${hotelId}-${index}`}
+              hotel={hotel}
+              isSelected={isSelected}
+              point={markerPoints[hotelId]}
+              onPress={() => handleMarkerPress(hotel)}
+            />
+          );
+        })}
       </View>
 
       <BottomSheet
@@ -658,48 +666,72 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
         enablePanDownToClose={false}
         enableOverDrag={false}
         animateOnMount={true}
+        onChange={(index) => {
+          setSheetIndex(index);
+          if (index !== 1) return;
+          if (markerScrollTimerRef.current !== null) clearTimeout(markerScrollTimerRef.current);
+          markerScrollTimerRef.current = setTimeout(() => {
+            markerScrollTimerRef.current = null;
+            scrollToLatestSelectedCard();
+          }, 120);
+        }}
         handleIndicatorStyle={styles.sheetHandle}
         backgroundStyle={styles.sheetBackground}
       >
         <BottomSheetFlatList
           ref={listRef}
-          data={filteredHotels}
+          data={displayedHotels}
           keyExtractor={keyExtractor}
           renderItem={renderCard}
+          getItemLayout={(_, index) => ({ length: 162, offset: 162 * index, index })}
           onScrollToIndexFailed={(info) => {
+            const currentSelection = latestSelectionRef.current;
+            const selectedIndex = currentSelection.filteredHotels.findIndex(
+              (hotel) => getHotelId(hotel) === currentSelection.selectedHotelId
+            );
+            if (selectedIndex < 0) return;
             listRef.current?.scrollToOffset({
-              offset: info.averageItemLength * info.index,
-              animated: true,
+              offset: info.averageItemLength * selectedIndex,
+              animated: false,
             });
+            if (markerScrollRetryRef.current === currentSelection.selectedHotelId) return;
+            markerScrollRetryRef.current = currentSelection.selectedHotelId;
+            if (markerScrollTimerRef.current !== null) clearTimeout(markerScrollTimerRef.current);
+            markerScrollTimerRef.current = setTimeout(() => {
+              markerScrollTimerRef.current = null;
+              const latestSelection = latestSelectionRef.current;
+              const latestIndex = latestSelection.filteredHotels.findIndex(
+                (hotel) => getHotelId(hotel) === latestSelection.selectedHotelId
+              );
+              if (latestIndex < 0) return;
+              listRef.current?.scrollToIndex({ index: latestIndex, animated: true, viewPosition: 0.15 });
+            }, 150);
           }}
           ListHeaderComponent={
             <View style={styles.sheetHeader}>
               <View style={styles.sheetHeaderTopRow}>
                 <View style={styles.sheetTitleWrap}>
-                  <Text style={styles.sheetTitle}>
-                    {filteredHotels.length > 0
-                      ? `${filteredHotels.length} Available Hotels`
-                      : "No Matching Hotels"}
-                  </Text>
-                  {selectedHotel && filteredHotels.length > 0 ? (
-                    <Text style={styles.sheetSubtitle} numberOfLines={1}>
-                      Selected: {selectedHotel?.hotelName || selectedHotel?.name}
+                  {filteredHotels.length > 0 ? (
+                    <Text style={styles.sheetTitle}>
+                      <Text style={styles.sheetTitleCount}>{filteredHotels.length}</Text>
+                      {` hotel${filteredHotels.length === 1 ? "" : "s"}`}
                     </Text>
-                  ) : null}
+                  ) : (
+                    <Text style={styles.sheetTitle}>No Matching Hotels</Text>
+                  )}
+                  <Text style={styles.sheetSubtitle}>All available for your dates</Text>
                 </View>
 
                 <Pressable
-                  style={[styles.filterTriggerBtn, activeFilterCount > 0 && styles.filterTriggerBtnActive]}
+                  style={styles.filterTriggerBtn}
                   onPress={() => setFilterModalVisible(true)}
                 >
                   <Ionicons
                     name="options-outline"
                     size={16}
-                    color={activeFilterCount > 0 ? "#FFFFFF" : "#0F172A"}
+                    color="#FFFFFF"
                   />
-                  <Text style={[styles.filterTriggerText, activeFilterCount > 0 && styles.filterTriggerTextActive]}>
-                    Filter
-                  </Text>
+                  <Text style={styles.filterTriggerText}>Filters</Text>
                   {activeFilterCount > 0 ? (
                     <View style={styles.badgePill}>
                       <Text style={styles.badgeText}>{activeFilterCount}</Text>
@@ -751,27 +783,12 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
                     >
                       <Ionicons name="star" size={12} color={selected ? "#EF4444" : "#FFB300"} />
                       <Text style={[styles.quickChipText, selected && styles.quickChipTextActive]}>
-                        {star}★+
+                        {star}+
                       </Text>
                     </Pressable>
                   );
                 })}
 
-                {/* Quick Inclusion Filter */}
-                {["Breakfast", "Room Only"].map((fac) => {
-                  const selected = (filters.facilities || []).includes(fac);
-                  return (
-                    <Pressable
-                      key={`quick-fac-${fac}`}
-                      style={[styles.quickChip, selected && styles.quickChipActive]}
-                      onPress={() => toggleQuickFacility(fac)}
-                    >
-                      <Text style={[styles.quickChipText, selected && styles.quickChipTextActive]}>
-                        {fac}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
               </ScrollView>
             </View>
           }
@@ -821,7 +838,7 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
           setSortBy("DEFAULT");
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -830,350 +847,405 @@ export default HotelSearchResultsScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: HOTEL_COLORS.blush,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
   header: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 30,
+    elevation: 12,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
     gap: 10,
-    backgroundColor: "#FFFFFF",
-    zIndex: 2,
-    borderBottomWidth: 1,
-    borderColor: "#E2E8F0",
   },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F1F5F9",
+    backgroundColor: HOTEL_COLORS.white,
+    shadowColor: "#25151A",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 7,
   },
   searchPill: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
-    borderRadius: 16,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 28,
+    paddingLeft: 17,
+    paddingRight: 6,
+    backgroundColor: HOTEL_COLORS.white,
+    shadowColor: "#25151A",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 7,
+  },
+  searchCopy: {
+    flex: 1,
+    paddingRight: 8,
   },
   searchTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#0F172A",
+    fontSize: 17,
+    fontWeight: "900",
+    color: HOTEL_COLORS.ink,
   },
   searchSubtitle: {
-    marginTop: 2,
+    marginTop: 1,
     fontSize: 11,
-    color: "#64748B",
-    fontWeight: "500",
+    color: HOTEL_COLORS.muted,
+    fontWeight: "600",
+  },
+  editBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: HOTEL_COLORS.redBright,
   },
   activeFiltersContainer: {
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderColor: "#E2E8F0",
-    paddingVertical: 8,
-    zIndex: 2,
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 25,
+    elevation: 10,
   },
   activeFiltersScroll: {
-    paddingHorizontal: 14,
-    gap: 8,
+    paddingHorizontal: 74,
+    gap: 7,
     alignItems: "center",
   },
   activeChip: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 6,
+    gap: 5,
+    borderRadius: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: HOTEL_COLORS.white,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
+    borderColor: HOTEL_COLORS.border,
   },
   activeChipText: {
-    fontSize: 12,
-    color: "#0F172A",
-    fontWeight: "600",
+    fontSize: 11,
+    color: HOTEL_COLORS.ink,
+    fontWeight: "700",
   },
-  mapWrap: {
-    flex: 1,
-    position: "relative",
-  },
-  map: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  mapOverlay: {
+  mapMarkerLayer: {
     position: "absolute",
-    top: 14,
-    left: 14,
-    right: 14,
-    alignItems: "center",
-    zIndex: 2,
+    top: 0,
+    left: 0,
+    right: 0,
+    overflow: "hidden",
   },
-  mapChip: {
-    flexDirection: "row",
+  mapPriceMarker: {
+    position: "absolute",
+    width: 58,
+    height: 40,
     alignItems: "center",
-    gap: 6,
-    backgroundColor: "#0F172A",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
   },
-  clusterMarker: {
-    minWidth: 38,
-    height: 38,
-    paddingHorizontal: 8,
-    borderRadius: 19,
-    backgroundColor: "#0F172A",
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.9)",
+  mapPriceMarkerSelectedLayer: {
+    zIndex: 20,
+  },
+  mapPriceBubble: {
+    minWidth: 52,
+    height: 30,
+    paddingHorizontal: 7,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 15,
+    backgroundColor: HOTEL_COLORS.white,
+    borderWidth: 1,
+    borderColor: HOTEL_COLORS.border,
+    shadowColor: "#25151A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  clusterMarkerText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "900",
+  mapPriceBubbleSelected: {
+    minWidth: 58,
+    height: 32,
+    backgroundColor: HOTEL_COLORS.redBright,
+    borderColor: HOTEL_COLORS.redBright,
+    elevation: 7,
   },
-  mapChipText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  calloutContainer: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#EF4444",
-    width: 190,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 6,
-  },
-  calloutHotelName: {
-    color: "#0F172A",
+  mapPriceText: {
+    color: HOTEL_COLORS.ink,
     fontSize: 13,
     fontWeight: "800",
-    marginBottom: 4,
+    includeFontPadding: false,
   },
-  calloutPrice: {
-    color: "#EF4444",
-    fontSize: 14,
-    fontWeight: "900",
-    marginBottom: 4,
+  mapPriceTextSelected: {
+    color: HOTEL_COLORS.white,
   },
-  calloutRating: {
-    color: "#F59E0B",
-    fontSize: 11,
-    fontWeight: "700",
-    marginBottom: 3,
+  mapPriceLocationIcon: {
+    marginTop: -6,
+    textShadowColor: "rgba(37, 21, 26, 0.22)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
-  calloutAddress: {
-    color: "#64748B",
-    fontSize: 10,
-    lineHeight: 14,
+  mapHotelName: {
+    position: "absolute",
+    left: -66,
+    bottom: 46,
+    width: 190,
+    minHeight: 34,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: HOTEL_COLORS.white,
+    borderWidth: 1,
+    borderColor: HOTEL_COLORS.border,
+    elevation: 7,
+  },
+  mapHotelNameText: {
+    color: HOTEL_COLORS.ink,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   sheetHandle: {
-    backgroundColor: "#CBD5E1",
     width: 42,
+    backgroundColor: "#E8C6C9",
   },
   sheetBackground: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    backgroundColor: HOTEL_COLORS.blush,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
   },
   sheetHeader: {
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingBottom: 10,
   },
   sheetHeaderTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
+    gap: 10,
   },
   sheetTitleWrap: {
     flex: 1,
   },
   sheetTitle: {
-    fontSize: 18,
+    fontSize: 21,
     fontWeight: "900",
-    color: "#0F172A",
+    color: HOTEL_COLORS.ink,
+  },
+  sheetTitleCount: {
+    color: HOTEL_COLORS.redBright,
   },
   sheetSubtitle: {
-    fontSize: 12,
-    color: "#64748B",
-    fontWeight: "500",
     marginTop: 2,
+    fontSize: 12,
+    color: HOTEL_COLORS.muted,
+    fontWeight: "500",
   },
   filterTriggerBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: "#F1F5F9",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  filterTriggerBtnActive: {
-    backgroundColor: "#EF4444",
-    borderColor: "#DC2626",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 22,
+    backgroundColor: HOTEL_COLORS.redBright,
+    shadowColor: HOTEL_COLORS.redBright,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    elevation: 4,
   },
   filterTriggerText: {
     fontSize: 12,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-  filterTriggerTextActive: {
-    color: "#FFFFFF",
+    fontWeight: "900",
+    color: HOTEL_COLORS.white,
   },
   badgePill: {
-    backgroundColor: "#FFFFFF",
     width: 18,
     height: 18,
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: HOTEL_COLORS.white,
   },
   badgeText: {
-    fontSize: 10.5,
+    color: HOTEL_COLORS.redBright,
+    fontSize: 10,
     fontWeight: "900",
-    color: "#EF4444",
   },
   quickFilterBar: {
     flexDirection: "row",
     gap: 8,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingRight: 24,
   },
   quickChip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 99,
-    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: HOTEL_COLORS.white,
     borderWidth: 1,
-    borderColor: "#CBD5E1",
+    borderColor: HOTEL_COLORS.border,
   },
   quickChipActive: {
-    backgroundColor: "#FEF2F2",
-    borderColor: "#EF4444",
+    backgroundColor: "#FFF0F1",
+    borderColor: HOTEL_COLORS.redBright,
   },
   quickChipText: {
     fontSize: 11.5,
     fontWeight: "700",
-    color: "#475569",
+    color: HOTEL_COLORS.muted,
   },
   quickChipTextActive: {
-    color: "#EF4444",
-    fontWeight: "800",
+    color: HOTEL_COLORS.redBright,
+    fontWeight: "900",
   },
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 96,
   },
   card: {
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
+    minHeight: 150,
+    flexDirection: "row",
     marginBottom: 12,
-    elevation: 1,
+    padding: 9,
+    borderRadius: 22,
+    backgroundColor: HOTEL_COLORS.white,
+    borderWidth: 1,
+    borderColor: HOTEL_COLORS.border,
+    shadowColor: "#32161D",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardSelected: {
-    borderColor: "#FCA5A5",
-    borderWidth: 1.5,
-    shadowColor: "#EF4444",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: 2,
+    borderColor: HOTEL_COLORS.redBright,
+    shadowColor: HOTEL_COLORS.redBright,
+    shadowOpacity: 0.13,
+    elevation: 4,
   },
   cardPressed: {
     opacity: 0.9,
   },
+  cardImageWrap: {
+    width: 104,
+    height: 132,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#F2ECEE",
+  },
   cardImage: {
     width: "100%",
-    height: 136,
-    backgroundColor: "#F1F5F9",
+    height: "100%",
   },
   noImageCardBox: {
-    width: "100%",
-    height: 110,
-    backgroundColor: "#F1F5F9",
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
   },
   noImageText: {
-    fontSize: 11,
-    color: "#94A3B8",
+    color: "#9B8F94",
+    fontSize: 10,
     fontWeight: "600",
   },
+  onMapBadge: {
+    position: "absolute",
+    top: 7,
+    left: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    backgroundColor: HOTEL_COLORS.redBright,
+  },
+  onMapText: {
+    color: HOTEL_COLORS.white,
+    fontSize: 8,
+    fontWeight: "900",
+  },
   cardBody: {
-    padding: 12,
+    flex: 1,
+    minWidth: 0,
+    paddingLeft: 12,
+    paddingVertical: 2,
   },
   cardTopRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: 8,
+    gap: 7,
   },
   cardTitleWrap: {
     flex: 1,
+    minWidth: 0,
   },
   cardName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#0F172A",
+    color: HOTEL_COLORS.ink,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "900",
   },
   cardCategory: {
-    marginTop: 2,
-    fontSize: 12,
-    color: "#64748B",
+    marginTop: 3,
+    color: HOTEL_COLORS.muted,
+    fontSize: 10.5,
     fontWeight: "600",
   },
   cardAddress: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 15,
-    color: "#64748B",
+    marginTop: 3,
+    color: "#857A80",
+    fontSize: 10,
   },
   cardRating: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    backgroundColor: "#FEF3C7",
+    gap: 2,
+    borderRadius: 10,
     paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    paddingVertical: 4,
+    backgroundColor: "#FFF1D2",
   },
   cardRatingText: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#B45309",
+    color: "#A66B00",
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  roomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 7,
   },
   roomFacilitiesCombined: {
-    marginTop: 4,
-    fontSize: 11,
-    color: "#475569",
-    fontWeight: "500",
+    flex: 1,
+    color: HOTEL_COLORS.ink,
+    fontSize: 10.5,
+    fontWeight: "700",
   },
   cardBottomRow: {
-    marginTop: 8,
+    flex: 1,
+    marginTop: 7,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
@@ -1181,34 +1253,26 @@ const styles = StyleSheet.create({
   priceRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: 6,
+    gap: 4,
   },
   cardPrice: {
+    maxWidth: 140,
+    color: HOTEL_COLORS.redBright,
     fontSize: 18,
     fontWeight: "900",
-    color: "#EF4444",
-  },
-  cardPublishedPrice: {
-    fontSize: 12,
-    color: "#94A3B8",
-    textDecorationLine: "line-through",
   },
   cardNights: {
-    marginTop: 1,
-    fontSize: 10.5,
-    fontWeight: "500",
-    color: "#64748B",
+    color: HOTEL_COLORS.muted,
+    fontSize: 9.5,
+    fontWeight: "600",
   },
-  discountPill: {
-    backgroundColor: "#FEF2F2",
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  discountText: {
-    fontSize: 10.5,
-    fontWeight: "800",
-    color: "#EF4444",
+  cardArrow: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: HOTEL_COLORS.redBright,
   },
   emptyState: {
     alignItems: "center",
@@ -1218,27 +1282,27 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     marginTop: 12,
+    color: HOTEL_COLORS.ink,
     fontSize: 18,
-    fontWeight: "800",
-    color: "#0F172A",
+    fontWeight: "900",
   },
   emptyText: {
     marginTop: 6,
+    color: HOTEL_COLORS.muted,
     fontSize: 13,
-    color: "#64748B",
-    textAlign: "center",
     lineHeight: 18,
+    textAlign: "center",
   },
   retryBtn: {
     marginTop: 16,
-    backgroundColor: "#EF4444",
+    borderRadius: 12,
     paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 11,
+    backgroundColor: HOTEL_COLORS.redBright,
   },
   retryBtnText: {
-    color: "#FFFFFF",
-    fontWeight: "800",
+    color: HOTEL_COLORS.white,
     fontSize: 13,
+    fontWeight: "900",
   },
 });

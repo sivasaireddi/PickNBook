@@ -23,6 +23,26 @@ const SURFACE = "#FFFFFF";
 
 const hasValue = (value) => value !== undefined && value !== null && value !== "";
 const readableStatus = (value) => String(value || "").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+const getRefundPresentation = (status, amount) => {
+  const normalized = String(status || "").trim().toUpperCase().replace(/[\s_-]+/g, "");
+  if (normalized === "COMPLETED") return {
+    label: "Refund Credited",
+    amountLabel: "Refund Amount",
+    message: hasValue(amount) ? `${formatBookingCurrency(amount)} refunded successfully` : "Your refund has been credited.",
+    completed: true,
+  };
+  if (normalized === "PROCESSING") return { label: "Refund Processing", amountLabel: "Eligible Refund", message: "Your refund is being processed." };
+  if (normalized === "FAILED") return { label: "Refund Under Review", amountLabel: "Eligible Refund", message: "Your refund is being verified by our operations team. No action is required from you." };
+  if (normalized === "NOTREQUIRED") return { label: "No Refund Applicable", amountLabel: "Refund Amount", message: "No refund applies to this cancellation." };
+  if (["PENDING", "AWAITINGSUPPLIER"].includes(normalized)) return { label: "Refund Pending", amountLabel: "Eligible Refund", message: "Your cancellation is being processed and the refund is awaiting confirmation." };
+  if (normalized === "PARTIALLYREFUNDED") return { label: "Partially Refunded", amountLabel: "Eligible Refund", message: "The latest refund update is partially refunded." };
+  return status ? { label: "Refund Update", amountLabel: "Refund Amount", message: "Check the refund details below." } : null;
+};
+const safeCancellationReason = (rootReason, auditReason) => {
+  const reason = String(rootReason || auditReason || "").trim();
+  if (!reason || reason.startsWith("{") || reason.startsWith("[") || /(GatewayError|WalletStatus|GatewayStatus|FailureReason|StackTrace)/i.test(reason)) return "Cancelled by user";
+  return reason;
+};
 
 export default function BusBookingDetailsScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -46,14 +66,27 @@ export default function BusBookingDetailsScreen({ navigation, route }) {
   const quotedTotalCharge = pickBookingValue(policy, ["estimatedCancellationCharge", "EstimatedCancellationCharge"], null);
   const estimatedRefund = pickBookingValue(policy, ["estimatedRefundAmount", "EstimatedRefundAmount"], null);
 
-  const cancelledCharge = pickBookingValue(audit, ["cancellationCharges", "CancellationCharges"], booking.cancellationCharge);
-  const cancelledOperatorCharge = pickBookingValue(audit, ["supplierCancellationCharge", "SupplierCancellationCharge"], null);
-  const cancelledServiceCharge = pickBookingValue(audit, ["serviceCharge", "ServiceCharge", "serviceChargeRetained", "ServiceChargeRetained"], null);
-  const cancelledConvenienceFee = pickBookingValue(audit, ["convenienceFee", "ConvenienceFee", "feeRetained", "FeeRetained"], null);
-  const cancelledRefund = pickBookingValue(audit, ["customerRefundAmount", "CustomerRefundAmount"], booking.refundAmount);
-  const refundStatus = String(pickBookingValue(audit, ["refundStatus", "RefundStatus"], booking.refundStatus) || "");
+  const cancelledCharge = booking.cancellationCharge;
+  const cancelledRefund = pickBookingValue(audit, ["customerRefundAmount", "CustomerRefundAmount"], null);
+  const refundStatus = String(pickBookingValue(audit, ["refundStatus", "RefundStatus"], "") || "").trim();
+  const refundPresentation = useMemo(() => getRefundPresentation(refundStatus, cancelledRefund), [refundStatus, cancelledRefund]);
   const cancelledAt = pickBookingValue(audit, ["cancelledAt", "CancelledAt"], booking.cancelledAt);
-  const cancellationReason = String(pickBookingValue(audit, ["cancellationReason", "CancellationReason"], booking.cancellationReason) || "");
+  const cancellationReason = safeCancellationReason(booking.cancellationReason, pickBookingValue(audit, ["cancellationReason", "CancellationReason"], ""));
+  const refundReference = String(pickBookingValue(
+    booking.raw,
+    ["cashfreeRefundId", "CashfreeRefundId"],
+    pickBookingValue(audit, ["cashfreeRefundId", "CashfreeRefundId"], "")
+  ) || "").trim();
+  const lifecycleHierarchy = pickBookingValue(booking.raw, ["lifecycleHierarchy", "LifecycleHierarchy"], {}) || {};
+  const lifecycleStages = pickBookingValue(lifecycleHierarchy, ["stages", "Stages"], []);
+  const refundSettlementStage = Array.isArray(lifecycleStages)
+    ? lifecycleStages.find((stage) => String(pickBookingValue(stage, ["key", "Key"], "")).trim().toUpperCase() === "REFUND_SETTLEMENT"
+      && String(pickBookingValue(stage, ["status", "Status"], "")).trim().toUpperCase() === "COMPLETED")
+    : null;
+  const refundCompletedAt = refundPresentation?.completed
+    ? pickBookingValue(refundSettlementStage, ["timestamp", "Timestamp"], null)
+    : null;
+  const postCancellation = ["Cancelled", "PartiallyCancelled"].includes(booking.status);
   const cancellable = isBusCancellationEligible(booking) && policyCanCancel;
 
   const timeline = useMemo(() => {
@@ -63,7 +96,7 @@ export default function BusBookingDetailsScreen({ navigation, route }) {
     if (booking.status === "PartiallyCancelled") return [{ icon: "information", title: "Partially cancelled", text: "Cancelled passengers are marked below. Remaining active passengers are still booked for travel." }];
     if (booking.status === "Cancelled") {
       const entries = [{ icon: "close", title: "Booking cancelled", text: cancelledAt ? formatBookingDateTime(cancelledAt) : "" }];
-      if (refundStatus) entries.push({ icon: "return-down-back", title: `Refund ${readableStatus(refundStatus)}`, text: hasValue(cancelledRefund) ? formatBookingCurrency(cancelledRefund) : "" });
+      if (refundPresentation) entries.push({ icon: "return-down-back", title: refundPresentation.label, text: refundPresentation.message });
       return entries;
     }
     if (booking.status === "Past") return [
@@ -71,7 +104,7 @@ export default function BusBookingDetailsScreen({ navigation, route }) {
       { icon: "flag", title: "Journey completed", text: booking.arrivalAt ? formatBookingDateTime(booking.arrivalAt) : "" },
     ];
     return [{ icon: "checkmark", title: "Booking confirmed", text: booking.bookedAt ? formatBookingDateTime(booking.bookedAt) : "Your ticket is active for travel." }];
-  }, [booking, cancelledAt, cancelledRefund, refundStatus]);
+  }, [booking, cancelledAt, refundPresentation]);
 
   const discountRows = hasValue(booking.discount) && Number(booking.discount) !== 0
     ? [["Discount", booking.discount, true]]
@@ -155,7 +188,7 @@ export default function BusBookingDetailsScreen({ navigation, route }) {
           {timeline.map((item, index) => <TimelineRow key={`${item.title}-${index}`} item={item} last={index === timeline.length - 1} />)}
         </Section>
 
-        {["Upcoming", "PartiallyCancelled"].includes(booking.status) && (booking.cancellationPolicy || policyCanCancel) && <CollapsibleSection title="Cancellation & refund" icon="shield-checkmark-outline" expanded={cancellationExpanded} onToggle={() => setCancellationExpanded((current) => !current)}>
+        {booking.status === "Upcoming" && (booking.cancellationPolicy || policyCanCancel) && <CollapsibleSection title="Cancellation & refund" icon="shield-checkmark-outline" expanded={cancellationExpanded} onToggle={() => setCancellationExpanded((current) => !current)}>
           <View style={styles.eligibilityRow}>
             <Ionicons name={policyCanCancel ? "checkmark-circle-outline" : "information-circle-outline"} size={18} color={policyCanCancel ? NAVY : "#B42318"} />
             <Text style={[styles.eligibilityText, !policyCanCancel && styles.ineligibleText]}>{policyCanCancel ? "Eligible for cancellation" : "Cancellation unavailable"}</Text>
@@ -171,19 +204,16 @@ export default function BusBookingDetailsScreen({ navigation, route }) {
           <Text style={styles.readOnlyNote}>Cancellation values shown here come from the booking’s current backend quote.</Text>
         </CollapsibleSection>}
 
-        {booking.status === "Cancelled" && <Section title="Cancellation & refund" icon="return-down-back-outline">
+        {postCancellation && <Section title="Cancellation & refund" icon="return-down-back-outline">
           {!!cancelledAt && <InfoRow label="Cancelled on" value={formatBookingDateTime(cancelledAt)} />}
-          {!!cancellationReason && <InfoRow label="Reason" value={cancellationReason} />}
-          {hasValue(booking.totalPaid) && <MoneyRow label="Original amount paid" value={booking.totalPaid} />}
-          {hasValue(cancelledOperatorCharge) && <MoneyRow label="Operator cancellation charge" value={cancelledOperatorCharge} />}
-          {hasValue(cancelledServiceCharge) && <MoneyRow label="Service charge" value={cancelledServiceCharge} />}
-          {Number(cancelledConvenienceFee) > 0 && <MoneyRow label="Non-refundable convenience fee" value={cancelledConvenienceFee} />}
-          {hasValue(cancelledCharge) && <MoneyRow label="Total cancellation charge" value={cancelledCharge} />}
-          {hasValue(cancelledRefund) ? <MoneyRow label="Refund amount" value={cancelledRefund} emphasis /> : <Text style={styles.unavailableText}>Refund information unavailable</Text>}
-          {!!refundStatus && <InfoRow label="Refund status" value={readableStatus(refundStatus)} />}
+          <InfoRow label="Cancellation Reason" value={cancellationReason} />
+          {hasValue(booking.totalPaid) && <MoneyRow label="Total Paid" value={booking.totalPaid} />}
+          {hasValue(cancelledCharge) && <MoneyRow label="Cancellation Charges" value={cancelledCharge} />}
+          {hasValue(cancelledRefund) ? <MoneyRow label={refundPresentation?.amountLabel || "Refund Amount"} value={cancelledRefund} emphasis /> : <Text style={styles.unavailableText}>Refund information unavailable</Text>}
+          {!!refundPresentation && <InfoRow label="Refund Status" value={refundPresentation.label} />}
           {!!booking.refundPreference && <InfoRow label="Refund method" value={readableStatus(booking.refundPreference)} />}
-          {!!booking.refundReference && <InfoRow label="Refund reference" value={booking.refundReference} />}
-          {!!booking.refundCompletedAt && <InfoRow label="Refund completed" value={formatBookingDateTime(booking.refundCompletedAt)} />}
+          {!!refundReference && <InfoRow label="Refund Reference" value={refundReference} />}
+          {!!refundCompletedAt && <InfoRow label="Refund completed on" value={formatBookingDate(refundCompletedAt)} />}
         </Section>}
       </ScrollView>
     </SafeAreaView>

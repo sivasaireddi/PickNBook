@@ -311,6 +311,7 @@ const HotelsScreen = () => {
         searchParams: {
           ...searchParams,
           ...sessionData,
+          destinationName: destinationInput.trim(),
         },
       });
     } catch (searchError) {
