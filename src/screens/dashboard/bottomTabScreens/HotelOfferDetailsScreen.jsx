@@ -54,11 +54,11 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
   const routeParams = route?.params || {};
   const activeHotel = routeParams.hotel || contextSelectedHotel || {};
 
-  const targetTraceId = String(routeParams.traceId || activeHotel.traceId || session.traceId || "");
+  const targetTraceId = routeParams.traceId ?? activeHotel.traceId ?? session.traceId ?? null;
   const targetSrdvType = String(routeParams.srdvType || activeHotel.srdvType || session.srdvType || "MixAPI");
   const targetSrdvIndex = String(routeParams.srdvIndex || activeHotel.srdvIndex || session.srdvIndex || "15");
-  const targetResultIndex = String(routeParams.resultIndex || activeHotel.resultIndex || activeHotel.hotelCode || "");
-  const targetHotelCode = String(routeParams.hotelCode || activeHotel.hotelCode || activeHotel.resultIndex || "");
+  const targetResultIndex = String(routeParams.resultIndex ?? activeHotel.resultIndex ?? activeHotel.ResultIndex ?? "");
+  const targetHotelCode = String(routeParams.hotelCode ?? activeHotel.hotelCode ?? activeHotel.HotelCode ?? "");
 
   const requiredRoomCount = Number(searchParams?.noOfRooms || searchParams?.rooms || 1);
 
@@ -86,6 +86,9 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
     setError("");
     setRoomError("");
     try {
+      if (targetTraceId === null || !targetResultIndex || !targetHotelCode) {
+        throw new Error("Hotel session information is incomplete. Please select the hotel again.");
+      }
       console.log("[HotelOfferDetailsScreen] Fetching live hotel info & rooms:", {
         TraceId: targetTraceId,
         SrdvType: targetSrdvType,
@@ -114,6 +117,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
           throw new Error("Hotel details missing in Info API response");
         }
       } catch (infoErr) {
+        if (infoErr?.isTraceExpired) throw infoErr;
         console.log("[HotelOfferDetailsScreen] getHotelInfo notice:", infoErr?.message);
         const fallbackPic = activeHotel.hotelPicture || routeParams.hotelPicture || "";
         const fallbackImgs = Array.isArray(activeHotel.images) && activeHotel.images.length > 0
@@ -144,60 +148,12 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
       let roomsData = [];
       try {
         const roomsRes = await getHotelRoom(payload);
-        const roomResData = roomsRes?.getHotelRoomResult || {};
-        roomsData = roomResData.hotelRoomsDetails || roomResData.HotelRoomDetails || [];
+        const roomResData = roomsRes?.getHotelRoomResult || roomsRes?.roomsResult || roomsRes || {};
+        roomsData = roomResData.hotelRoomsDetails || roomResData.HotelRoomsDetails || roomResData.HotelRoomDetails || roomResData.rooms || [];
         console.log("[HotelOfferDetailsScreen] rooms parsed:", JSON.stringify(roomsData, null, 2));
       } catch (roomErr) {
+        if (roomErr?.isTraceExpired) throw roomErr;
         console.log("[HotelOfferDetailsScreen] getHotelRoom notice:", roomErr?.message);
-      }
-
-      // If live room API failed or returned empty, construct room offer from search results
-      if (!Array.isArray(roomsData) || roomsData.length === 0) {
-        if (activeHotel?.price || activeHotel?.offeredFare) {
-          console.log("[HotelOfferDetailsScreen] Utilizing fallback room configuration from search results");
-          const defaultPriceObj = activeHotel.price || {
-            currencyCode: "INR",
-            roomPrice: activeHotel.offeredFare || 0,
-            offeredPrice: activeHotel.offeredFare || 0,
-            publishedPrice: activeHotel.offeredFare || 0,
-            tax: 0,
-            extraGuestCharge: 0,
-            childCharge: 0,
-            otherCharges: 0,
-            discount: 0,
-            agentMarkUp: 50,
-            b2CBasePrice: (activeHotel.offeredFare || 0) + 50,
-            b2CTotalPrice: (activeHotel.offeredFare || 0) + 50,
-          };
-
-          const rawFacilities = Array.isArray(activeHotel.facilities)
-            ? activeHotel.facilities.flatMap(f => f.facilitiesNames || (typeof f === "string" ? [f] : []))
-            : ["Free Wi-Fi", "Air Conditioning", "Daily Housekeeping"];
-
-          const roomPhoto = activeHotel.hotelPicture || routeParams.hotelPicture || (activeHotel.images && activeHotel.images[0]) || "";
-
-          roomsData = [
-            {
-              categoryName: "Standard Room",
-              rooms: [
-                {
-                  roomId: `room-${targetHotelCode || "std"}-1`,
-                  roomTypeCode: "STD",
-                  roomTypeName: "Standard Room - Best Available Rate",
-                  ratePlanCode: "EP",
-                  ratePlan: "Room Only",
-                  price: defaultPriceObj,
-                  offeredPrice: defaultPriceObj.offeredPrice || activeHotel.offeredFare || 0,
-                  roomImages: roomPhoto ? [{ image: roomPhoto }] : [],
-                  amenities: rawFacilities.length > 0 ? rawFacilities : ["Free Wi-Fi", "Air Conditioning"],
-                  cancellationPolicy: "Standard refundable cancellation policy applies.",
-                  bedTypes: "1 Double Bed or 2 Twin Beds",
-                  smokingPreference: "NoPreference",
-                },
-              ],
-            },
-          ];
-        }
       }
 
       if (Array.isArray(roomsData) && roomsData.length > 0) {
@@ -243,7 +199,16 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
       }
     } catch (err) {
       console.log("[HotelOfferDetailsScreen] General fetch error:", err?.message);
-      setError(err?.message || "Unable to retrieve hotel details.");
+      if (err?.isTraceExpired) {
+        Alert.alert(
+          "Room hold expired",
+          "Your room hold has expired. Please select the room again to check updated availability.",
+          [{ text: "OK", onPress: () => navigation.goBack() }]
+        );
+      }
+      setError(err?.isTraceExpired
+        ? "Your room hold has expired. Please select the room again to check updated availability."
+        : (err?.message || "Unable to retrieve hotel details."));
     } finally {
       setLoading(false);
     }

@@ -1,13 +1,9 @@
 import * as SecureStore from "expo-secure-store";
 import axios from "axios";
-import { readApiMessage } from "./authService";
 import { API_BASE_URL } from "../constants/config";
 
 export const HOTEL_API_BASE_URL = API_BASE_URL;
 
-const DEFAULT_CLIENT_ID = process.env.EXPO_PUBLIC_HOTEL_CLIENT_ID || "180232";
-const DEFAULT_USERNAME = process.env.EXPO_PUBLIC_HOTEL_USERNAME || "PickNBk6";
-const DEFAULT_PASSWORD = process.env.EXPO_PUBLIC_HOTEL_PASSWORD || "PickNB@486";
 const DEFAULT_END_USER_IP = process.env.EXPO_PUBLIC_HOTEL_END_USER_IP || "192.168.1.1";
 
 function toHotelUrl(endpoint) {
@@ -19,7 +15,30 @@ function toHotelUrl(endpoint) {
   return `${baseUrl}${safeEndpoint}`;
 }
 
-let lastTraceId = "";
+let lastTraceId = null;
+
+function normalizeTraceId(value) {
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  const raw = String(value ?? "").trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const numeric = Number(raw);
+  if (!Number.isSafeInteger(numeric)) {
+    throw new Error("The hotel search session identifier is invalid. Please search again.");
+  }
+  return numeric;
+}
+
+function toHotelFlowError(error, fallbackMessage) {
+  const data = error?.response?.data;
+  const wrapped = new Error(
+    data?.message || data?.errorMessage || data?.title ||
+    (typeof data === "string" ? data : null) || error?.message || fallbackMessage
+  );
+  wrapped.status = error?.response?.status;
+  wrapped.errorCode = data?.errorCode || data?.ErrorCode || "";
+  wrapped.isTraceExpired = wrapped.status === 410 || wrapped.errorCode === "TRACE_ID_EXPIRED";
+  return wrapped;
+}
 
 // Centralized hotel-flow logging. Sensitive credentials and guest contact data
 // are redacted before anything is sent to the Metro/Expo console.
@@ -116,7 +135,7 @@ export async function searchCities(query = "") {
     if (!trimmed) return [];
 
     const response = await axios.get(toHotelUrl("/api/Places"), {
-      params: { query: trimmed, tripType: "hotel" },
+      params: { query: trimmed, tripType: "hotel", field: "all", limit: 20 },
     });
 
     hotelFlowLog("CITY SEARCH RESPONSE", response.data);
@@ -194,9 +213,6 @@ export async function searchHotelOffers(params = {}) {
 
   const payloadBody = {
     EndUserIp: String(params.EndUserIp || params.endUserIp || DEFAULT_END_USER_IP),
-    ClientId: String(params.ClientId || params.clientId || DEFAULT_CLIENT_ID),
-    UserName: String(params.UserName || params.userName || DEFAULT_USERNAME),
-    Password: String(params.Password || params.password || DEFAULT_PASSWORD),
     CheckInDate: finalCheckInDate,
     CheckOutDate: finalCheckOutDate,
     NoOfNights: noOfNights,
@@ -237,8 +253,10 @@ export async function searchHotelOffers(params = {}) {
 
   hotelFlowLog("SEARCH RESPONSE", response.data);
 
-  if (response?.data?.traceId !== undefined && response?.data?.traceId !== null) {
-    lastTraceId = String(response.data.traceId);
+  const rawResponseTraceId = response.data?.traceId ?? response.data?.TraceId ??
+    response.data?.hotelSearchResult?.traceId ?? response.data?.hotelSearchResult?.TraceId;
+  if (rawResponseTraceId !== undefined && rawResponseTraceId !== null) {
+    lastTraceId = normalizeTraceId(rawResponseTraceId);
   }
 
 
@@ -251,22 +269,23 @@ export async function searchHotelOffers(params = {}) {
     response.data?.data ||
     (Array.isArray(response.data) ? response.data : null);
 
-  const responseTraceId = response.data?.traceId ? String(response.data.traceId) : lastTraceId;
-  const srdvType = String(response.data?.srdvType || "MixAPI");
+  const responseTraceId = normalizeTraceId(rawResponseTraceId ?? lastTraceId);
+  const srdvType = String(response.data?.srdvType ?? response.data?.SrdvType ?? "MixAPI");
+  const srdvIndex = String(response.data?.srdvIndex ?? response.data?.SrdvIndex ?? "15");
 
   if (Array.isArray(apiResults) && apiResults.length > 0) {
     hotelFlowLog("SEARCH NORMALIZED", { count: apiResults.length, traceId: responseTraceId, srdvType });
     return {
       traceId: responseTraceId,
       srdvType,
-      srdvIndex: "15",
+      srdvIndex,
       hotels: apiResults.map((hotel) => ({
         ...hotel,
-        traceId: String(hotel.traceId || responseTraceId),
+        traceId: normalizeTraceId(hotel.traceId ?? responseTraceId),
         srdvType: String(hotel.srdvType || srdvType),
-        srdvIndex: String(hotel.srdvIndex ?? "15"),
-        resultIndex: String(hotel.resultIndex ?? hotel.hotelCode ?? ""),
-        hotelCode: String(hotel.hotelCode ?? hotel.resultIndex ?? ""),
+        srdvIndex: String(hotel.srdvIndex ?? hotel.SrdvIndex ?? srdvIndex),
+        resultIndex: String(hotel.resultIndex ?? hotel.ResultIndex ?? ""),
+        hotelCode: String(hotel.hotelCode ?? hotel.HotelCode ?? ""),
       })),
     };
   }
@@ -283,7 +302,7 @@ export async function searchHotelOffers(params = {}) {
   return {
     traceId: responseTraceId,
     srdvType,
-    srdvIndex: "15",
+    srdvIndex,
     hotels: [],
   };
 }
@@ -294,28 +313,25 @@ export async function searchHotels(params) {
 }
 
 /**
- * Step 2: Get Hotel Info Ã¢â‚¬â€ POST /api/Hotels/GetHotelInfo
+ * Step 2: Get Hotel Info - GET /api/Hotels/GetHotelInfo
  */
 export async function getHotelInfo(payload = {}) {
   hotelFlowLog("HOTEL INFO REQUEST", payload);
   const resultIndexVal = String(
-    payload.ResultIndex || payload.resultIndex || payload.HotelCode || payload.hotelCode || ""
+    payload.ResultIndex ?? payload.resultIndex ?? ""
   );
   const hotelCodeVal = String(
-    payload.HotelCode || payload.hotelCode || payload.ResultIndex || payload.resultIndex || ""
+    payload.HotelCode ?? payload.hotelCode ?? ""
   );
 
   const formattedPayload = {
-    EndUserIp: String(payload.EndUserIp || payload.endUserIp || DEFAULT_END_USER_IP),
-    ClientId: String(payload.ClientId || payload.clientId || DEFAULT_CLIENT_ID),
-    UserName: String(payload.UserName || payload.userName || DEFAULT_USERNAME),
-    Password: String(payload.Password || payload.password || DEFAULT_PASSWORD),
-    TraceId: String(payload.TraceId || payload.traceId || lastTraceId || ""),
-    SrdvType: String(payload.SrdvType || payload.srdvType || "MixAPI"),
-    SrdvIndex: String(payload.SrdvIndex || payload.srdvIndex || "15"),
-    ResultIndex: resultIndexVal,
-    HotelCode: hotelCodeVal,
+    traceId: normalizeTraceId(payload.TraceId ?? payload.traceId ?? lastTraceId),
+    resultIndex: resultIndexVal,
+    hotelCode: hotelCodeVal,
   };
+  if (formattedPayload.traceId === null || !resultIndexVal || !hotelCodeVal) {
+    throw new Error("Hotel session details are incomplete. Please search again.");
+  }
 
 
   const token = await getStoredToken();
@@ -328,11 +344,10 @@ export async function getHotelInfo(payload = {}) {
   }
 
   try {
-    const response = await axios.post(
-      toHotelUrl("/api/Hotels/GetHotelInfo"),
-      formattedPayload,
-      { headers }
-    );
+    const response = await axios.get(toHotelUrl("/api/Hotels/GetHotelInfo"), {
+      headers,
+      params: formattedPayload,
+    });
 
     hotelFlowLog("HOTEL INFO RESPONSE", response.data);
 
@@ -344,44 +359,25 @@ export async function getHotelInfo(payload = {}) {
     return response.data;
   } catch (err) {
     hotelFlowError("HOTEL INFO", err);
-    if (err.response?.data) {
-      const serverMsg =
-        err.response.data?.hotelInfoResult?.error?.errorMessage ||
-        err.response.data?.errorMessage ||
-        err.response.data?.title ||
-        err.response.data?.message ||
-        (typeof err.response.data === "string" ? err.response.data : null);
-      if (serverMsg) {
-        throw new Error(serverMsg);
-      }
-    }
-    throw err;
+    throw toHotelFlowError(err, "Unable to load hotel information.");
   }
 }
 
 /**
- * Step 3: Get Hotel Room Ã¢â‚¬â€ POST /api/Hotels/GetHotelRoom
+ * Step 3: Get Hotel Rooms - GET /api/Hotels/rooms
  */
 export async function getHotelRoom(payload = {}) {
   hotelFlowLog("ROOMS REQUEST", payload);
   const resultIndexVal = String(
-    payload.ResultIndex || payload.resultIndex || payload.HotelCode || payload.hotelCode || ""
+    payload.ResultIndex ?? payload.resultIndex ?? ""
   );
-  const hotelCodeVal = String(
-    payload.HotelCode || payload.hotelCode || payload.ResultIndex || payload.resultIndex || ""
-  );
-
   const formattedPayload = {
-    EndUserIp: String(payload.EndUserIp || payload.endUserIp || DEFAULT_END_USER_IP),
-    ClientId: String(payload.ClientId || payload.clientId || DEFAULT_CLIENT_ID),
-    UserName: String(payload.UserName || payload.userName || DEFAULT_USERNAME),
-    Password: String(payload.Password || payload.password || DEFAULT_PASSWORD),
-    TraceId: String(payload.TraceId || payload.traceId || lastTraceId || ""),
-    SrdvType: String(payload.SrdvType || payload.srdvType || "MixAPI"),
-    SrdvIndex: String(payload.SrdvIndex || payload.srdvIndex || "15"),
-    ResultIndex: resultIndexVal,
-    HotelCode: hotelCodeVal,
+    traceId: normalizeTraceId(payload.TraceId ?? payload.traceId ?? lastTraceId),
+    resultIndex: resultIndexVal,
   };
+  if (formattedPayload.traceId === null || !resultIndexVal) {
+    throw new Error("Hotel room session details are incomplete. Please search again.");
+  }
 
 
   const token = await getStoredToken();
@@ -394,11 +390,10 @@ export async function getHotelRoom(payload = {}) {
   }
 
   try {
-    const response = await axios.post(
-      toHotelUrl("/api/Hotels/GetHotelRoom"),
-      formattedPayload,
-      { headers }
-    );
+    const response = await axios.get(toHotelUrl("/api/Hotels/rooms"), {
+      headers,
+      params: formattedPayload,
+    });
 
     hotelFlowLog("ROOMS RESPONSE", response.data);
 
@@ -410,18 +405,7 @@ export async function getHotelRoom(payload = {}) {
     return response.data;
   } catch (err) {
     hotelFlowError("ROOMS", err);
-    if (err.response?.data) {
-      const serverMsg =
-        err.response.data?.getHotelRoomResult?.error?.errorMessage ||
-        err.response.data?.errorMessage ||
-        err.response.data?.title ||
-        err.response.data?.message ||
-        (typeof err.response.data === "string" ? err.response.data : null);
-      if (serverMsg) {
-        throw new Error(serverMsg);
-      }
-    }
-    throw err;
+    throw toHotelFlowError(err, "Unable to load hotel rooms.");
   }
 }
 
@@ -431,110 +415,38 @@ export async function getHotelRoom(payload = {}) {
 export async function blockHotelRoom(payload = {}) {
   hotelFlowLog("BLOCK ROOM REQUEST", payload);
   const resultIndexVal = String(
-    payload.ResultIndex || payload.resultIndex || payload.HotelCode || payload.hotelCode || ""
+    payload.ResultIndex ?? payload.resultIndex ?? ""
   );
   const hotelCodeVal = String(
-    payload.HotelCode || payload.hotelCode || payload.ResultIndex || payload.resultIndex || resultIndexVal
+    payload.HotelCode ?? payload.hotelCode ?? ""
   );
 
   const rawRoomList = Array.isArray(payload.HotelRoomsDetails || payload.hotelRoomsDetails)
     ? payload.HotelRoomsDetails || payload.hotelRoomsDetails
     : [];
 
-  const formattedRooms = rawRoomList.map((room) => {
-    const offeredPriceVal = Number(room.OfferedPrice ?? room.offeredPrice ?? room.price?.offeredPrice ?? room.price ?? 0);
-    const roomPriceVal = Number(room.RoomPrice ?? room.roomPrice ?? room.price?.roomPrice ?? offeredPriceVal);
-
-    const priceObj = room.Price || room.price || {
-      CurrencyCode: "INR",
-      RoomPrice: roomPriceVal,
-      Tax: Number(room.price?.tax || 0),
-      ExtraGuestCharge: Number(room.price?.extraGuestCharge || 0),
-      ChildCharge: Number(room.price?.childCharge || 0),
-      OtherCharges: Number(room.price?.otherCharges || 0),
-      Discount: Number(room.price?.discount || 0),
-      PublishedPrice: offeredPriceVal,
-      PublishedPriceRoundedOff: Math.round(offeredPriceVal),
-      OfferedPrice: offeredPriceVal,
-      OfferedPriceRoundedOff: Math.round(offeredPriceVal),
-      AgentCommission: 0,
-      AgentMarkUp: 50,
-      ServiceTax: 0,
-      TCS: 0,
-      TDS: 0,
-      ServiceCharge: 0,
-      TotalGSTAmount: 0,
-      GST: {
-        CGSTAmount: 0,
-        CGSTRate: 0,
-        CessAmount: 0,
-        CessRate: 0,
-        IGSTAmount: 0,
-        IGSTRate: 0,
-        SGSTAmount: 0,
-        SGSTRate: 0,
-        TaxableAmount: 0,
-      },
-      B2CBasePrice: offeredPriceVal,
-      B2CTotalPrice: offeredPriceVal,
-    };
-
-    return {
-      ChildCount: Number(room.ChildCount ?? room.childCount ?? 0),
-      RequireAllPaxDetails: Boolean(room.RequireAllPaxDetails ?? room.requireAllPaxDetails ?? false),
-      RoomId: String(room.RoomId || room.roomId || ""),
-      RoomStatus: String(room.RoomStatus || room.roomStatus || "Active"),
-      RoomIndex: String(room.RoomIndex || room.roomIndex || ""),
-      RoomTypeCode: String(room.RoomTypeCode || room.roomTypeCode || ""),
-      RoomTypeName: String(room.RoomTypeName || room.roomTypeName || room.categoryName || "Standard Room"),
-      RatePlanCode: String(room.RatePlanCode || room.ratePlanCode || room.ratePlan || ""),
-      RatePlan: String(room.RatePlan || room.ratePlan || room.RatePlanCode || room.ratePlanCode || ""),
-      InfoSource: String(room.InfoSource || room.infoSource || ""),
-      SequenceNo: String(room.SequenceNo || room.sequenceNo || ""),
-      DayRates: Array.isArray(room.DayRates || room.dayRates) ? (room.DayRates || room.dayRates) : [],
-      SupplierPrice: String(room.SupplierPrice ?? room.supplierPrice ?? ""),
-      Price: priceObj,
-      RoomPromotion: String(room.RoomPromotion || room.roomPromotion || ""),
-      Amenities: Array.isArray(room.Amenities || room.amenities)
-        ? (room.Amenities || room.amenities).map(a => (typeof a === "object" ? a : { name: String(a) }))
-        : [],
-      SmokingPreference: String(room.SmokingPreference || room.smokingPreference || "NoPreference"),
-      BedTypes: typeof room.BedTypes === "string" ? room.BedTypes : (typeof room.bedTypes === "string" ? room.bedTypes : (room.bedTypes?.[0]?.name || "Standard")),
-      HotelSupplements: typeof room.HotelSupplements === "string" ? room.HotelSupplements : (typeof room.hotelSupplements === "string" ? room.hotelSupplements : ""),
-      LastCancellationDate: String(room.LastCancellationDate || room.lastCancellationDate || ""),
-      CancellationPolicies: Array.isArray(room.CancellationPolicies || room.cancellationPolicies)
-        ? (room.CancellationPolicies || room.cancellationPolicies)
-        : [],
-      CancellationPolicy: String(room.CancellationPolicy || room.cancellationPolicy || ""),
-      IsPassportMandatory: Boolean(room.IsPassportMandatory ?? room.isPassportMandatory ?? false),
-      IsPANMandatory: Boolean(room.IsPANMandatory ?? room.isPANMandatory ?? false),
-      OfferedPrice: offeredPriceVal,
-    };
-  });
-
-  let clientRef = Number(payload.ClientReferenceNo || payload.clientReferenceNo || Math.floor(Date.now() / 1000));
-  if (isNaN(clientRef) || clientRef > 2147483647) {
-    clientRef = Math.floor(Date.now() / 1000);
-  }
+  const formattedRooms = rawRoomList.map((room) => ({
+    RoomIndex: String(room.RoomIndex ?? room.roomIndex ?? ""),
+    RoomTypeCode: String(room.RoomTypeCode ?? room.roomTypeCode ?? ""),
+    OptionId: String(room.OptionId ?? room.optionId ?? ""),
+  }));
 
   const formattedPayload = {
-    EndUserIp: String(payload.EndUserIp || payload.endUserIp || DEFAULT_END_USER_IP),
-    ClientId: String(payload.ClientId || payload.clientId || DEFAULT_CLIENT_ID),
-    UserName: String(payload.UserName || payload.userName || DEFAULT_USERNAME),
-    Password: String(payload.Password || payload.password || DEFAULT_PASSWORD),
-    TraceId: String(payload.TraceId || payload.traceId || lastTraceId || ""),
-    SrdvType: String(payload.SrdvType || payload.srdvType || "MixAPI"),
-    SrdvIndex: String(payload.SrdvIndex || payload.srdvIndex || "15"),
+    TraceId: normalizeTraceId(payload.TraceId ?? payload.traceId ?? lastTraceId),
     ResultIndex: resultIndexVal,
     HotelCode: hotelCodeVal,
     HotelName: String(payload.HotelName || payload.hotelName || "Hotel Stay"),
     GuestNationality: String(payload.GuestNationality || payload.guestNationality || "IN"),
     NoOfRooms: Number(payload.NoOfRooms || payload.noOfRooms || 1),
-    ClientReferenceNo: clientRef,
-    IsVoucherBooking: Boolean(payload.IsVoucherBooking ?? payload.isVoucherBooking ?? false),
-    CouponCode: String(payload.CouponCode || payload.couponCode || "").trim(),
     HotelRoomsDetails: formattedRooms,
   };
+  if (
+    formattedPayload.TraceId === null || !formattedPayload.ResultIndex || !formattedPayload.HotelCode ||
+    formattedRooms.length === 0 ||
+    formattedRooms.some((room) => !room.RoomIndex || !room.RoomTypeCode || !room.OptionId)
+  ) {
+    throw new Error("The selected room rate is incomplete. Please select the room again.");
+  }
 
 
   const token = await getStoredToken();
@@ -563,18 +475,7 @@ export async function blockHotelRoom(payload = {}) {
     return response.data;
   } catch (err) {
     hotelFlowError("BLOCK ROOM", err);
-    if (err.response?.data) {
-      const serverMsg =
-        err.response.data?.blockRoomResult?.error?.errorMessage ||
-        err.response.data?.errorMessage ||
-        err.response.data?.title ||
-        err.response.data?.message ||
-        (typeof err.response.data === "string" ? err.response.data : null);
-      if (serverMsg) {
-        throw new Error(serverMsg);
-      }
-    }
-    throw err;
+    throw toHotelFlowError(err, "Room availability verification failed.");
   }
 }
 
@@ -588,9 +489,9 @@ export function blockRoom(payload) {
 export async function getHotelPricingPreview(payload = {}) {
   hotelFlowLog("PRICING PREVIEW REQUEST", payload);
   const formattedPayload = {
-    TraceId: String(payload.TraceId || payload.traceId || lastTraceId || ""),
     HotelCode: String(payload.HotelCode || payload.hotelCode || ""),
-    BasePrice: Number(payload.BasePrice ?? payload.basePrice ?? 0),
+    B2CBasePrice: Number(payload.B2CBasePrice ?? payload.b2CBasePrice ?? payload.basePrice ?? 0),
+    SrdvGstAmount: Number(payload.SrdvGstAmount ?? payload.srdvGstAmount ?? 0),
     CouponCode: String(payload.CouponCode || payload.couponCode || "").trim(),
   };
 
@@ -616,126 +517,16 @@ export async function getHotelPricingPreview(payload = {}) {
     return response.data;
   } catch (error) {
     hotelFlowError("PRICING PREVIEW", error);
-    console.warn("Pricing preview API unreachable, executing local coupon calculations", error?.message);
-    let couponDiscount = 0;
-    const code = String(payload.CouponCode || "").trim().toUpperCase();
-    if (code === "WELCOME10") {
-      couponDiscount = Math.round(formattedPayload.BasePrice * 0.10);
-    } else if (code === "STEALDEAL") {
-      couponDiscount = 500;
-    }
-    const finalPrice = Math.max(0, formattedPayload.BasePrice - couponDiscount);
-    return {
-      basePrice: formattedPayload.BasePrice,
-      couponDiscount,
-      totalPrice: finalPrice,
-      currency: "INR",
-      appliedCoupon: couponDiscount > 0 ? code : null,
-    };
+    throw toHotelFlowError(error, "Unable to verify the current hotel price.");
   }
 }
 
 /**
- * Step 6: Book Room Ã¢â‚¬â€ POST /api/Hotels/BookRoom
+ * Direct provider booking is intentionally disabled. Cashfree fulfillment is backend-owned.
  */
 export async function bookHotelOffer(params = {}) {
-  hotelFlowLog("BOOK ROOM REQUEST", params);
-  let extractedPrice = 0;
-  if (typeof params.Price === "number" && !isNaN(params.Price)) {
-    extractedPrice = params.Price;
-  } else if (typeof params.price === "number" && !isNaN(params.price)) {
-    extractedPrice = params.price;
-  } else if (params.price && typeof params.price === "object") {
-    extractedPrice = Number(params.price.offeredPrice || params.price.roomPrice || params.price.publishedPrice || 0);
-  } else if (params.offeredPrice) {
-    extractedPrice = Number(params.offeredPrice || 0);
-  }
-
-  const guestName = params.GuestName || params.guestName;
-  const guestEmail = params.GuestEmail || params.guestEmail;
-  const guestPhone = params.GuestPhone || params.guestPhone;
-
-  if (!guestName || !guestEmail || !guestPhone) {
-    throw new Error("Missing required guest information (Name, Email, or Phone).");
-  }
-
-
-  const rawRooms = Array.isArray(params.HotelRoomsDetails || params.hotelRoomsDetails)
-    ? (params.HotelRoomsDetails || params.hotelRoomsDetails)
-    : [];
-
-  const roomDetailsList = rawRooms.map((rm) => ({
-    ...rm,
-    SupplierPrice: String(rm.SupplierPrice ?? rm.supplierPrice ?? ""),
-  }));
-
-  let clientRef = Number(params.ClientReferenceNo || params.clientReferenceNo || Math.floor(Date.now() / 1000));
-  if (isNaN(clientRef) || clientRef > 2147483647) {
-    clientRef = Math.floor(Date.now() / 1000);
-  }
-
-  const requestBody = {
-    EndUserIp: String(params.EndUserIp || params.endUserIp || DEFAULT_END_USER_IP),
-    ClientId: String(params.ClientId || params.clientId || DEFAULT_CLIENT_ID),
-    UserName: String(params.UserName || params.userName || DEFAULT_USERNAME),
-    Password: String(params.Password || params.password || DEFAULT_PASSWORD),
-    TraceId: String(params.TraceId || params.traceId || lastTraceId || ""),
-    SrdvType: String(params.SrdvType || params.srdvType || "MixAPI"),
-    SrdvIndex: String(params.SrdvIndex || params.srdvIndex || "15"),
-    ResultIndex: String(params.ResultIndex || params.resultIndex || params.offerId || ""),
-    HotelCode: String(params.HotelCode || params.hotelCode || params.offerId || ""),
-    HotelName: String(params.HotelName || params.hotelName || "Hotel Stay"),
-    GuestNationality: String(params.GuestNationality || params.guestNationality || "IN"),
-    NoOfRooms: Number(params.NoOfRooms || params.noOfRooms || roomDetailsList.length || 1),
-    ClientReferenceNo: clientRef,
-    IsVoucherBooking: Boolean(params.IsVoucherBooking ?? params.isVoucherBooking ?? true),
-    GuestName: String(guestName),
-    GuestEmail: String(guestEmail),
-    GuestPhone: String(guestPhone),
-    Price: extractedPrice,
-    HotelRoomsDetails: roomDetailsList,
-  };
-
-
-  const token = await getStoredToken();
-  const headers = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  try {
-    const response = await axios.post(
-      toHotelUrl("/api/Hotels/BookRoom"),
-      requestBody,
-      { headers }
-    );
-
-    hotelFlowLog("BOOK ROOM RESPONSE", response.data);
-
-
-    if (response?.data?.bookResult?.error?.errorCode && response.data.bookResult.error.errorCode !== 0) {
-      throw new Error(response.data.bookResult.error.errorMessage || "BookRoom API returned an error");
-    }
-
-    return response.data;
-  } catch (err) {
-    hotelFlowError("BOOK ROOM", err);
-    if (err.response?.data) {
-      const serverMsg =
-        err.response.data?.bookResult?.error?.errorMessage ||
-        err.response.data?.errorMessage ||
-        err.response.data?.title ||
-        err.response.data?.message ||
-        (typeof err.response.data === "string" ? err.response.data : null);
-      if (serverMsg) {
-        throw new Error(serverMsg);
-      }
-    }
-    throw err;
-  }
+  void params;
+  throw new Error("Hotel fulfillment is handled automatically after verified payment.");
 }
 
 export function bookHotel(payload) {
@@ -746,23 +537,12 @@ export function bookHotel(payload) {
  * Step 7: Cancel Room Ã¢â‚¬â€ POST /api/Hotels/CancelRoom
  */
 export async function cancelHotelBooking(payload = {}) {
-  hotelFlowLog("CANCEL ROOM REQUEST", payload);
-  const providerBookingIdVal = Number(payload.providerBookingId || payload.bookingId || payload.BookingId || 0);
-  const traceIdVal = String(payload.traceId || payload.TraceId || lastTraceId || "");
-
+  hotelFlowLog("CANCEL BOOKING REQUEST", payload);
+  const bookingId = String(payload.bookingId ?? payload.BookingId ?? "").trim();
+  if (!bookingId) throw new Error("Hotel booking ID is required.");
   const formattedPayload = {
-    bookingId: providerBookingIdVal,
-    changeRequestId: Number(payload.changeRequestId ?? 0),
-    requestType: Number(payload.requestType ?? 4),
-    bookingMode: Number(payload.bookingMode ?? 5),
-    remarks: String(payload.remarks || payload.Remarks || "User requested cancellation"),
-    srdvType: String(payload.srdvType || payload.SrdvType || "MixAPI"),
-    srdvIndex: String(payload.srdvIndex || payload.SrdvIndex || "15"),
-    endUserIp: String(payload.endUserIp || payload.EndUserIp || DEFAULT_END_USER_IP),
-    clientId: String(payload.clientId || payload.ClientId || DEFAULT_CLIENT_ID),
-    userName: String(payload.userName || payload.UserName || DEFAULT_USERNAME),
-    password: String(payload.password || payload.Password || DEFAULT_PASSWORD),
-    traceId: traceIdVal,
+    reason: String(payload.reason || payload.remarks || payload.Remarks || "Change of plans"),
+    refundPreference: String(payload.refundPreference || "ORIGINAL_PAYMENT_METHOD"),
   };
 
 
@@ -777,7 +557,7 @@ export async function cancelHotelBooking(payload = {}) {
 
   try {
     const response = await axios.post(
-      toHotelUrl("/api/Hotels/CancelRoom"),
+      toHotelUrl(`/api/Hotels/bookings/${encodeURIComponent(bookingId)}/cancel`),
       formattedPayload,
       { headers }
     );
@@ -785,25 +565,40 @@ export async function cancelHotelBooking(payload = {}) {
     hotelFlowLog("CANCEL ROOM RESPONSE", response.data);
 
 
-    const errObj = response?.data?.error || response?.data?.cancelResult?.error;
-    if (errObj?.errorCode && errObj.errorCode !== 0) {
-      throw new Error(errObj.errorMessage || "CancelRoom API returned an error");
-    }
-
     return response.data;
   } catch (err) {
-    hotelFlowError("CANCEL ROOM", err);
-    if (err.response?.data) {
-      const serverMsg =
-        err.response.data?.error?.errorMessage ||
-        err.response.data?.errorMessage ||
-        err.response.data?.title ||
-        err.response.data?.message;
-      if (serverMsg) {
-        throw new Error(serverMsg);
-      }
-    }
-    throw err;
+    hotelFlowError("CANCEL BOOKING", err);
+    throw toHotelFlowError(err, "Unable to cancel this hotel booking.");
+  }
+}
+
+export async function getHotelCancellationQuote(bookingId) {
+  const cleanId = String(bookingId ?? "").trim();
+  if (!cleanId) throw new Error("Hotel booking ID is required.");
+  const token = await getStoredToken();
+  try {
+    const response = await axios.get(
+      toHotelUrl(`/api/Hotels/bookings/${encodeURIComponent(cleanId)}/cancellation-quote`),
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+    return response.data;
+  } catch (error) {
+    throw toHotelFlowError(error, "Unable to load the hotel cancellation quote.");
+  }
+}
+
+export async function getHotelBookingById(bookingId) {
+  const cleanId = String(bookingId ?? "").trim();
+  if (!cleanId) throw new Error("Hotel booking ID is required.");
+  const token = await getStoredToken();
+  try {
+    const response = await axios.get(
+      toHotelUrl(`/api/Hotels/bookings/${encodeURIComponent(cleanId)}`),
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
+    return response.data;
+  } catch (error) {
+    throw toHotelFlowError(error, "Unable to load the confirmed hotel booking.");
   }
 }
 
@@ -837,7 +632,7 @@ export async function getMyHotelBookings() {
 export async function fetchHotelCoupons() {
   hotelFlowLog("COUPONS START", {});
   try {
-    const response = await axios.get(toHotelUrl("/api/Hotels/coupons/active"), {
+    const response = await axios.get(toHotelUrl("/api/Hotels/coupons"), {
       headers: {
         Accept: "application/json",
       }
@@ -886,6 +681,8 @@ export default {
   bookHotelOffer,
   bookHotel,
   cancelHotelBooking,
+  getHotelCancellationQuote,
+  getHotelBookingById,
   getMyHotelBookings,
   resolveCityId,
   getLastTraceId,

@@ -282,7 +282,7 @@ const HotelsScreen = () => {
       const hotels = searchResult?.hotels || [];
       console.log("[HotelsScreen] hotels received:", hotels.length);
       const sessionData = {
-        traceId: searchResult?.traceId || "",
+        traceId: searchResult?.traceId ?? null,
         srdvType: searchResult?.srdvType || "MixAPI",
         srdvIndex: searchResult?.srdvIndex || "15",
       };

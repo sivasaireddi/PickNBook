@@ -14,7 +14,7 @@ const initialSessionState = {
     roomGuests: [],
   },
   session: {
-    traceId: "",
+    traceId: null,
     srdvType: "MixAPI",
     srdvIndex: "15",
   },
@@ -35,7 +35,7 @@ export const HotelBookingProvider = ({ children }) => {
       ...prev,
       searchParams: { ...prev.searchParams, ...searchParams },
       session: {
-        traceId: String(sessionData.traceId || sessionData.TraceId || ""),
+        traceId: sessionData.traceId ?? sessionData.TraceId ?? null,
         srdvType: String(sessionData.srdvType || sessionData.SrdvType || "MixAPI"),
         srdvIndex: String(sessionData.srdvIndex || sessionData.SrdvIndex || "15"),
       },
@@ -58,6 +58,7 @@ export const HotelBookingProvider = ({ children }) => {
       selectedRooms: [],
       blockedRoomResult: null,
       pricingPreview: null,
+      passengers: [],
     }));
   }, []);
 

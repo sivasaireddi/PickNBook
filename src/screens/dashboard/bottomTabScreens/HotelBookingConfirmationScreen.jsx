@@ -54,15 +54,23 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
     };
   }, []);
 
-  const confirmationNo = String(bookingResult.confirmationNo || bookingResult.bookingId || "N/A");
-  const bookingRefNo = String(bookingResult.bookingRefNo || bookingResult.bookingReference || confirmationNo);
-  const status = String(bookingResult.status || "Confirmed");
+  const confirmationNo = String(bookingResult.confirmationNo || "N/A");
+  const bookingRefNo = String(bookingResult.bookingReference || bookingResult.bookingId || "N/A");
+  const providerBookingId = bookingResult.providerBookingId ?? bookingResult.srdvBookingId;
+  const paymentReference = bookingResult.paymentReference;
+  const status = String(bookingResult.status || "");
   const hotelName = String(bookingResult.hotelName || "Hotel Reservation");
+  const hotelAddress = String(bookingResult.hotelAddress || bookingResult.address || "");
+  const roomType = String(bookingResult.roomType || "");
   const guestName = String(bookingResult.guestName || "Guest");
+  const guestEmail = String(bookingResult.guestEmail || "");
+  const guestPhone = String(bookingResult.guestPhone || "");
   const checkIn = String(bookingResult.checkInDate || "N/A");
   const checkOut = String(bookingResult.checkOutDate || "N/A");
   const totalPaidAmount = Number(
-    bookingResult.fareBreakdown?.totalPaid ??
+    bookingResult.totalPrice ??
+      bookingResult.totalPaid ??
+      bookingResult.fareBreakdown?.totalPaid ??
       bookingResult.fareBreakdown?.totalPaidAmount ??
       bookingResult.fareBreakdown?.totalPrice ??
       bookingResult.fareBreakdown?.baseFare ??
@@ -93,6 +101,8 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
           icon={<Ionicons name="business-outline" size={20} color="#EF4444" />}
         >
           <Row label="Hotel Name" value={hotelName} />
+          <Row label="Address" value={hotelAddress} />
+          <Row label="Room Type" value={roomType} />
           <Row label="Check-in Date" value={checkIn} />
           <Row label="Check-out Date" value={checkOut} />
         </InfoCard>
@@ -103,6 +113,8 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
           icon={<Ionicons name="person-outline" size={20} color="#EF4444" />}
         >
           <Row label="Lead Guest" value={guestName} />
+          <Row label="Mobile" value={guestPhone} />
+          <Row label="Email" value={guestEmail} />
         </InfoCard>
 
         {/* Booking Reference Codes */}
@@ -112,7 +124,9 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
         >
           <Row label="Confirmation No" value={confirmationNo} />
           <Row label="Booking Ref No" value={bookingRefNo} />
+          {providerBookingId ? <Row label="Provider Booking ID" value={String(providerBookingId)} /> : null}
           <Row label="Booking Status" value={status} />
+          <Row label="Cancellation Deadline" value={bookingResult.lastCancellationDate} />
         </InfoCard>
 
         {/* Payment Summary */}
@@ -121,6 +135,7 @@ export default function HotelBookingConfirmationScreen({ route, navigation }) {
           icon={<Ionicons name="card-outline" size={20} color="#EF4444" />}
         >
           <Row label="Total Paid Amount" value={formatCurrency(totalPaidAmount)} />
+          {paymentReference ? <Row label="Payment Reference" value={String(paymentReference)} /> : null}
         </InfoCard>
 
         {/* Action Buttons */}

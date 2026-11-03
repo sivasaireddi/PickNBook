@@ -6,7 +6,7 @@ import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import AppHeader from "../../../components/AppHeader";
 import { requireAuthToken } from "../../../utils/authSession";
 import { getMyBusBookings } from "../../../services/busService";
-import { getMyHotelBookings, cancelHotelBooking } from "../../../services/hotelService";
+import { getMyHotelBookings, cancelHotelBooking, getHotelCancellationQuote } from "../../../services/hotelService";
 import { AUTH_API_BASE_URL } from "../../../services/authService";
 import { readConfirmedFlightBookingsLocally } from "./flights/services/flightBookingFlowStore";
 import { formatBookingCurrency, formatBookingDate, formatBookingDateTime, formatBookingTime, getBusStatusPresentation, normalizeBusBooking } from "../../../utils/busBookingPresentation";
@@ -25,7 +25,14 @@ const CATEGORIES = [
 ];
 const BASE_TABS = [{ key: "Upcoming", label: "Upcoming" }, { key: "Past", label: "Past" }, { key: "Cancelled", label: "Cancelled" }];
 const BUS_TABS = [...BASE_TABS, { key: "PaymentFailed", label: "Payment failed" }];
-const emptyGroups = () => ({ Upcoming: [], Past: [], Cancelled: [], PaymentFailed: [] });
+const HOTEL_TABS = [
+  { key: "Upcoming", label: "Upcoming" },
+  { key: "Pending", label: "Pending" },
+  { key: "Failed", label: "Failed" },
+  { key: "Past", label: "Past" },
+  { key: "Cancelled", label: "Cancelled" },
+];
+const emptyGroups = () => ({ Upcoming: [], Pending: [], Failed: [], Past: [], Cancelled: [], PaymentFailed: [] });
 const asText = (value) => value === undefined || value === null ? "" : String(value).trim();
 
 const legacyMoney = (value) => {
@@ -42,21 +49,47 @@ const groupBusBookings = (records) => {
   return groups;
 };
 
+const normalizeHotelBookingStatus = (item = {}) => {
+  const values = [item.status, item.fulfillmentStatus, item.bookingStatus, item.tripState]
+    .map(asText)
+    .filter(Boolean);
+  const tokens = values.map((value) => value.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  const has = (...expected) => expected.some((value) => tokens.includes(value));
+  const listStatus = has("cancelled", "partiallycancelled")
+    ? "Cancelled"
+    : has("failed", "paymentfailed", "failedsuppliererror", "bookingfailed")
+      ? "Failed"
+      : has("pending", "pendingreconciliation", "inprogress", "processing")
+        ? "Pending"
+        : has("past", "completed", "checkedout")
+          ? "Past"
+          : has("confirmed", "booked", "upcoming")
+            ? "Upcoming"
+            : "Pending";
+  return { listStatus, label: values[0] || listStatus };
+};
+
 const groupHotelBookings = (records) => {
   const groups = emptyGroups();
   (Array.isArray(records) ? records : []).forEach((item) => {
-    const cancelled = asText(item.status).toLowerCase() === "cancelled";
+    const { listStatus, label } = normalizeHotelBookingStatus(item);
+    const internalBookingId = asText(item.bookingId);
+    const cancellationEligible = listStatus === "Upcoming";
     const booking = {
-      id: String(item.bookingId || item.providerBookingId || ""),
-      providerBookingId: item.providerBookingId ? Number(item.providerBookingId) : null,
+      id: internalBookingId,
+      providerBookingId: asText(item.providerBookingId),
       traceId: asText(item.traceId), pnr: asText(item.bookingReference),
       hotelName: asText(item.hotelName), address: asText(item.address || item.city),
       checkInDate: asText(item.checkInDate || item.dates), checkOutDate: asText(item.checkOutDate),
       guestName: asText(item.guestName), totalAmount: legacyMoney(item.amount ?? item.totalPrice),
-      status: cancelled ? "Cancelled" : "Upcoming", canCancel: !cancelled,
+      status: label,
+      listStatus,
+      cancellationEligible,
+      cancellationIdMissing: cancellationEligible && !internalBookingId,
+      canCancel: cancellationEligible && Boolean(internalBookingId),
       type: "hotel", rawBooking: item,
     };
-    groups[booking.status].push(booking);
+    groups[listStatus].push(booking);
   });
   return groups;
 };
@@ -92,6 +125,9 @@ export default function BookingsScreen() {
   const [selectedHotel, setSelectedHotel] = useState(null);
   const [hotelCancelReason, setHotelCancelReason] = useState("User requested cancellation");
   const [cancellingHotel, setCancellingHotel] = useState(false);
+  const [hotelCancellationQuote, setHotelCancellationQuote] = useState(null);
+  const [hotelQuoteLoading, setHotelQuoteLoading] = useState(false);
+  const [hotelQuoteError, setHotelQuoteError] = useState("");
   const loadedCategories = useRef(new Set());
   const hasFocusedOnce = useRef(false);
 
@@ -137,12 +173,30 @@ export default function BookingsScreen() {
     return undefined;
   }, [category, loadCategory]));
 
-  const statusTabs = category === "bus" ? BUS_TABS : BASE_TABS;
+  const statusTabs = category === "bus" ? BUS_TABS : category === "hotel" ? HOTEL_TABS : BASE_TABS;
   const currentList = bookings[category]?.[activeTab] || [];
   const changeCategory = useCallback((next) => { setCategory(next); setActiveTab("Upcoming"); setError(""); }, []);
-  const openBooking = useCallback((item) => {
+  const openBooking = useCallback(async (item) => {
     if (category === "bus") return navigation.navigate("BusBookingDetails", { booking: item.raw });
-    if (item.type === "hotel" && item.canCancel) { setSelectedHotel(item); setHotelCancelVisible(true); return; }
+    if (item.type === "hotel" && item.cancellationIdMissing) {
+      Alert.alert("Cancellation unavailable", "The internal hotel booking reference is missing. Please contact support.");
+      return;
+    }
+    if (item.type === "hotel" && item.canCancel) {
+      setSelectedHotel(item);
+      setHotelCancellationQuote(null);
+      setHotelQuoteError("");
+      setHotelCancelVisible(true);
+      setHotelQuoteLoading(true);
+      try {
+        setHotelCancellationQuote(await getHotelCancellationQuote(item.id));
+      } catch (quoteError) {
+        setHotelQuoteError(quoteError?.message || "Unable to load the cancellation quote.");
+      } finally {
+        setHotelQuoteLoading(false);
+      }
+      return;
+    }
     setLegacyDetails(item);
   }, [category, navigation]);
   const searchCategory = useCallback(() => navigation.navigate(category === "bus" ? "BusScreen" : category === "hotel" ? "Hotels" : "FlightScreen"), [category, navigation]);
@@ -151,7 +205,11 @@ export default function BookingsScreen() {
     if (!selectedHotel) return;
     try {
       setCancellingHotel(true);
-      await cancelHotelBooking({ providerBookingId: Number(selectedHotel.providerBookingId), traceId: selectedHotel.traceId, remarks: hotelCancelReason });
+      await cancelHotelBooking({
+        bookingId: selectedHotel.id,
+        reason: hotelCancelReason,
+        refundPreference: "ORIGINAL_PAYMENT_METHOD",
+      });
       setHotelCancelVisible(false);
       loadedCategories.current.delete("hotel");
       await loadCategory("hotel", true);
@@ -189,6 +247,8 @@ export default function BookingsScreen() {
     if (error) return <EmptyState icon="cloud-offline-outline" title="Couldn’t load bookings" text={error} action="Retry" onAction={() => loadCategory(category, true)} />;
     const copy = {
       Upcoming: ["No upcoming trips", "Your confirmed journeys will appear here."],
+      Pending: ["No pending bookings", "Hotel bookings awaiting confirmation will appear here."],
+      Failed: ["No failed bookings", "Hotel bookings that could not be completed will appear here."],
       Past: ["No completed trips", "Journeys you have completed will appear here."],
       Cancelled: ["No cancelled trips", "Cancelled bookings and refund details will appear here."],
       PaymentFailed: ["No unsuccessful bookings", "Payment-failed bookings will appear here."],
@@ -219,11 +279,21 @@ export default function BookingsScreen() {
     <Modal transparent animationType="fade" visible={hotelCancelVisible} onRequestClose={() => setHotelCancelVisible(false)}>
       <View style={styles.modalOverlay}><View style={styles.modalCard}>
         <View style={styles.modalHeader}><Text style={styles.modalTitle}>Cancel Hotel Booking</Text><TouchableOpacity onPress={() => setHotelCancelVisible(false)}><Ionicons name="close" size={24} color={MUTED} /></TouchableOpacity></View>
-        <Text style={styles.modalNotice}>Cancelling any room cancels the entire booking.</Text>
+        <Text style={styles.modalNotice}>This cancels the entire booking. Individual rooms and guests cannot be cancelled.</Text>
+        {hotelQuoteLoading ? <ActivityIndicator color={BRAND} /> : null}
+        {hotelQuoteError ? <Text style={styles.modalNotice}>{hotelQuoteError}</Text> : null}
+        {hotelCancellationQuote ? (
+          <View>
+            <Text style={styles.modalNotice}>Total paid: {legacyMoney(hotelCancellationQuote.totalPaid)}</Text>
+            <Text style={styles.modalNotice}>Supplier charge: {legacyMoney(hotelCancellationQuote.supplierCancellationCharge)}</Text>
+            <Text style={styles.modalNotice}>Service charge: {legacyMoney(hotelCancellationQuote.serviceCharge)}</Text>
+            <Text style={styles.modalNotice}>Refund: {legacyMoney(hotelCancellationQuote.refundAmount)}</Text>
+          </View>
+        ) : null}
         <TextInput style={styles.reasonInput} value={hotelCancelReason} onChangeText={setHotelCancelReason} placeholder="Reason for cancellation" />
         <View style={styles.modalActions}>
           <TouchableOpacity style={styles.secondaryButton} onPress={() => setHotelCancelVisible(false)}><Text style={styles.secondaryButtonText}>Keep reservation</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.dangerButton} onPress={confirmHotelCancellation} disabled={cancellingHotel}>{cancellingHotel ? <ActivityIndicator color="#FFF" /> : <Text style={styles.dangerButtonText}>Confirm cancel</Text>}</TouchableOpacity>
+          <TouchableOpacity style={styles.dangerButton} onPress={confirmHotelCancellation} disabled={cancellingHotel || hotelQuoteLoading || !hotelCancellationQuote}>{cancellingHotel ? <ActivityIndicator color="#FFF" /> : <Text style={styles.dangerButtonText}>Confirm cancel</Text>}</TouchableOpacity>
         </View>
       </View></View>
     </Modal>

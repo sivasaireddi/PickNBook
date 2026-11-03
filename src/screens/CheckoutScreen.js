@@ -17,6 +17,8 @@ import { useCashfreePayment } from '../hooks/useCashfreePayment';
 import { getStoredAuthToken } from '../utils/authSession';
 import BookingConfirmationScreen from './BookingConfirmationScreen';
 import BookingFailureScreen from './BookingFailureScreen';
+import HotelBookingConfirmationScreen from './dashboard/bottomTabScreens/HotelBookingConfirmationScreen';
+import { getHotelBookingById } from '../services/hotelService';
 import {
   formatBusSeatHoldTime,
   getBusSeatHoldRemainingMs,
@@ -42,12 +44,15 @@ const DetailRow = ({ label, value, accent = false }) => {
   );
 };
 
-const StatusScreen = ({ status, error, onCheck, onBack, checking }) => {
+const StatusScreen = ({ status, error, onCheck, onBack, checking, bookingType, amount, secondaryLabel = 'Back to review' }) => {
+  const isHotel = String(bookingType || '').toLowerCase() === 'hotel';
   const content = {
     booking_pending: {
       icon: 'time-outline',
       title: 'Booking is being confirmed',
-      text: 'Your payment was verified. The bus operator is still confirming the booking.',
+      text: isHotel
+        ? 'Payment received! Confirming your reservation with hotel...'
+        : 'Your payment was verified. The bus operator is still confirming the booking.',
     },
     payment_pending: {
       icon: 'hourglass-outline',
@@ -56,8 +61,10 @@ const StatusScreen = ({ status, error, onCheck, onBack, checking }) => {
     },
     booking_failed: {
       icon: 'alert-circle-outline',
-      title: 'Payment received, booking failed',
-      text: 'The payment succeeded, but the bus booking could not be confirmed. Check status before taking another action.',
+      title: isHotel ? 'Hotel Booking Could Not Be Confirmed' : 'Payment received, booking failed',
+      text: isHotel
+        ? `We were unable to secure your room with the hotel. A full refund of ${money(amount)} has been initiated to your original payment method.`
+        : 'The payment succeeded, but the bus booking could not be confirmed. Check status before taking another action.',
     },
     verification_error: {
       icon: 'cloud-offline-outline',
@@ -84,7 +91,7 @@ const StatusScreen = ({ status, error, onCheck, onBack, checking }) => {
         </TouchableOpacity>
       ) : null}
       <TouchableOpacity style={styles.stateSecondary} onPress={onBack}>
-        <Text style={styles.stateSecondaryText}>Back to review</Text>
+        <Text style={styles.stateSecondaryText}>{secondaryLabel}</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
@@ -106,6 +113,11 @@ const CheckoutScreen = ({ route, navigation }) => {
   const payPressRef = useRef(false);
   const bypassBackGuardRef = useRef(false);
   const [leaveDialogVisible, setLeaveDialogVisible] = useState(false);
+  const [confirmedHotelBooking, setConfirmedHotelBooking] = useState(null);
+  const [hotelConfirmationError, setHotelConfirmationError] = useState('');
+  const [hotelConfirmationLoading, setHotelConfirmationLoading] = useState(false);
+  const hotelConfirmationAttemptedRef = useRef(false);
+  const hotelConfirmingRef = useRef(false);
   const [holdRemainingMs, setHoldRemainingMs] = useState(() =>
     getBusSeatHoldRemainingMs(seatHold?.expiresAt)
   );
@@ -135,6 +147,14 @@ const CheckoutScreen = ({ route, navigation }) => {
   const effectiveBookingType =
     bookingType || (bookingDetails?.HotelName || bookingDetails?.HotelRoomsDetails ? 'Hotel' : 'Bus');
   const isBus = effectiveBookingType.toLowerCase() === 'bus';
+  const isHotel = effectiveBookingType.toLowerCase() === 'hotel';
+  useEffect(() => {
+    if (isHotel && status === 'booking_pending') hotelConfirmingRef.current = true;
+    else if (!isHotel || status !== 'verifying') hotelConfirmingRef.current = false;
+  }, [isHotel, status]);
+  const presentationStatus = isHotel && status === 'verifying' && hotelConfirmingRef.current
+    ? 'booking_pending'
+    : status;
   const fare = reviewDetails?.fareSummary || {};
   const passengers = Array.isArray(reviewDetails?.passengers) ? reviewDetails.passengers : [];
   const seats = Array.isArray(reviewDetails?.seats) ? reviewDetails.seats : [];
@@ -185,6 +205,39 @@ const CheckoutScreen = ({ route, navigation }) => {
   ]);
   const paymentReady = !isBus || busPrePaymentValidation.valid;
 
+  const loadHotelConfirmation = useCallback(async () => {
+    hotelConfirmationAttemptedRef.current = true;
+    const bookingId = verificationResult?.bookingReferenceId || verificationResult?.BookingReferenceId;
+    if (!bookingId) {
+      setHotelConfirmationError('The confirmed booking reference is not available yet. You can find it in My Bookings.');
+      return;
+    }
+    setHotelConfirmationLoading(true);
+    setHotelConfirmationError('');
+    try {
+      const response = await getHotelBookingById(bookingId);
+      const booking = response?.booking || response?.data || response;
+      const reservationStatus = String(booking?.status || booking?.Status || '').trim().toLowerCase();
+      if (!['confirmed', 'booked'].includes(reservationStatus)) {
+        throw new Error('Payment received! Confirming your reservation with hotel...');
+      }
+      setConfirmedHotelBooking(booking);
+    } catch (fetchError) {
+      setHotelConfirmationError(fetchError?.message || 'Unable to load the confirmed hotel ticket.');
+    } finally {
+      setHotelConfirmationLoading(false);
+    }
+  }, [verificationResult]);
+
+  useEffect(() => {
+    if (
+      status === 'success' && isHotel && !confirmedHotelBooking &&
+      !hotelConfirmationLoading && !hotelConfirmationAttemptedRef.current
+    ) {
+      loadHotelConfirmation();
+    }
+  }, [confirmedHotelBooking, hotelConfirmationLoading, isHotel, loadHotelConfirmation, status]);
+
   useEffect(() => {
     if (!isBus) return;
     console.log('[BusCheckout] Pre-payment validation', {
@@ -226,21 +279,25 @@ const CheckoutScreen = ({ route, navigation }) => {
   }, [bookingAttempt, navigation, seats]);
 
   const handleReviewBack = useCallback(() => {
+    if (!isBus) {
+      navigation.goBack();
+      return;
+    }
     if (status === 'idle' && holdValid) {
       setLeaveDialogVisible(true);
       return;
     }
     navigateToSeatSelection();
-  }, [holdValid, navigateToSeatSelection, status]);
+  }, [holdValid, isBus, navigateToSeatSelection, navigation, status]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (event) => {
-      if (bypassBackGuardRef.current || status !== 'idle' || !holdValid) return;
+      if (!isBus || bypassBackGuardRef.current || status !== 'idle' || !holdValid) return;
       event.preventDefault();
       setLeaveDialogVisible(true);
     });
     return unsubscribe;
-  }, [holdValid, navigation, status]);
+  }, [holdValid, isBus, navigation, status]);
 
   useEffect(() => {
     if (!isBus) return undefined;
@@ -339,14 +396,39 @@ const CheckoutScreen = ({ route, navigation }) => {
       customerName: customerDetails.name,
       customerEmail: customerDetails.email,
       bookingType: effectiveBookingType,
+      paymentMethod: 'Cashfree',
+      useWallet: false,
+      walletAmount: null,
       couponCode: customerDetails.couponCode || null,
       promotionId: null,
-      returnUrl: 'https://api.picknbook.com/return',
+      returnUrl: 'https://gopickandbook.in/payment/cashfree/return?order_id={order_id}',
       bookingPayloadJson: JSON.stringify(bookingDetails),
     });
   };
 
   if (status === 'success') {
+    if (isHotel) {
+      if (confirmedHotelBooking) {
+        return (
+          <HotelBookingConfirmationScreen
+            route={{ params: { bookingResult: confirmedHotelBooking } }}
+            navigation={navigation}
+          />
+        );
+      }
+      return (
+        <StatusScreen
+          status="booking_pending"
+          error={hotelConfirmationError}
+          checking={hotelConfirmationLoading}
+          onCheck={loadHotelConfirmation}
+          onBack={() => navigation.navigate('DashBoard', { screen: 'Bookings' })}
+          bookingType={effectiveBookingType}
+          amount={payableAmount}
+          secondaryLabel="View My Bookings"
+        />
+      );
+    }
     return (
       <BookingConfirmationScreen
         orderId={orderId}
@@ -357,14 +439,16 @@ const CheckoutScreen = ({ route, navigation }) => {
   if (status === 'failed') {
     return <BookingFailureScreen error={error} orderId={orderId} onRetry={reset} />;
   }
-  if (['booking_pending', 'payment_pending', 'booking_failed', 'verification_error', 'cancelled'].includes(status)) {
+  if (['booking_pending', 'payment_pending', 'booking_failed', 'verification_error', 'cancelled'].includes(presentationStatus)) {
     return (
       <StatusScreen
-        status={status}
+        status={presentationStatus}
         error={error}
         checking={status === 'verifying'}
         onCheck={recheckPayment}
         onBack={reset}
+        bookingType={effectiveBookingType}
+        amount={payableAmount}
       />
     );
   }

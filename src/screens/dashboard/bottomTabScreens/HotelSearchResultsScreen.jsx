@@ -457,11 +457,11 @@ const HotelSearchResultsScreen = ({ navigation, route }) => {
   const handleSelectHotel = useCallback(
     (item, name, imageUri, address, category, rating, offeredPrice, priceObj) => {
       setSelectedHotelId(getHotelId(item) || null);
-      const activeTraceId = String(item?.traceId || session?.traceId || searchParams?.traceId || "");
+      const activeTraceId = item?.traceId ?? session?.traceId ?? searchParams?.traceId ?? null;
       const activeSrdvIndex = String(item?.srdvIndex || session?.srdvIndex || "15");
       const activeSrdvType = String(item?.srdvType || session?.srdvType || "MixAPI");
-      const activeResultIndex = String(item?.resultIndex ?? item?.hotelCode ?? "");
-      const activeHotelCode = String(item?.hotelCode ?? item?.resultIndex ?? "");
+      const activeResultIndex = String(item?.resultIndex ?? item?.ResultIndex ?? "");
+      const activeHotelCode = String(item?.hotelCode ?? item?.HotelCode ?? "");
 
       console.log("[HotelSearchResults] hotel card tapped, selecting hotel:", {
         traceId: activeTraceId,

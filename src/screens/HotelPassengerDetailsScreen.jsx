@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
-import { blockHotelRoom, getHotelPricingPreview, bookHotelOffer, fetchHotelCoupons, validateHotelCoupon } from "../services/hotelService";
+import { blockHotelRoom, getHotelPricingPreview, fetchHotelCoupons } from "../services/hotelService";
 import { useHotelBooking } from "../context/HotelBookingContext";
 import CheckoutHeader from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CheckoutHeader";
 import BookingSummary from "./dashboard/bottomTabScreens/hotelCheckoutComponents/BookingSummary";
@@ -38,8 +38,48 @@ const formatCurrency = (value, currency = "INR") => {
 };
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
-const isValidPhone = (value) => /^\d{10}$/.test(String(value || "").trim());
+const isValidPhone = (value) => /^[6-9]\d{9}$/.test(String(value || "").trim());
 const isValidPAN = (value) => /^[A-Z]{3}[PCHFATGJLE][A-Z]{1}[0-9]{4}[A-Z]{1}$/.test(String(value || "").trim().toUpperCase());
+const isValidName = (value) => /^[A-Za-z ]{2,}$/.test(String(value || "").trim());
+const VALID_TITLES = new Set(["Mr", "Mrs", "Ms"]);
+
+const getPricingInputs = (rooms = []) => rooms.reduce((totals, room) => {
+  const price = room?.price || room?.Price || {};
+  totals.base += Number(price.b2CBasePrice ?? price.B2CBasePrice ?? room?.b2CBasePrice ?? room?.B2CBasePrice ?? 0);
+  totals.gst += Number(price.totalGSTAmount ?? price.TotalGSTAmount ?? price.tax ?? price.Tax ?? 0);
+  return totals;
+}, { base: 0, gst: 0 });
+
+const getRoomIdentity = (room = {}) => ({
+  roomIndex: String(room.RoomIndex ?? room.roomIndex ?? ""),
+  roomTypeCode: String(room.RoomTypeCode ?? room.roomTypeCode ?? ""),
+  optionId: String(room.OptionId ?? room.optionId ?? ""),
+});
+
+const mergeBlockedRoomsWithSelectedIdentity = (blockedRooms, selectedRooms) =>
+  blockedRooms.map((blockedRoom) => {
+    const blockedIdentity = getRoomIdentity(blockedRoom);
+    const matches = selectedRooms.filter((selectedRoom) => {
+      const selectedIdentity = getRoomIdentity(selectedRoom);
+      return selectedIdentity.roomIndex === blockedIdentity.roomIndex &&
+        selectedIdentity.roomTypeCode === blockedIdentity.roomTypeCode;
+    });
+    const optionIds = [...new Set(matches.map((room) => getRoomIdentity(room).optionId).filter(Boolean))];
+    if (!blockedIdentity.roomIndex || !blockedIdentity.roomTypeCode || optionIds.length !== 1) {
+      throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
+    }
+    const selectedRoom = matches.find((room) => getRoomIdentity(room).optionId === optionIds[0]);
+    return {
+      ...selectedRoom,
+      ...blockedRoom,
+      RoomIndex: blockedIdentity.roomIndex,
+      RoomTypeCode: blockedIdentity.roomTypeCode,
+      OptionId: optionIds[0],
+      roomIndex: blockedIdentity.roomIndex,
+      roomTypeCode: blockedIdentity.roomTypeCode,
+      optionId: optionIds[0],
+    };
+  });
 
 export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const {
@@ -55,14 +95,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const hotel = routeParams.hotel || contextSelectedHotel || {};
   const selectedRoomSlots = routeParams.selectedRoomSlots || contextSelectedRooms || [];
 
-  const targetTraceId = String(routeParams.traceId || session.traceId || hotel.traceId || "");
+  const targetTraceId = routeParams.traceId ?? session.traceId ?? hotel.traceId ?? null;
   const targetSrdvType = String(routeParams.srdvType || session.srdvType || hotel.srdvType || "MixAPI");
   const targetSrdvIndex = String(routeParams.srdvIndex || session.srdvIndex || hotel.srdvIndex || "15");
   const targetResultIndex = String(
-    routeParams.resultIndex || selectedRoomSlots[0]?.resultIndex || hotel.resultIndex || ""
+    routeParams.resultIndex ?? selectedRoomSlots[0]?.resultIndex ?? selectedRoomSlots[0]?.ResultIndex ?? hotel.resultIndex ?? hotel.ResultIndex ?? ""
   );
   const targetHotelCode = String(
-    selectedRoomSlots[0]?.hotelCode || routeParams.hotelCode || targetResultIndex || hotel.hotelCode || ""
+    selectedRoomSlots[0]?.hotelCode ?? selectedRoomSlots[0]?.HotelCode ?? routeParams.hotelCode ?? hotel.hotelCode ?? hotel.HotelCode ?? ""
   );
 
   const roomGuestsConfig = searchParams?.roomGuests || [
@@ -78,6 +118,8 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   // Pricing preview state
   const [couponCodeInput, setCouponCodeInput] = useState("");
   const [pricingPreview, setPricingPreview] = useState(null);
+  const [pricingStatus, setPricingStatus] = useState("idle");
+  const [activeCouponCode, setActiveCouponCode] = useState("");
   const [validatingCoupon, setValidatingCoupon] = useState(false);
   const [couponMessage, setCouponMessage] = useState("");
   const [availableCoupons, setAvailableCoupons] = useState([]);
@@ -89,6 +131,51 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
   const [showCouponSheet, setShowCouponSheet] = useState(false);
   const [showPolicySheet, setShowPolicySheet] = useState(false);
+  const pricingRequestSequenceRef = useRef(0);
+
+  const loadAuthoritativePricing = async (rooms, couponCode = "") => {
+    const requestId = ++pricingRequestSequenceRef.current;
+    const normalizedCoupon = String(couponCode || "").trim().toUpperCase();
+    const inputs = getPricingInputs(rooms);
+    setPricingStatus("loading");
+    setValidatingCoupon(true);
+    setPricingPreview(null);
+    setContextPricingPreview(null);
+    try {
+      const result = await getHotelPricingPreview({
+        HotelCode: targetHotelCode,
+        B2CBasePrice: inputs.base,
+        SrdvGstAmount: inputs.gst,
+        CouponCode: normalizedCoupon,
+      });
+      if (requestId !== pricingRequestSequenceRef.current) return { stale: true };
+      const finalTotal = Number(result?.finalTotal ?? result?.FinalTotal);
+      if (!Number.isFinite(finalTotal) || finalTotal <= 0) {
+        throw new Error("The latest payable amount could not be verified.");
+      }
+      if (normalizedCoupon && (result?.isCouponValid ?? result?.IsCouponValid) !== true) {
+        setPricingStatus("invalid");
+        setActiveCouponCode("");
+        return { invalidCoupon: true, result };
+      }
+      const nextPreview = {
+        ...result,
+        appliedCoupon: normalizedCoupon || null,
+      };
+      setPricingPreview(nextPreview);
+      setContextPricingPreview(nextPreview);
+      setActiveCouponCode(normalizedCoupon);
+      setPricingStatus("valid");
+      return { result: nextPreview };
+    } catch (error) {
+      if (requestId !== pricingRequestSequenceRef.current) return { stale: true };
+      setPricingStatus("invalid");
+      setActiveCouponCode("");
+      throw error;
+    } finally {
+      if (requestId === pricingRequestSequenceRef.current) setValidatingCoupon(false);
+    }
+  };
 
   // 1. Trigger Step 4: Block Room pre-checkout
   useEffect(() => {
@@ -106,22 +193,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     setBlockingRooms(true);
     setBlockError("");
     try {
+      if (targetTraceId === null || !targetResultIndex || !targetHotelCode) {
+        throw new Error("Hotel session information is incomplete. Please select the hotel again.");
+      }
       const blockRoomPayload = {
-        EndUserIp: "192.168.1.1",
-        ClientId: "180232",
-        UserName: "PickNBk6",
-        Password: "PickNB@486",
         TraceId: targetTraceId,
-        SrdvType: targetSrdvType,
-        SrdvIndex: targetSrdvIndex,
         ResultIndex: targetResultIndex,
         HotelCode: targetHotelCode,
         HotelName: String(hotel.name || hotel.hotelName || "Hotel Stay"),
         GuestNationality: "IN",
         NoOfRooms: selectedRoomSlots.length,
-        ClientReferenceNo: Math.floor(Date.now() / 1000),
-        IsVoucherBooking: false,
-        CouponCode: "",
         HotelRoomsDetails: selectedRoomSlots,
       };
 
@@ -129,11 +210,34 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       console.log("[HotelPassengerDetails] BlockRoom result:", JSON.stringify(res, null, 2));
 
       const blockResObj = res?.BlockRoomResult || res?.blockRoomResult || res || {};
-      setBlockedResultData(blockResObj);
-      setBlockedRoomResult(blockResObj);
+      const blockErrorObj = blockResObj?.error || blockResObj?.Error;
+      const canProceed = blockResObj?.canProceedToBook ?? blockResObj?.CanProceedToBook;
+      const availabilityType = String(blockResObj?.availabilityType ?? blockResObj?.AvailabilityType ?? "").toLowerCase();
+      const errorCode = Number(blockErrorObj?.errorCode ?? blockErrorObj?.ErrorCode);
+      const blockedRooms = blockResObj.HotelRoomsDetails || blockResObj.hotelRoomsDetails;
+      if (
+        !Number.isFinite(errorCode) ||
+        errorCode !== 0 ||
+        availabilityType !== "confirm" ||
+        canProceed !== true ||
+        !Array.isArray(blockedRooms) ||
+        blockedRooms.length === 0
+      ) {
+        throw new Error(blockErrorObj?.errorMessage || blockErrorObj?.ErrorMessage || "This room is no longer available.");
+      }
+      const authoritativeRooms = mergeBlockedRoomsWithSelectedIdentity(blockedRooms, selectedRoomSlots);
+      const normalizedBlockResult = {
+        ...blockResObj,
+        HotelRoomsDetails: authoritativeRooms,
+        hotelRoomsDetails: authoritativeRooms,
+      };
+      setBlockedResultData(normalizedBlockResult);
+      setBlockedRoomResult(normalizedBlockResult);
 
-      // Extract new authoritative room details
-      const authoritativeRooms = blockResObj.HotelRoomsDetails || blockResObj.hotelRoomsDetails || [];
+      const pricingOutcome = await loadAuthoritativePricing(authoritativeRooms, "");
+      if (pricingOutcome?.stale || !pricingOutcome?.result) {
+        throw new Error("The latest payable amount could not be verified.");
+      }
 
       // Calculate total original vs total blocked price notice
       const originalTotal = selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0);
@@ -148,10 +252,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       }
 
       // Initialize passenger state inputs matching room & guest configuration
-      initPaxState(authoritativeRooms.length > 0 ? authoritativeRooms : selectedRoomSlots);
+      initPaxState(authoritativeRooms);
     } catch (err) {
       console.log("[HotelPassengerDetails] BlockRoom error:", err?.message);
-      setBlockError(err?.message || "Room availability/price verification failed.");
+      const message = err?.isTraceExpired
+        ? "Your room hold has expired. Please select the room again to check updated availability."
+        : (err?.message || "Room availability/price verification failed.");
+      setBlockError(message);
+      if (err?.isTraceExpired) {
+        Alert.alert("Room hold expired", message, [{ text: "OK", onPress: () => navigation.goBack() }]);
+      }
     } finally {
       setBlockingRooms(false);
     }
@@ -178,7 +288,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           passport: "",
           age: "",
           isChild: false,
-          isLead: a === 0, // Exactly one lead passenger per room
+          isLead: rIdx === 0 && a === 0,
         };
         globalPaxIdx++;
       }
@@ -186,14 +296,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       for (let c = 0; c < numChildren; c++) {
         const key = `room-${rIdx}-pax-${globalPaxIdx}`;
         initialState[key] = {
-          title: "Mstr",
+          title: "Mr",
           firstName: "",
           lastName: "",
           email: "",
           phone: "",
           pan: "",
           passport: "",
-          age: String(childAges[c] || 5),
+          age: String(childAges[c] ?? ""),
           isChild: true,
           isLead: false,
         };
@@ -220,50 +330,43 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       return;
     }
 
-    // We need the current base total.
-    // Calculate it synchronously from authoritativeRoomList since fareBreakdown might not be ready in exact timing, 
-    // or we can just rely on the existing fareBreakdown.base since it's memoized.
-    const currentBaseTotal = fareBreakdown?.base || 0;
-
-    setValidatingCoupon(true);
     setCouponMessage("");
 
     try {
-      const result = await validateHotelCoupon({
-        couponCode: code.trim(),
-        totalAmount: currentBaseTotal,
-      });
-      console.log("[HotelPassengerDetails] coupon validation result:", result);
-
-      if (result?.isValid) {
-        setPricingPreview({
-          appliedCoupon: code.trim().toUpperCase(),
-          couponDiscount: result.discountAmount || 0,
-        });
-        setCouponMessage(result.message || `Coupon ${code.trim().toUpperCase()} applied successfully.`);
+      const outcome = await loadAuthoritativePricing(authoritativeRoomList, code);
+      if (outcome?.stale) return;
+      if (outcome?.invalidCoupon) {
+        const result = outcome.result;
+        setCouponCodeInput("");
+        setCouponMessage(result?.couponMessage || result?.CouponMessage || result?.message || "Invalid or expired coupon code.");
+        const restored = await loadAuthoritativePricing(authoritativeRoomList, "");
+        if (!restored?.stale && !restored?.result) throw new Error("Unable to restore the current hotel price.");
+      } else if (outcome?.result) {
+        const result = outcome.result;
+        setCouponMessage(result.couponMessage || result.CouponMessage || `Coupon ${code.trim().toUpperCase()} applied successfully.`);
         if (couponCodeInput !== code.trim().toUpperCase()) {
           setCouponCodeInput(code.trim().toUpperCase());
         }
-      } else {
-        setPricingPreview(null);
-        setCouponMessage(result?.message || "Invalid or expired coupon code.");
       }
     } catch (err) {
-      setPricingPreview(null);
       setCouponMessage(err?.message || "Failed to validate coupon.");
-    } finally {
-      setValidatingCoupon(false);
     }
   };
 
   const handleRemoveCoupon = () => {
     setCouponCodeInput("");
     setCouponMessage("");
-    setPricingPreview(null);
+    loadAuthoritativePricing(authoritativeRoomList, "").then((outcome) => {
+      if (!outcome?.stale && !outcome?.result) {
+        throw new Error("Unable to refresh the current hotel price.");
+      }
+    }).catch((err) => {
+      Alert.alert("Pricing unavailable", err?.message || "Unable to refresh the current hotel price.");
+    });
   };
 
   const authoritativeRoomList = useMemo(() => {
-    const list = blockedResultData?.hotelRoomsDetails || [];
+    const list = blockedResultData?.hotelRoomsDetails || blockedResultData?.HotelRoomsDetails || [];
     return list.length > 0 ? list : selectedRoomSlots;
   }, [blockedResultData, selectedRoomSlots]);
 
@@ -277,6 +380,9 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     }
     if (blockError) {
       return { isValid: false, globalError: blockError, fieldErrors };
+    }
+    if (pricingStatus !== "valid" || !pricingPreview || validatingCoupon) {
+      return { isValid: false, globalError: "Verifying the latest hotel price...", fieldErrors };
     }
 
     for (let rIdx = 0; rIdx < authoritativeRoomList.length; rIdx++) {
@@ -292,9 +398,13 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         const pax = paxState[key] || {};
         const paxErrors = {};
 
-        if (!pax.firstName || !pax.firstName.trim()) paxErrors.firstName = "First name is required";
-        if (!pax.lastName || !pax.lastName.trim()) paxErrors.lastName = "Last name is required";
-        if (pax.isChild && (!pax.age || String(pax.age).trim() === "")) paxErrors.age = "Age is required";
+        if (!VALID_TITLES.has(pax.title)) paxErrors.title = "Select Mr, Mrs, or Ms";
+        if (!isValidName(pax.firstName)) paxErrors.firstName = "Enter at least 2 letters";
+        if (!isValidName(pax.lastName)) paxErrors.lastName = "Enter at least 2 letters";
+        const age = Number(pax.age);
+        if (!Number.isInteger(age) || (pax.isChild ? age < 0 || age > 17 : age < 18 || age > 99)) {
+          paxErrors.age = pax.isChild ? "Child age must be 0–17" : "Adult age must be 18–99";
+        }
 
         if (pax.isLead) {
           if (!isValidEmail(pax.email)) paxErrors.email = "Valid email is required";
@@ -321,153 +431,17 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     }
 
     return { isValid, globalError, fieldErrors };
-  }, [blockingRooms, blockError, authoritativeRoomList, roomGuestsConfig, paxState, agreedToTerms]);
+  }, [blockingRooms, blockError, pricingStatus, pricingPreview, validatingCoupon, authoritativeRoomList, roomGuestsConfig, paxState, agreedToTerms]);
 
   const fareBreakdown = useMemo(() => {
-    const primaryRoom = authoritativeRoomList[0] || selectedRoomSlots[0] || {};
-    const priceObj = primaryRoom.price || primaryRoom.Price || {};
-
-    const roomPriceVal = Number(
-      priceObj.b2CBasePrice ??
-      priceObj.B2CBasePrice ??
-      priceObj.offeredPrice ??
-      priceObj.OfferedPrice ??
-      priceObj.publishedPrice ??
-      priceObj.PublishedPrice ??
-      priceObj.roomPrice ??
-      priceObj.RoomPrice ??
-      0
-    );
-
-    const base =
-      roomPriceVal ||
-      authoritativeRoomList.reduce(
-        (sum, r) =>
-          sum +
-          Number(
-            r.price?.b2CBasePrice ??
-            r.price?.B2CBasePrice ??
-            r.price?.offeredPrice ??
-            r.price?.OfferedPrice ??
-            r.price?.roomPrice ??
-            r.price?.RoomPrice ??
-            r.roomPrice ??
-            r.offeredPrice ??
-            0
-          ),
-        0
-      ) ||
-      selectedRoomSlots.reduce(
-        (sum, s) =>
-          sum +
-          Number(
-            s.price?.b2CBasePrice ??
-            s.price?.B2CBasePrice ??
-            s.price?.offeredPrice ??
-            s.price?.OfferedPrice ??
-            s.price?.roomPrice ??
-            s.price?.RoomPrice ??
-            s.roomPrice ??
-            s.offeredPrice ??
-            0
-          ),
-        0
-      );
-
-    const gst =
-      Number(
-        priceObj.totalGSTAmount ??
-        priceObj.TotalGSTAmount ??
-        priceObj.tax ??
-        priceObj.Tax ??
-        0
-      ) ||
-      authoritativeRoomList.reduce(
-        (sum, r) =>
-          sum +
-          Number(
-            r.price?.totalGSTAmount ??
-            r.price?.TotalGSTAmount ??
-            r.price?.tax ??
-            r.price?.Tax ??
-            0
-          ),
-        0
-      ) ||
-      0;
-
-    const convenienceFee =
-      Number(priceObj.otherCharges ?? priceObj.OtherCharges ?? 0) ||
-      authoritativeRoomList.reduce(
-        (sum, r) =>
-          sum + Number(r.price?.otherCharges ?? r.price?.OtherCharges ?? 0),
-        0
-      ) ||
-      0;
-
-    const discount =
-      Number(
-        pricingPreview?.couponDiscount ??
-        priceObj.couponDiscount ??
-        priceObj.CouponDiscount ??
-        priceObj.discount ??
-        priceObj.Discount ??
-        0
-      ) ||
-      authoritativeRoomList.reduce(
-        (sum, r) =>
-          sum +
-          Number(
-            r.price?.couponDiscount ??
-            r.price?.CouponDiscount ??
-            r.price?.discount ??
-            r.price?.Discount ??
-            0
-          ),
-        0
-      ) ||
-      0;
-
-    const b2cTotal = Number(
-      priceObj.b2CTotalPrice ??
-      priceObj.b2cTotalPrice ??
-      priceObj.B2CTotalPrice ??
-      0
-    );
-
-    const calculatedTotal =
-      b2cTotal ||
-      authoritativeRoomList.reduce(
-        (sum, r) =>
-          sum +
-          Number(
-            r.price?.b2CTotalPrice ??
-            r.price?.b2cTotalPrice ??
-            r.price?.B2CTotalPrice ??
-            r.price?.offeredPrice ??
-            r.offeredPrice ??
-            0
-          ),
-        0
-      ) ||
-      selectedRoomSlots.reduce(
-        (sum, s) =>
-          sum +
-          Number(
-            s.price?.b2CTotalPrice ??
-            s.price?.b2cTotalPrice ??
-            s.price?.B2CTotalPrice ??
-            s.price?.offeredPrice ??
-            s.offeredPrice ??
-            0
-          ),
-        0
-      );
-
-    const total = Math.max(0, calculatedTotal - (pricingPreview?.couponDiscount || 0));
-
-    return { base, gst, convenienceFee, discount, total };
-  }, [authoritativeRoomList, selectedRoomSlots, pricingPreview]);
+    return {
+      base: Number(pricingPreview?.basePrice ?? pricingPreview?.BasePrice ?? 0),
+      gst: Number(pricingPreview?.srdvGstAmount ?? pricingPreview?.SrdvGstAmount ?? 0),
+      convenienceFee: Number(pricingPreview?.convenienceFee ?? pricingPreview?.ConvenienceFee ?? 0),
+      discount: Number(pricingPreview?.discountAmount ?? pricingPreview?.DiscountAmount ?? 0),
+      total: Number(pricingPreview?.finalTotal ?? pricingPreview?.FinalTotal ?? 0),
+    };
+  }, [pricingPreview]);
 
   const handleBookRoom = async () => {
     if (!validationState.isValid) {
@@ -477,6 +451,19 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
     setBookingLoading(true);
     try {
+      if (pricingStatus !== "valid" || !pricingPreview || validatingCoupon) {
+        throw new Error("The latest hotel price is still being verified.");
+      }
+      if (targetTraceId === null || !targetResultIndex || !targetHotelCode) {
+        throw new Error("Hotel session information is incomplete. Please select the hotel again.");
+      }
+      const finalRoomIdentities = authoritativeRoomList.map(getRoomIdentity);
+      if (
+        finalRoomIdentities.length === 0 ||
+        finalRoomIdentities.some((identity) => !identity.roomIndex || !identity.roomTypeCode || !identity.optionId)
+      ) {
+        throw new Error("Selected hotel rate information is incomplete. Please select and block the room again.");
+      }
       // Build HotelRoomsDetails with nested HotelPassenger arrays
       const hotelRoomsDetailsPayload = authoritativeRoomList.map((roomObj, rIdx) => {
         const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0" };
@@ -490,8 +477,10 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           const paxObj = {
             Title: String(pax.title || "Mr"),
             FirstName: String(pax.firstName || "").trim(),
+            MiddleName: "",
             LastName: String(pax.lastName || "").trim(),
             PaxType: pax.isChild ? "2" : "1",
+            Age: Number(pax.age),
             LeadPassenger: Boolean(pax.isLead),
           };
 
@@ -505,10 +494,6 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           if (pax.passport) {
             paxObj.PassportNo = String(pax.passport || "").trim().toUpperCase();
           }
-          if (pax.isChild) {
-            paxObj.Age = Number(pax.age || 5);
-          }
-
           passengersPayload.push(paxObj);
         }
 
@@ -520,11 +505,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           RequireAllPaxDetails: Boolean(roomObj.requireAllPaxDetails || roomObj.RequireAllPaxDetails),
           RoomId: String(roomObj.roomId || roomObj.RoomId || ""),
           RoomStatus: "Active",
-          RoomIndex: String(roomObj.roomIndex || roomObj.RoomIndex || `${rIdx + 1}`),
-          RoomTypeCode: String(roomObj.roomTypeCode || roomObj.RoomTypeCode || ""),
+          RoomIndex: finalRoomIdentities[rIdx].roomIndex,
+          RoomTypeCode: finalRoomIdentities[rIdx].roomTypeCode,
+          OptionId: finalRoomIdentities[rIdx].optionId,
           RoomTypeName: String(roomObj.roomTypeName || roomObj.RoomTypeName || roomObj.categoryName || "Standard Room"),
           RatePlanCode: String(roomObj.ratePlanCode || roomObj.RatePlanCode || ""),
           RatePlan: String(roomObj.ratePlan || roomObj.RatePlan || roomObj.ratePlanCode || ""),
+          LastCancellationDate: String(roomObj.lastCancellationDate || roomObj.LastCancellationDate || ""),
+          CancellationPolicies: roomObj.cancellationPolicies || roomObj.CancellationPolicies || [],
           OfferedPrice: roomOfferedPrice,
           Price: {
             RoomPrice: roomBasePrice,
@@ -543,21 +531,14 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         return;
       }
 
-      const totalAuthoritativePrice = authoritativeRoomList.reduce(
-        (sum, r) => sum + Number(r.price?.offeredPrice || r.offeredPrice || 0),
-        0
-      );
-      const grandTotalPrice =
-        pricingPreview?.totalPrice ||
-        pricingPreview?.basePrice ||
-        totalAuthoritativePrice ||
-        selectedRoomSlots.reduce((sum, s) => sum + Number(s.price?.offeredPrice || s.offeredPrice || 0), 0);
+      if (!Number.isFinite(fareBreakdown.total) || fareBreakdown.total <= 0) {
+        throw new Error("The latest payable amount could not be verified.");
+      }
 
       const bookPayload = {
         EndUserIp: "192.168.1.1",
-        ClientId: "180232",
-        UserName: "PickNBk6",
-        Password: "PickNB@486",
+        CheckInDate: searchParams?.checkInDate,
+        CheckOutDate: searchParams?.checkOutDate,
         TraceId: targetTraceId,
         SrdvType: targetSrdvType,
         SrdvIndex: targetSrdvIndex,
@@ -566,13 +547,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         HotelName: String(hotel.name || hotel.hotelName || "Hotel Stay"),
         GuestNationality: "IN",
         NoOfRooms: authoritativeRoomList.length,
-        ClientReferenceNo: Math.floor(Date.now() / 1000),
+        ClientReferenceNo: "0",
         IsVoucherBooking: true,
         GuestName: `${leadPax.firstName} ${leadPax.lastName}`.trim(),
+        GuestTitle: String(leadPax.title || "Mr"),
+        GuestGender: leadPax.title === "Mr" ? "Male" : "Female",
+        GuestAge: Number(leadPax.age),
         GuestEmail: String(leadPax.email).trim(),
         GuestPhone: String(leadPax.phone).trim(),
-        Price: totalAuthoritativePrice,
-        CouponCode: pricingPreview?.appliedCoupon ? String(pricingPreview.appliedCoupon) : "",
+        Price: fareBreakdown.total,
+        CouponCode: activeCouponCode,
         HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
 
@@ -597,12 +581,17 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           name: `${leadPax.firstName} ${leadPax.lastName}`.trim(),
           phone: String(leadPax.phone).trim(),
           email: String(leadPax.email).trim(),
-          couponCode: pricingPreview?.appliedCoupon ? String(pricingPreview.appliedCoupon) : null,
+          couponCode: activeCouponCode || null,
         }
       });
     } catch (err) {
       console.log("[HotelPassengerDetails] BookRoom error:", err?.message);
-      Alert.alert("Booking Failed", err?.message || "Unable to confirm room reservation.");
+      const message = err?.isTraceExpired
+        ? "Your room hold has expired. Please select the room again to check updated availability."
+        : (err?.message || "Unable to prepare this room reservation.");
+      Alert.alert(err?.isTraceExpired ? "Room hold expired" : "Booking unavailable", message, err?.isTraceExpired
+        ? [{ text: "OK", onPress: () => navigation.goBack() }]
+        : undefined);
     } finally {
       setBookingLoading(false);
     }
@@ -775,7 +764,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       <CheckoutBottomBar
         totalPrice={fareBreakdown.total}
         onConfirm={handleBookRoom}
-        disabled={!agreedToTerms || !validationState.isValid}
+        disabled={!agreedToTerms || !validationState.isValid || pricingStatus !== "valid" || validatingCoupon}
         loading={bookingLoading}
       />
     </SafeAreaView>

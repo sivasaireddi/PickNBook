@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { StyleSheet, Text, TextInput, View, Pressable, useWindowDimensions } from "react-native";
 
-const TITLE_OPTIONS = ["Mr", "Mrs", "Ms", "Mstr", "Miss"];
+const TITLE_OPTIONS = ["Mr", "Mrs", "Ms"];
 
 export default function GuestForm({
   isLead = false,
@@ -69,18 +69,15 @@ export default function GuestForm({
         </View>
       </View>
 
-      {/* Age for child */}
-      {isChild && (
-        <Input
-          label="Child Age (Years)"
-          value={String(age || "")}
-          onChangeText={onChangeAge}
-          placeholder="e.g. 5"
-          keyboardType="number-pad"
-          maxLength={2}
-          error={errors.age}
-        />
-      )}
+      <Input
+        label={isChild ? "Child Age (Years)" : "Age (Years)"}
+        value={String(age ?? "")}
+        onChangeText={onChangeAge}
+        placeholder={isChild ? "e.g. 5" : "e.g. 30"}
+        keyboardType="number-pad"
+        maxLength={2}
+        error={errors.age}
+      />
 
       {/* Contact details for Lead Passenger or Primary Input */}
       {isLead && (
