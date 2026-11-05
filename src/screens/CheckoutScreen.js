@@ -34,12 +34,32 @@ const money = (value) =>
     maximumFractionDigits: 2,
   })}`;
 
-const DetailRow = ({ label, value, accent = false }) => {
+const optionalMoneyNumber = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const buildHotelFareRows = (hotelPricing = {}) => {
+  const rows = [];
+  const basePrice = optionalMoneyNumber(hotelPricing.basePrice);
+  const taxesAndFees = optionalMoneyNumber(hotelPricing.srdvGstAmount);
+  const discountAmount = optionalMoneyNumber(hotelPricing.discountAmount);
+
+  if (basePrice !== null) rows.push(['Base Fare', money(basePrice)]);
+  if (taxesAndFees !== null) rows.push(['Taxes & Fees', money(taxesAndFees)]);
+  if (discountAmount !== null && discountAmount > 0) {
+    rows.push(['Coupon Discount', `-${money(discountAmount)}`, { discount: true }]);
+  }
+  return rows;
+};
+
+const DetailRow = ({ label, value, accent = false, discount = false }) => {
   if (value === null || value === undefined || value === '') return null;
   return (
     <View style={styles.detailRow}>
       <Text style={styles.detailLabel}>{label}</Text>
-      <Text style={[styles.detailValue, accent && styles.accentText]}>{value}</Text>
+      <Text style={[styles.detailValue, accent && styles.accentText, discount && styles.discountText]}>{value}</Text>
     </View>
   );
 };
@@ -107,6 +127,7 @@ const CheckoutScreen = ({ route, navigation }) => {
     reviewDetails = {},
     seatHold,
     bookingAttempt,
+    hotelPricing,
   } = route?.params || {};
   const insets = useSafeAreaInsets();
   const [authToken, setAuthToken] = useState(userToken || '');
@@ -319,6 +340,8 @@ const CheckoutScreen = ({ route, navigation }) => {
   }, [currentSeatHold.expiresAt, isBus]);
 
   const fareRows = useMemo(() => {
+    if (isHotel) return buildHotelFareRows(hotelPricing);
+
     const rows = [];
     if (fare.subtotal !== undefined) rows.push(['Seat / Base Fare', money(fare.subtotal)]);
     if (Number(fare.autoDiscountAmount) > 0) {
@@ -332,7 +355,7 @@ const CheckoutScreen = ({ route, navigation }) => {
     }
     if (Number(fare.convenienceFee) > 0) rows.push(['Convenience fee', money(fare.convenienceFee)]);
     return rows;
-  }, [fare]);
+  }, [fare, hotelPricing, isHotel]);
 
   const handlePayPress = async () => {
     if (payPressRef.current || loading) return;
@@ -538,7 +561,7 @@ const CheckoutScreen = ({ route, navigation }) => {
             <View style={styles.sectionIcon}><MaterialCommunityIcons name="receipt-text-outline" size={19} color="#C9152B" /></View>
             <View><Text style={styles.sectionTitle}>Fare Summary</Text><Text style={styles.sectionSubtitle}>Amount used for payment</Text></View>
           </View>
-          {fareRows.map(([label, value]) => <DetailRow key={label} label={label} value={value} />)}
+          {fareRows.map(([label, value, rowProps]) => <DetailRow key={label} label={label} value={value} {...rowProps} />)}
           <View style={styles.cardDivider} />
           <DetailRow label="Total Payable" value={money(payableAmount)} accent />
           <Text style={styles.amountNote}>The payment order uses this exact payable amount.</Text>
@@ -633,6 +656,7 @@ const styles = StyleSheet.create({
   detailLabel: { color: '#64748B', fontSize: 13, flex: 1 },
   detailValue: { color: '#0F172A', fontSize: 13, fontWeight: '700', flex: 1.35, textAlign: 'right' },
   accentText: { color: '#C9152B', fontSize: 17, fontWeight: '900' },
+  discountText: { color: '#16A34A' },
   amountNote: { color: '#94A3B8', fontSize: 10, lineHeight: 15, marginTop: 6 },
   payBar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingTop: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E2E8F0', shadowColor: '#0F172A', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -5 }, elevation: 14 },
   payLabel: { color: '#64748B', fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },

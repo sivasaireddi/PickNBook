@@ -1,15 +1,16 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Alert, FlatList, Modal, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, FlatList, Modal, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import AppHeader from "../../../components/AppHeader";
 import { requireAuthToken } from "../../../utils/authSession";
 import { getMyBusBookings } from "../../../services/busService";
-import { getMyHotelBookings, cancelHotelBooking, getHotelCancellationQuote } from "../../../services/hotelService";
+import { getMyHotelBookings } from "../../../services/hotelService";
 import { AUTH_API_BASE_URL } from "../../../services/authService";
 import { readConfirmedFlightBookingsLocally } from "./flights/services/flightBookingFlowStore";
 import { formatBookingCurrency, formatBookingDate, formatBookingDateTime, formatBookingTime, getBusStatusPresentation, normalizeBusBooking } from "../../../utils/busBookingPresentation";
+import { formatHotelGuestSummary, formatHotelStayRange, getHotelStatusPresentation, normalizeHotelBooking } from "../../../utils/hotelBookingPresentation";
 
 const BRAND = "#D7192D";
 const NAVY = "#111827";
@@ -49,47 +50,11 @@ const groupBusBookings = (records) => {
   return groups;
 };
 
-const normalizeHotelBookingStatus = (item = {}) => {
-  const values = [item.status, item.fulfillmentStatus, item.bookingStatus, item.tripState]
-    .map(asText)
-    .filter(Boolean);
-  const tokens = values.map((value) => value.toLowerCase().replace(/[^a-z0-9]/g, ""));
-  const has = (...expected) => expected.some((value) => tokens.includes(value));
-  const listStatus = has("cancelled", "partiallycancelled")
-    ? "Cancelled"
-    : has("failed", "paymentfailed", "failedsuppliererror", "bookingfailed")
-      ? "Failed"
-      : has("pending", "pendingreconciliation", "inprogress", "processing")
-        ? "Pending"
-        : has("past", "completed", "checkedout")
-          ? "Past"
-          : has("confirmed", "booked", "upcoming")
-            ? "Upcoming"
-            : "Pending";
-  return { listStatus, label: values[0] || listStatus };
-};
-
 const groupHotelBookings = (records) => {
   const groups = emptyGroups();
   (Array.isArray(records) ? records : []).forEach((item) => {
-    const { listStatus, label } = normalizeHotelBookingStatus(item);
-    const internalBookingId = asText(item.bookingId);
-    const cancellationEligible = listStatus === "Upcoming";
-    const booking = {
-      id: internalBookingId,
-      providerBookingId: asText(item.providerBookingId),
-      traceId: asText(item.traceId), pnr: asText(item.bookingReference),
-      hotelName: asText(item.hotelName), address: asText(item.address || item.city),
-      checkInDate: asText(item.checkInDate || item.dates), checkOutDate: asText(item.checkOutDate),
-      guestName: asText(item.guestName), totalAmount: legacyMoney(item.amount ?? item.totalPrice),
-      status: label,
-      listStatus,
-      cancellationEligible,
-      cancellationIdMissing: cancellationEligible && !internalBookingId,
-      canCancel: cancellationEligible && Boolean(internalBookingId),
-      type: "hotel", rawBooking: item,
-    };
-    groups[listStatus].push(booking);
+    const booking = { ...normalizeHotelBooking(item), type: "hotel" };
+    groups[booking.listStatus].push(booking);
   });
   return groups;
 };
@@ -121,13 +86,6 @@ export default function BookingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [legacyDetails, setLegacyDetails] = useState(null);
-  const [hotelCancelVisible, setHotelCancelVisible] = useState(false);
-  const [selectedHotel, setSelectedHotel] = useState(null);
-  const [hotelCancelReason, setHotelCancelReason] = useState("User requested cancellation");
-  const [cancellingHotel, setCancellingHotel] = useState(false);
-  const [hotelCancellationQuote, setHotelCancellationQuote] = useState(null);
-  const [hotelQuoteLoading, setHotelQuoteLoading] = useState(false);
-  const [hotelQuoteError, setHotelQuoteError] = useState("");
   const loadedCategories = useRef(new Set());
   const hasFocusedOnce = useRef(false);
 
@@ -169,54 +127,19 @@ export default function BookingsScreen() {
       hasFocusedOnce.current = true;
       return undefined;
     }
-    if (category === "bus") loadCategory("bus", true);
+    if (category === "bus" || category === "hotel") loadCategory(category, true);
     return undefined;
   }, [category, loadCategory]));
 
   const statusTabs = category === "bus" ? BUS_TABS : category === "hotel" ? HOTEL_TABS : BASE_TABS;
   const currentList = bookings[category]?.[activeTab] || [];
   const changeCategory = useCallback((next) => { setCategory(next); setActiveTab("Upcoming"); setError(""); }, []);
-  const openBooking = useCallback(async (item) => {
+  const openBooking = useCallback((item) => {
     if (category === "bus") return navigation.navigate("BusBookingDetails", { booking: item.raw });
-    if (item.type === "hotel" && item.cancellationIdMissing) {
-      Alert.alert("Cancellation unavailable", "The internal hotel booking reference is missing. Please contact support.");
-      return;
-    }
-    if (item.type === "hotel" && item.canCancel) {
-      setSelectedHotel(item);
-      setHotelCancellationQuote(null);
-      setHotelQuoteError("");
-      setHotelCancelVisible(true);
-      setHotelQuoteLoading(true);
-      try {
-        setHotelCancellationQuote(await getHotelCancellationQuote(item.id));
-      } catch (quoteError) {
-        setHotelQuoteError(quoteError?.message || "Unable to load the cancellation quote.");
-      } finally {
-        setHotelQuoteLoading(false);
-      }
-      return;
-    }
+    if (item.type === "hotel") return navigation.navigate("HotelBookingDetails", { bookingId: item.id, booking: item.raw });
     setLegacyDetails(item);
   }, [category, navigation]);
   const searchCategory = useCallback(() => navigation.navigate(category === "bus" ? "BusScreen" : category === "hotel" ? "Hotels" : "FlightScreen"), [category, navigation]);
-
-  const confirmHotelCancellation = useCallback(async () => {
-    if (!selectedHotel) return;
-    try {
-      setCancellingHotel(true);
-      await cancelHotelBooking({
-        bookingId: selectedHotel.id,
-        reason: hotelCancelReason,
-        refundPreference: "ORIGINAL_PAYMENT_METHOD",
-      });
-      setHotelCancelVisible(false);
-      loadedCategories.current.delete("hotel");
-      await loadCategory("hotel", true);
-      Alert.alert("Success", "Hotel cancelled successfully.");
-    } catch (cancelError) { Alert.alert("Cancellation Failed", cancelError?.message || "Could not cancel."); }
-    finally { setCancellingHotel(false); }
-  }, [hotelCancelReason, loadCategory, selectedHotel]);
 
   const header = useMemo(() => (
     <>
@@ -258,7 +181,9 @@ export default function BookingsScreen() {
 
   const renderItem = useCallback(({ item }) => category === "bus"
     ? <BusBookingCard booking={item} onPress={() => openBooking(item)} />
-    : <LegacyBookingCard booking={item} onPress={() => openBooking(item)} />,
+    : category === "hotel"
+      ? <HotelBookingCard booking={item} onPress={() => openBooking(item)} />
+      : <LegacyBookingCard booking={item} onPress={() => openBooking(item)} />,
   [category, openBooking]);
 
   return <SafeAreaView style={styles.safeArea} edges={["left", "right", "bottom"]}>
@@ -276,27 +201,6 @@ export default function BookingsScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadCategory(category, true)} colors={[BRAND]} tintColor={BRAND} />}
     />
     <LegacyDetailsModal booking={legacyDetails} onClose={() => setLegacyDetails(null)} />
-    <Modal transparent animationType="fade" visible={hotelCancelVisible} onRequestClose={() => setHotelCancelVisible(false)}>
-      <View style={styles.modalOverlay}><View style={styles.modalCard}>
-        <View style={styles.modalHeader}><Text style={styles.modalTitle}>Cancel Hotel Booking</Text><TouchableOpacity onPress={() => setHotelCancelVisible(false)}><Ionicons name="close" size={24} color={MUTED} /></TouchableOpacity></View>
-        <Text style={styles.modalNotice}>This cancels the entire booking. Individual rooms and guests cannot be cancelled.</Text>
-        {hotelQuoteLoading ? <ActivityIndicator color={BRAND} /> : null}
-        {hotelQuoteError ? <Text style={styles.modalNotice}>{hotelQuoteError}</Text> : null}
-        {hotelCancellationQuote ? (
-          <View>
-            <Text style={styles.modalNotice}>Total paid: {legacyMoney(hotelCancellationQuote.totalPaid)}</Text>
-            <Text style={styles.modalNotice}>Supplier charge: {legacyMoney(hotelCancellationQuote.supplierCancellationCharge)}</Text>
-            <Text style={styles.modalNotice}>Service charge: {legacyMoney(hotelCancellationQuote.serviceCharge)}</Text>
-            <Text style={styles.modalNotice}>Refund: {legacyMoney(hotelCancellationQuote.refundAmount)}</Text>
-          </View>
-        ) : null}
-        <TextInput style={styles.reasonInput} value={hotelCancelReason} onChangeText={setHotelCancelReason} placeholder="Reason for cancellation" />
-        <View style={styles.modalActions}>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => setHotelCancelVisible(false)}><Text style={styles.secondaryButtonText}>Keep reservation</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.dangerButton} onPress={confirmHotelCancellation} disabled={cancellingHotel || hotelQuoteLoading || !hotelCancellationQuote}>{cancellingHotel ? <ActivityIndicator color="#FFF" /> : <Text style={styles.dangerButtonText}>Confirm cancel</Text>}</TouchableOpacity>
-        </View>
-      </View></View>
-    </Modal>
   </SafeAreaView>;
 }
 
@@ -341,6 +245,27 @@ function JourneyEnd({ time, city, date, align = "left" }) {
 
 function Metadata({ icon, text }) { return <View style={styles.metadataItem}><Ionicons name={icon} size={15} color={MUTED} /><Text style={styles.metadataText} numberOfLines={1}>{text}</Text></View>; }
 
+const HotelBookingCard = memo(({ booking, onPress }) => {
+  const status = getHotelStatusPresentation(booking.listStatus, booking.status);
+  const stay = formatHotelStayRange(booking);
+  const guests = formatHotelGuestSummary(booking);
+  const total = formatBookingCurrency(booking.totalPaid);
+  return <TouchableOpacity style={styles.busCard} onPress={onPress} activeOpacity={0.88} accessibilityRole="button">
+    <View style={styles.cardTopRow}>
+      <View style={[styles.statusBadge, { backgroundColor: status.tint }]}><Text style={[styles.statusBadgeText, { color: status.color }]}>{status.label}</Text></View>
+      {!!booking.bookingReference && <Text style={styles.pnrText}>{booking.bookingReference}</Text>}
+    </View>
+    <Text style={styles.routeTitle} numberOfLines={2}>{booking.hotelName || "Hotel reservation"}</Text>
+    {!!booking.address && <Text style={styles.operatorText} numberOfLines={2}>{booking.address}</Text>}
+    {!!stay && <View style={styles.hotelStayRow}><Ionicons name="calendar-outline" size={17} color={BRAND} /><Text style={styles.hotelStayText}>{stay}</Text></View>}
+    <View style={styles.cardDivider} />
+    <View style={styles.cardFooter}>
+      <View style={styles.metadataRow}>{!!guests && <Metadata icon="bed-outline" text={guests} />}{!!total && <Metadata icon="wallet-outline" text={`${total} paid`} />}</View>
+      <View style={styles.detailsAction}><Text style={styles.detailsActionText}>View details</Text><Ionicons name="chevron-forward" size={17} color={BRAND} /></View>
+    </View>
+  </TouchableOpacity>;
+});
+
 const LegacyBookingCard = memo(({ booking, onPress }) => <TouchableOpacity style={styles.legacyCard} onPress={onPress} activeOpacity={0.88}>
   <View style={styles.cardTopRow}><View style={styles.statusBadge}><Text style={styles.statusBadgeText}>{booking.status.toUpperCase()}</Text></View>{!!booking.pnr && <Text style={styles.pnrText}>{booking.pnr}</Text>}</View>
   <Text style={styles.routeTitle} numberOfLines={2}>{booking.type === "hotel" ? booking.hotelName : `${booking.from} → ${booking.to}`}</Text>
@@ -384,6 +309,7 @@ const styles = StyleSheet.create({
   journeyRow: { flexDirection: "row", alignItems: "center", marginTop: 18 }, journeyEnd: { flex: 1, minWidth: 0 }, journeyEndRight: { alignItems: "flex-end" }, journeyTime: { color: NAVY, fontSize: 16, fontWeight: "800" },
   journeyCity: { color: "#344054", fontSize: 12, fontWeight: "700", marginTop: 3, maxWidth: "100%" }, journeyDate: { color: "#98A2B3", fontSize: 11, fontWeight: "600", marginTop: 2 }, textRight: { textAlign: "right" },
   journeyConnector: { flexDirection: "row", alignItems: "center", width: 78, marginHorizontal: 8 }, connectorDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#F3B9C0" }, connectorLine: { flex: 1, height: 1, backgroundColor: "#E8B5BB", marginLeft: 3 },
+  hotelStayRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 17 }, hotelStayText: { color: "#344054", fontSize: 13, fontWeight: "700", flex: 1 },
   cardDivider: { height: 1, backgroundColor: "#EEE9EA", marginVertical: 15 }, cardFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }, metadataRow: { flex: 1, flexDirection: "row", flexWrap: "wrap", gap: 10 },
   metadataItem: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" }, metadataText: { color: "#475467", fontSize: 12, fontWeight: "700", flexShrink: 1 }, detailsAction: { flexDirection: "row", alignItems: "center", gap: 2, minHeight: 40 }, detailsActionText: { color: BRAND, fontSize: 12, fontWeight: "800" }, legacyMeta: { flex: 1, color: MUTED, fontSize: 12, fontWeight: "600" },
   loader: { marginTop: 70 }, emptyCard: { marginTop: 42, alignItems: "center", paddingHorizontal: 26 }, emptyIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: "#FDECEF", alignItems: "center", justifyContent: "center", marginBottom: 15 },

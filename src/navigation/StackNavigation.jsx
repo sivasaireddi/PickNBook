@@ -50,6 +50,8 @@ import BookingConfirmationScreen from "../screens/BookingConfirmationScreen";
 import BookingFailureScreen from "../screens/BookingFailureScreen";
 import BusBookingDetailsScreen from "../screens/BusBookingDetailsScreen";
 import BusBookingCancellationScreen from "../screens/BusBookingCancellationScreen";
+import HotelBookingDetailsScreen from "../screens/HotelBookingDetailsScreen";
+import HotelBookingCancellationScreen from "../screens/HotelBookingCancellationScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -141,6 +143,8 @@ const StackNavigation = () => {
       <Stack.Screen name="BookingFailureScreen" component={BookingFailureScreen} />
       <Stack.Screen name="BusBookingDetails" component={BusBookingDetailsScreen} />
       <Stack.Screen name="BusBookingCancellation" component={BusBookingCancellationScreen} />
+      <Stack.Screen name="HotelBookingDetails" component={HotelBookingDetailsScreen} />
+      <Stack.Screen name="HotelBookingCancellation" component={HotelBookingCancellationScreen} />
     </Stack.Navigator>
   );
 };

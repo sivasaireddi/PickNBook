@@ -44,42 +44,112 @@ const isValidName = (value) => /^[A-Za-z ]{2,}$/.test(String(value || "").trim()
 const VALID_TITLES = new Set(["Mr", "Mrs", "Ms"]);
 
 const getPricingInputs = (rooms = []) => rooms.reduce((totals, room) => {
-  const price = room?.price || room?.Price || {};
-  totals.base += Number(price.b2CBasePrice ?? price.B2CBasePrice ?? room?.b2CBasePrice ?? room?.B2CBasePrice ?? 0);
-  totals.gst += Number(price.totalGSTAmount ?? price.TotalGSTAmount ?? price.tax ?? price.Tax ?? 0);
+  const price = room?.Price || room?.price || {};
+  const rawTotal = Number(
+    room?.B2CTotalPrice || room?.b2CTotalPrice || room?.b2cTotalPrice ||
+    price.B2CTotalPrice || price.b2CTotalPrice || price.b2cTotalPrice || price.b2cFinalFare || price.B2CFinalFare ||
+    price.b2cDisplayFare || price.B2CDisplayFare || price.OfferedPrice || price.offeredPrice ||
+    price.PublishedPrice || price.publishedPrice || 0
+  );
+  const supplierPricing = room?.SupplierPricing || room?.supplierPricing || price.SupplierPricing || price.supplierPricing;
+  const supplierTotal = Number(supplierPricing?.TotalPrice ?? supplierPricing?.totalPrice ?? 0);
+
+  if (supplierPricing && supplierTotal > 0) {
+    const supplierBase = Number(supplierPricing.BasePrice ?? supplierPricing.basePrice ?? 0);
+    const hiddenMarkup = rawTotal - supplierTotal;
+    const b2cBase = supplierBase + hiddenMarkup;
+    totals.base += b2cBase;
+    totals.gst += rawTotal - b2cBase;
+    return totals;
+  }
+
+  const roomBase = Number(
+    room?.B2CBasePrice || room?.b2CBasePrice ||
+    price.B2CBasePrice || price.b2cBasePrice ||
+    price.RoomPrice || price.roomPrice || price.PublishedPrice || price.publishedPrice || 0
+  );
+  const gst = price.GST || price.gst || {};
+  const gstBreakupTotal = [
+    gst.CGSTAmount, gst.cgstAmount, gst.SGSTAmount, gst.sgstAmount,
+    gst.IGSTAmount, gst.igstAmount, gst.CessAmount, gst.cessAmount,
+  ].reduce((sum, value) => sum + (Number(value) || 0), 0);
+  totals.base += Number(price.b2CBasePrice ?? price.b2cBasePrice ?? roomBase);
+  totals.gst += Number(price.TotalGSTAmount ?? price.totalGSTAmount ?? 0) ||
+    Number(price.Tax ?? price.tax ?? 0) || gstBreakupTotal;
   return totals;
 }, { base: 0, gst: 0 });
 
+const normalizeProviderId = (value) => value === null || value === undefined ? "" : String(value).trim();
+
 const getRoomIdentity = (room = {}) => ({
-  roomIndex: String(room.RoomIndex ?? room.roomIndex ?? ""),
-  roomTypeCode: String(room.RoomTypeCode ?? room.roomTypeCode ?? ""),
-  optionId: String(room.OptionId ?? room.optionId ?? ""),
+  roomIndex: normalizeProviderId(room.RoomIndex ?? room.roomIndex),
+  roomTypeCode: normalizeProviderId(room.RoomTypeCode ?? room.roomTypeCode),
+  optionId: normalizeProviderId(room.OptionId ?? room.optionId),
 });
 
-const mergeBlockedRoomsWithSelectedIdentity = (blockedRooms, selectedRooms) =>
-  blockedRooms.map((blockedRoom) => {
-    const blockedIdentity = getRoomIdentity(blockedRoom);
-    const matches = selectedRooms.filter((selectedRoom) => {
-      const selectedIdentity = getRoomIdentity(selectedRoom);
-      return selectedIdentity.roomIndex === blockedIdentity.roomIndex &&
-        selectedIdentity.roomTypeCode === blockedIdentity.roomTypeCode;
-    });
-    const optionIds = [...new Set(matches.map((room) => getRoomIdentity(room).optionId).filter(Boolean))];
-    if (!blockedIdentity.roomIndex || !blockedIdentity.roomTypeCode || optionIds.length !== 1) {
+const getBlockedRateCorrelationKey = (room = {}) => {
+  const ratePlanCode = normalizeProviderId(room.RatePlanCode ?? room.ratePlanCode);
+  const roomTypeName = normalizeProviderId(room.RoomTypeName ?? room.roomTypeName).toLowerCase();
+  const mealBasis = normalizeProviderId(room.MealBasis ?? room.mealBasis).toLowerCase();
+  return ratePlanCode && roomTypeName && mealBasis
+    ? `${ratePlanCode}\u001f${roomTypeName}\u001f${mealBasis}`
+    : "";
+};
+
+const mergeBlockedRoomsWithSelectedIdentity = (blockedRooms, selectedRooms) => {
+  if (blockedRooms.length !== selectedRooms.length) {
+    throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
+  }
+
+  const selectedGroups = new Map();
+  selectedRooms.forEach((room) => {
+    const key = getBlockedRateCorrelationKey(room);
+    const identity = getRoomIdentity(room);
+    if (!key || !identity.roomIndex || !identity.roomTypeCode || !identity.optionId) {
       throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
     }
-    const selectedRoom = matches.find((room) => getRoomIdentity(room).optionId === optionIds[0]);
+    const group = selectedGroups.get(key) || { count: 0, identityKey: "", identity: null, ambiguous: false };
+    const identityKey = `${identity.roomIndex}\u001f${identity.roomTypeCode}\u001f${identity.optionId}`;
+    if (group.identityKey && group.identityKey !== identityKey) group.ambiguous = true;
+    group.count += 1;
+    group.identityKey = group.identityKey || identityKey;
+    group.identity = group.identity || identity;
+    selectedGroups.set(key, group);
+  });
+
+  const blockedCounts = new Map();
+  blockedRooms.forEach((room) => {
+    const key = getBlockedRateCorrelationKey(room);
+    if (!key) throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
+    blockedCounts.set(key, (blockedCounts.get(key) || 0) + 1);
+  });
+
+  selectedGroups.forEach((group, key) => {
+    if (blockedCounts.get(key) !== group.count || group.ambiguous || !group.identity) {
+      throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
+    }
+  });
+  if (blockedCounts.size !== selectedGroups.size) {
+    throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
+  }
+
+  return blockedRooms.map((blockedRoom) => {
+    const group = selectedGroups.get(getBlockedRateCorrelationKey(blockedRoom));
+    const selectedIdentity = group?.identity;
+    if (!selectedIdentity) {
+      throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
+    }
     return {
-      ...selectedRoom,
       ...blockedRoom,
-      RoomIndex: blockedIdentity.roomIndex,
-      RoomTypeCode: blockedIdentity.roomTypeCode,
-      OptionId: optionIds[0],
-      roomIndex: blockedIdentity.roomIndex,
-      roomTypeCode: blockedIdentity.roomTypeCode,
-      optionId: optionIds[0],
+      RoomIndex: selectedIdentity.roomIndex,
+      RoomTypeCode: selectedIdentity.roomTypeCode,
+      OptionId: selectedIdentity.optionId,
+      roomIndex: selectedIdentity.roomIndex,
+      roomTypeCode: selectedIdentity.roomTypeCode,
+      optionId: selectedIdentity.optionId,
     };
   });
+};
 
 export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const {
@@ -443,6 +513,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     };
   }, [pricingPreview]);
 
+  const hotelPricing = useMemo(() => ({
+    basePrice: pricingPreview?.basePrice ?? pricingPreview?.BasePrice ?? null,
+    srdvGstAmount: pricingPreview?.srdvGstAmount ?? pricingPreview?.SrdvGstAmount ?? null,
+    agentMarkup: pricingPreview?.agentMarkup ?? pricingPreview?.AgentMarkup ?? null,
+    convenienceFee: pricingPreview?.convenienceFee ?? pricingPreview?.ConvenienceFee ?? null,
+    totalBeforeDiscount: pricingPreview?.totalBeforeDiscount ?? pricingPreview?.TotalBeforeDiscount ?? null,
+    discountAmount: pricingPreview?.discountAmount ?? pricingPreview?.DiscountAmount ?? null,
+    finalTotal: pricingPreview?.finalTotal ?? pricingPreview?.FinalTotal ?? null,
+  }), [pricingPreview]);
+
   const handleBookRoom = async () => {
     if (!validationState.isValid) {
       Alert.alert("Check Passenger Details", validationState.globalError || "Please fill all required fields correctly.");
@@ -576,6 +656,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         userToken: token || "",
         amount: fareBreakdown.total,
         bookingType: "Hotel",
+        hotelPricing,
         bookingDetails: bookPayload,
         customerDetails: {
           name: `${leadPax.firstName} ${leadPax.lastName}`.trim(),
