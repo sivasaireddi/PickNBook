@@ -26,6 +26,14 @@ import BookingPolicySection from "./dashboard/bottomTabScreens/hotelCheckoutComp
 import CancellationPolicySheet from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CancellationPolicySheet";
 import FareSummary from "./dashboard/bottomTabScreens/hotelCheckoutComponents/FareSummary";
 import CheckoutBottomBar from "./dashboard/bottomTabScreens/hotelCheckoutComponents/CheckoutBottomBar";
+import {
+  assertHotelSupplierPayload,
+  buildHotelPassenger,
+  hotelGenderFromTitle,
+  isPlaceholderHotelEmail,
+  normalizeHotelTitle,
+  resolveHotelSupplierCode,
+} from "../utils/hotelSupplierPayload";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -167,12 +175,15 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
 
   const targetTraceId = routeParams.traceId ?? session.traceId ?? hotel.traceId ?? null;
   const targetSrdvType = String(routeParams.srdvType || session.srdvType || hotel.srdvType || "MixAPI");
-  const targetSrdvIndex = String(routeParams.srdvIndex || session.srdvIndex || hotel.srdvIndex || "15");
   const targetResultIndex = String(
     routeParams.resultIndex ?? selectedRoomSlots[0]?.resultIndex ?? selectedRoomSlots[0]?.ResultIndex ?? hotel.resultIndex ?? hotel.ResultIndex ?? ""
   );
   const targetHotelCode = String(
     selectedRoomSlots[0]?.hotelCode ?? selectedRoomSlots[0]?.HotelCode ?? routeParams.hotelCode ?? hotel.hotelCode ?? hotel.HotelCode ?? ""
+  );
+  const targetInfoSupplierHotelCode = String(
+    selectedRoomSlots[0]?.supplierHotelCode ?? selectedRoomSlots[0]?.SupplierHotelCode ??
+    routeParams.supplierHotelCode ?? hotel.supplierHotelCode ?? hotel.SupplierHotelCode ?? ""
   );
 
   const roomGuestsConfig = searchParams?.roomGuests || [
@@ -477,7 +488,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         }
 
         if (pax.isLead) {
-          if (!isValidEmail(pax.email)) paxErrors.email = "Valid email is required";
+          if (!isValidEmail(pax.email) || isPlaceholderHotelEmail(pax.email)) paxErrors.email = "Enter your real email address";
           if (!isValidPhone(pax.phone)) paxErrors.phone = "Valid 10-digit mobile is required";
         }
 
@@ -554,27 +565,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           const key = `room-${rIdx}-pax-${pIdx}`;
           const pax = paxState[key] || {};
 
-          const paxObj = {
-            Title: String(pax.title || "Mr"),
-            FirstName: String(pax.firstName || "").trim(),
-            MiddleName: "",
-            LastName: String(pax.lastName || "").trim(),
-            PaxType: pax.isChild ? "2" : "1",
-            Age: Number(pax.age),
-            LeadPassenger: Boolean(pax.isLead),
-          };
-
-          if (pax.isLead) {
-            paxObj.Phoneno = String(pax.phone || "").trim();
-            paxObj.Email = String(pax.email || "").trim();
-          }
-          if (pax.pan) {
-            paxObj.PAN = String(pax.pan || "").trim().toUpperCase();
-          }
-          if (pax.passport) {
-            paxObj.PassportNo = String(pax.passport || "").trim().toUpperCase();
-          }
-          passengersPayload.push(paxObj);
+          passengersPayload.push(buildHotelPassenger(pax));
         }
 
         const roomOfferedPrice = Number(roomObj.price?.offeredPrice || roomObj.offeredPrice || 0);
@@ -585,7 +576,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           RequireAllPaxDetails: Boolean(roomObj.requireAllPaxDetails || roomObj.RequireAllPaxDetails),
           RoomId: String(roomObj.roomId || roomObj.RoomId || ""),
           RoomStatus: "Active",
-          RoomIndex: finalRoomIdentities[rIdx].roomIndex,
+          RoomIndex: String(rIdx + 1),
           RoomTypeCode: finalRoomIdentities[rIdx].roomTypeCode,
           OptionId: finalRoomIdentities[rIdx].optionId,
           RoomTypeName: String(roomObj.roomTypeName || roomObj.RoomTypeName || roomObj.categoryName || "Standard Room"),
@@ -614,24 +605,29 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       if (!Number.isFinite(fareBreakdown.total) || fareBreakdown.total <= 0) {
         throw new Error("The latest payable amount could not be verified.");
       }
-
+      const normalizedLeadTitle = normalizeHotelTitle(leadPax.title);
+      const supplierRouting = resolveHotelSupplierCode({
+        blockRoomResult: blockedResultData,
+        hotelInfoHotelCode: targetInfoSupplierHotelCode,
+        resultIndex: targetResultIndex,
+      });
       const bookPayload = {
         EndUserIp: "192.168.1.1",
         CheckInDate: searchParams?.checkInDate,
         CheckOutDate: searchParams?.checkOutDate,
         TraceId: targetTraceId,
         SrdvType: targetSrdvType,
-        SrdvIndex: targetSrdvIndex,
+        SrdvIndex: supplierRouting.srdvIndex,
         ResultIndex: targetResultIndex,
-        HotelCode: targetHotelCode,
+        HotelCode: supplierRouting.supplierHotelCode,
         HotelName: String(hotel.name || hotel.hotelName || "Hotel Stay"),
         GuestNationality: "IN",
         NoOfRooms: authoritativeRoomList.length,
         ClientReferenceNo: "0",
         IsVoucherBooking: true,
         GuestName: `${leadPax.firstName} ${leadPax.lastName}`.trim(),
-        GuestTitle: String(leadPax.title || "Mr"),
-        GuestGender: leadPax.title === "Mr" ? "Male" : "Female",
+        GuestTitle: normalizedLeadTitle,
+        GuestGender: hotelGenderFromTitle(normalizedLeadTitle),
         GuestAge: Number(leadPax.age),
         GuestEmail: String(leadPax.email).trim(),
         GuestPhone: String(leadPax.phone).trim(),
@@ -639,6 +635,8 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         CouponCode: activeCouponCode,
         HotelRoomsDetails: hotelRoomsDetailsPayload,
       };
+
+      assertHotelSupplierPayload(bookPayload);
 
       console.log("[HotelPassengerDetails] booking payload prepared for checkout:", {
         hotelCode: bookPayload.HotelCode,

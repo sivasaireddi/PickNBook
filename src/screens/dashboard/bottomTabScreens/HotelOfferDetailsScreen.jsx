@@ -63,6 +63,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
   const requiredRoomCount = Number(searchParams?.noOfRooms || searchParams?.rooms || 1);
 
   const [hotelDetails, setHotelDetails] = useState(null);
+  const [infoSupplierHotelCode, setInfoSupplierHotelCode] = useState("");
   const [roomsList, setRoomsList] = useState([]);
   const [selectedRoomSlots, setSelectedRoomSlots] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,11 +108,14 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
 
       // Step 2: Call GetHotelInfo FIRST (required by supplier API session)
       let fetchedDetails = null;
+      let fetchedInfoSupplierHotelCode = "";
       try {
         const infoRes = await getHotelInfo(payload);
         fetchedDetails = infoRes?.hotelInfoResult?.hotelDetails;
         console.log("[HotelOfferDetailsScreen] hotel info parsed:", JSON.stringify(fetchedDetails, null, 2));
         if (fetchedDetails) {
+          fetchedInfoSupplierHotelCode = String(fetchedDetails.hotelCode ?? fetchedDetails.HotelCode ?? "").trim();
+          setInfoSupplierHotelCode(fetchedInfoSupplierHotelCode);
           setHotelDetails(fetchedDetails);
         } else {
           throw new Error("Hotel details missing in Info API response");
@@ -119,6 +123,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
       } catch (infoErr) {
         if (infoErr?.isTraceExpired) throw infoErr;
         console.log("[HotelOfferDetailsScreen] getHotelInfo notice:", infoErr?.message);
+        setInfoSupplierHotelCode("");
         const fallbackPic = activeHotel.hotelPicture || routeParams.hotelPicture || "";
         const fallbackImgs = Array.isArray(activeHotel.images) && activeHotel.images.length > 0
           ? activeHotel.images
@@ -190,6 +195,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
               srdvIndex: targetSrdvIndex,
               resultIndex: targetResultIndex,
               hotelCode: targetHotelCode,
+              supplierHotelCode: fetchedInfoSupplierHotelCode,
             });
           }
         }
@@ -226,6 +232,7 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
         srdvIndex: targetSrdvIndex,
         resultIndex: targetResultIndex,
         hotelCode: targetHotelCode,
+        supplierHotelCode: infoSupplierHotelCode,
       };
       return nextSlots;
     });
@@ -255,8 +262,9 @@ export default function HotelOfferDetailsScreen({ route, navigation }) {
 
     navigation.navigate("HotelPassengerDetails", {
       hotel: {
-        hotelId: hotelDetails.hotelCode || targetHotelCode,
-        hotelCode: hotelDetails.hotelCode || targetHotelCode,
+        hotelId: activeHotel.hotelId ?? activeHotel.id ?? targetHotelCode,
+        hotelCode: targetHotelCode,
+        supplierHotelCode: infoSupplierHotelCode,
         name: hotelDetails.hotelName || activeHotel.name || "Hotel",
         address: hotelDetails.address,
         rating: hotelDetails.starRating,
