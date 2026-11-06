@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, Alert, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { cancelHotelBooking, getHotelBookingById, getHotelCancellationQuote } from "../services/hotelService";
+import { cancelHotelBooking, getHotelBookingById, getHotelCancellationQuote, normalizeHotelBookingId } from "../services/hotelService";
 import { pickBookingValue } from "../utils/busBookingPresentation";
-import { formatHotelDateTime, formatHotelMoney, hasHotelValue, normalizeHotelBooking } from "../utils/hotelBookingPresentation";
+import { formatHotelDateTime, formatHotelQuoteMoney, hasHotelValue, isValidHotelCancellationQuote, normalizeHotelBooking } from "../utils/hotelBookingPresentation";
 
 const BRAND = "#D7192D";
 const NAVY = "#101828";
@@ -13,6 +13,7 @@ const BORDER = "#E8E1E2";
 const BACKGROUND = "#F8F6F6";
 const SURFACE = "#FFFFFF";
 const REASONS = ["Plan changed", "Found another hotel", "Travel dates changed", "Booked by mistake", "Other"];
+const QUOTE_TTL_MS = 2 * 60 * 1000;
 
 const unwrapQuote = (response) => response?.data?.quote ?? response?.data ?? response?.quote ?? response ?? {};
 const quoteValue = (source, keys, fallback = null) => pickBookingValue(source, keys, fallback);
@@ -27,43 +28,75 @@ const getPolicySlabs = (quote) => {
 };
 const safeError = (error) => {
   const message = error?.response?.data?.message || error?.response?.data?.title || error?.message;
+  if (error?.status === 502 || error?.response?.status === 502) return "We couldn't cancel this hotel booking with the hotel partner. Your booking is still confirmed. Please try again later or contact support.";
   if (/not found/i.test(message || "")) return "This Hotel booking is no longer available.";
   if (/already.*cancel/i.test(message || "")) return "This Hotel booking has already been cancelled.";
   if (/not.*cancell|window|deadline/i.test(message || "")) return "This booking is outside the permitted cancellation window.";
   return message || "Unable to complete the request. Please try again.";
 };
+const normalizedBookingId = (value) => { try { return normalizeHotelBookingId(value); } catch { return ""; } };
+const quoteSnapshot = (value) => JSON.stringify([
+  quoteValue(value, ["totalPaid", "TotalPaid"]),
+  quoteValue(value, ["cancellationFee", "CancellationFee"]),
+  quoteValue(value, ["supplierCancellationCharge", "SupplierCancellationCharge"]),
+  quoteValue(value, ["serviceCharge", "ServiceCharge"]),
+  quoteValue(value, ["markupRetained", "MarkupRetained"]),
+  quoteValue(value, ["refundAmount", "RefundAmount"]),
+  quoteValue(value, ["currency", "Currency"]),
+  quoteValue(value, ["isFreeCancellation", "IsFreeCancellation"]),
+  quoteValue(value, ["lastCancellationDate", "LastCancellationDate"]),
+]);
 
 export default function HotelBookingCancellationScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const booking = useMemo(() => normalizeHotelBooking(route?.params?.booking || {}), [route?.params?.booking]);
-  const bookingId = route?.params?.bookingId ?? booking.id;
+  const bookingId = normalizedBookingId(booking.id || route?.params?.bookingId);
   const [quote, setQuote] = useState(null);
   const [quoteLoading, setQuoteLoading] = useState(true);
   const [quoteError, setQuoteError] = useState("");
+  const [quoteFetchedAt, setQuoteFetchedAt] = useState(0);
   const [selectedReason, setSelectedReason] = useState(REASONS[0]);
   const [otherReason, setOtherReason] = useState("");
+  const [refundPreference, setRefundPreference] = useState("ORIGINAL_PAYMENT_METHOD");
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const quoteRequestRef = useRef(0);
+  const quoteRef = useRef(null);
 
-  const loadQuote = useCallback(async () => {
+  const loadQuote = useCallback(async ({ preserveExistingQuote = false } = {}) => {
     const requestId = ++quoteRequestRef.current;
     if (!bookingId) {
+      quoteRef.current = null;
       setQuote(null);
       setQuoteLoading(false);
       setQuoteError("The internal Hotel booking reference is missing. Cancellation cannot continue safely.");
-      return;
+      return null;
     }
     setQuoteLoading(true);
     setQuoteError("");
     try {
       const response = await getHotelCancellationQuote(bookingId);
-      if (requestId === quoteRequestRef.current) setQuote(unwrapQuote(response));
+      const nextQuote = unwrapQuote(response);
+      if (requestId === quoteRequestRef.current) {
+        quoteRef.current = nextQuote;
+        setQuote(nextQuote);
+        setQuoteError("");
+        setQuoteFetchedAt(Date.now());
+      }
+      return nextQuote;
     } catch (error) {
       if (requestId === quoteRequestRef.current) {
-        setQuote(null);
-        setQuoteError(safeError(error));
+        const hasExistingQuote = preserveExistingQuote && Boolean(quoteRef.current);
+        if (!hasExistingQuote) {
+          quoteRef.current = null;
+          setQuote(null);
+        }
+        setQuoteFetchedAt(0);
+        setQuoteError(hasExistingQuote
+          ? "We couldn't refresh the cancellation quote. Please retry before confirming cancellation."
+          : "Unable to calculate cancellation charges. Please try again or contact support.");
       }
+      return null;
     } finally {
       if (requestId === quoteRequestRef.current) setQuoteLoading(false);
     }
@@ -71,27 +104,43 @@ export default function HotelBookingCancellationScreen({ navigation, route }) {
 
   useEffect(() => { loadQuote(); }, [loadQuote]);
 
-  const totalPaid = quoteNumber(quote, ["totalPaid", "TotalPaid", "totalPriceInr", "TotalPriceInr", "totalCustomerPaid", "TotalCustomerPaid"]);
-  const supplierCharge = quoteNumber(quote, ["supplierCancellationCharge", "SupplierCancellationCharge", "supplierCancellationChargeInr", "SupplierCancellationChargeInr", "operatorCancellationCharge", "OperatorCancellationCharge"]);
-  const serviceCharge = quoteNumber(quote, ["serviceCharge", "ServiceCharge", "serviceChargeInr", "ServiceChargeInr"]);
-  const totalCharge = quoteNumber(quote, ["cancellationChargeInr", "CancellationChargeInr", "cancellationCharge", "CancellationCharge", "totalCancellationCharge", "TotalCancellationCharge", "estimatedCancellationCharge", "EstimatedCancellationCharge"]);
-  const refundAmount = quoteNumber(quote, ["customerRefundAmount", "CustomerRefundAmount", "refundAmount", "RefundAmount", "estimatedRefundAmount", "EstimatedRefundAmount"]);
+  const totalPaid = quoteNumber(quote, ["totalPaid", "TotalPaid"]);
+  const supplierCharge = quoteNumber(quote, ["supplierCancellationCharge", "SupplierCancellationCharge"]);
+  const serviceCharge = quoteNumber(quote, ["serviceCharge", "ServiceCharge"]);
+  const markupRetained = quoteNumber(quote, ["markupRetained", "MarkupRetained"]);
+  const totalCharge = quoteNumber(quote, ["cancellationFee", "CancellationFee"]);
+  const refundAmount = quoteNumber(quote, ["refundAmount", "RefundAmount"]);
+  const quoteCurrency = String(quoteValue(quote, ["currency", "Currency"], "") || "").trim().toUpperCase();
+  const currency = quoteCurrency || booking.cancellationCurrency || "INR";
+  const isFreeCancellation = quoteValue(quote, ["isFreeCancellation", "IsFreeCancellation"], null);
+  const lastCancellationDate = quoteValue(quote, ["lastCancellationDate", "LastCancellationDate"], null);
   const canCancelField = quoteValue(quote, ["canCancel", "CanCancel"], null);
-  const canCancel = Boolean(quote) && canCancelField !== false;
+  const canCancel = booking.canCancel && Boolean(quote) && canCancelField !== false;
+  const quoteComplete = isValidHotelCancellationQuote(quote);
   const cannotCancelReason = String(quoteValue(quote, ["cannotCancelReason", "CannotCancelReason", "message", "Message"], "") || "").trim();
   const slabs = getPolicySlabs(quote);
-  const effectiveReason = selectedReason === "Other" ? otherReason.trim() : selectedReason;
-  const canSubmit = canCancel && Boolean(bookingId) && effectiveReason.length > 0 && !quoteLoading && !submitting;
+  const effectiveReason = (selectedReason === "Other" ? otherReason : selectedReason).trim().slice(0, 2000) || "Cancelled by user";
+  const validRefundPreference = ["ORIGINAL_PAYMENT_METHOD", "WALLET"].includes(refundPreference);
+  const canSubmit = canCancel && quoteComplete && Boolean(bookingId) && validRefundPreference && !quoteLoading && !quoteError && !submitting;
 
   const submitCancellation = async () => {
     if (!canSubmit || submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
+      if (!quoteFetchedAt || Date.now() - quoteFetchedAt > QUOTE_TTL_MS) {
+        const previousSnapshot = quoteSnapshot(quote);
+        const freshQuote = await loadQuote({ preserveExistingQuote: true });
+        if (!freshQuote) return;
+        if (quoteSnapshot(freshQuote) !== previousSnapshot) {
+          Alert.alert("Cancellation quote updated", "Cancellation charges or refund amount changed. Please review the updated quote before continuing.");
+          return;
+        }
+      }
       await cancelHotelBooking({
         bookingId,
         reason: effectiveReason,
-        refundPreference: "ORIGINAL_PAYMENT_METHOD",
+        refundPreference,
       });
       let refreshedBooking = null;
       try {
@@ -103,12 +152,22 @@ export default function HotelBookingCancellationScreen({ navigation, route }) {
         "Hotel booking cancelled",
         "The booking was cancelled by the server. Refund progress is available in Hotel booking details.",
         [{ text: "View details", onPress: () => {
-          const params = { bookingId, booking: refreshedBooking || route?.params?.booking, refreshedAt: Date.now() };
+          const params = { bookingId, booking: refreshedBooking || route?.params?.booking, refreshedAt: Date.now(), skipInitialRefresh: Boolean(refreshedBooking) };
           if (typeof navigation.popTo === "function") navigation.popTo("HotelBookingDetails", params);
           else navigation.replace("HotelBookingDetails", params);
         } }]
       );
     } catch (error) {
+      const alreadyCancelled = error?.status === 400 && /already.*cancel/i.test(error?.message || "");
+      if (alreadyCancelled) {
+        try {
+          const refreshedBooking = await getHotelBookingById(bookingId);
+          if (normalizeHotelBooking(refreshedBooking).listStatus === "Cancelled") {
+            navigation.replace("HotelBookingDetails", { bookingId, booking: refreshedBooking, skipInitialRefresh: true });
+            return;
+          }
+        } catch { /* retain the backend cancellation error */ }
+      }
       Alert.alert("Cancellation not completed", safeError(error));
     } finally {
       submittingRef.current = false;
@@ -116,21 +175,39 @@ export default function HotelBookingCancellationScreen({ navigation, route }) {
     }
   };
 
-  const requestConfirmation = () => {
-    if (!canSubmit) return;
+  const showFinalConfirmation = (currentQuote) => {
+    const currentRefund = quoteNumber(currentQuote, ["refundAmount", "RefundAmount"]);
+    const currentFee = quoteNumber(currentQuote, ["cancellationFee", "CancellationFee"]);
+    const currentCurrency = String(quoteValue(currentQuote, ["currency", "Currency"], "") || "").trim().toUpperCase();
+    const destination = refundPreference === "WALLET" ? "Pick&Book Wallet" : "Original payment method";
     const lines = [
       booking.hotelName || "Hotel booking",
       booking.bookingReference ? `Reference: ${booking.bookingReference}` : "",
-      hasHotelValue(totalCharge) ? `Cancellation deduction: ${formatHotelMoney(totalCharge)}` : "",
-      hasHotelValue(refundAmount) ? `Refund amount: ${formatHotelMoney(refundAmount)}` : "",
-      "Refund destination: Original payment method",
+      hasHotelValue(currentFee) ? `Cancellation deduction: ${formatHotelQuoteMoney(currentFee, currentCurrency)}` : "",
+      hasHotelValue(currentRefund) ? `Refund to ${destination.toLowerCase()}: ${formatHotelQuoteMoney(currentRefund, currentCurrency)}` : "",
       "",
-      "This action cancels the full booking and cannot be undone.",
+      "This will cancel the entire hotel reservation and cannot be undone.",
     ].filter((line) => line !== "");
     Alert.alert("Cancel this Hotel booking?", lines.join("\n"), [
       { text: "Keep booking", style: "cancel" },
-      { text: "Confirm cancellation", style: "destructive", onPress: submitCancellation },
+      { text: "Cancel booking", style: "destructive", onPress: submitCancellation },
     ]);
+  };
+
+  const requestConfirmation = async () => {
+    if (!canSubmit || submittingRef.current) return;
+    if (!quoteFetchedAt || Date.now() - quoteFetchedAt > QUOTE_TTL_MS) {
+      const previousSnapshot = quoteSnapshot(quote);
+      const freshQuote = await loadQuote({ preserveExistingQuote: true });
+      if (!freshQuote) return;
+      if (quoteSnapshot(freshQuote) !== previousSnapshot) {
+        Alert.alert("Cancellation quote updated", "Cancellation charges or refund amount changed. Please review the updated quote before continuing.");
+        return;
+      }
+      showFinalConfirmation(freshQuote);
+      return;
+    }
+    showFinalConfirmation(quote);
   };
 
   return <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
@@ -153,36 +230,44 @@ export default function HotelBookingCancellationScreen({ navigation, route }) {
       </Section>
 
       <Section title="Cancellation summary" icon="shield-checkmark-outline" dark>
-        {quoteLoading ? <View style={styles.loadingRow}><ActivityIndicator color="#FFFFFF" /><Text style={styles.darkLoadingText}>Loading current backend quote…</Text></View> : quoteError ? <View><Text style={styles.darkErrorText}>{quoteError}</Text><TouchableOpacity style={styles.darkRetryButton} onPress={loadQuote}><Text style={styles.darkRetryText}>Retry quote</Text></TouchableOpacity></View> : <>
-          <View style={[styles.eligibility, canCancel ? styles.eligible : styles.ineligible]}><Ionicons name={canCancel ? "checkmark-circle" : "information-circle"} size={18} color={canCancel ? "#027A48" : "#B42318"} /><Text style={[styles.eligibilityText, { color: canCancel ? "#027A48" : "#B42318" }]}>{canCancel ? "Eligible for full booking cancellation" : cannotCancelReason || "Cancellation unavailable"}</Text></View>
-          <MoneyRow label="Total paid" amount={totalPaid} dark />
-          <MoneyRow label="Supplier cancellation charge" amount={supplierCharge} dark deduction />
-          <MoneyRow label="Service charge" amount={serviceCharge} dark deduction />
-          <MoneyRow label="Total cancellation deduction" amount={totalCharge} dark strong />
-          {hasHotelValue(refundAmount) && <View style={styles.refundRow}><Text style={styles.refundLabel}>REFUND AMOUNT</Text><Text style={styles.refundValue}>{formatHotelMoney(refundAmount)}</Text></View>}
+        {quoteLoading && !quote ? <View style={styles.loadingRow}><ActivityIndicator color="#FFFFFF" /><Text style={styles.darkLoadingText}>Loading current backend quote…</Text></View> : !quote ? <View><Text style={styles.darkErrorText}>{quoteError || "Unable to calculate cancellation charges. Please try again or contact support."}</Text><TouchableOpacity style={styles.darkRetryButton} onPress={() => loadQuote()}><Text style={styles.darkRetryText}>Retry quote</Text></TouchableOpacity></View> : <>
+          {quoteLoading && <View style={styles.refreshingQuote}><ActivityIndicator size="small" color="#FFFFFF" /><Text style={styles.darkLoadingText}>Refreshing cancellation quote…</Text></View>}
+          {!!quoteError && <View style={styles.staleQuoteError}><Text style={styles.darkErrorText}>{quoteError}</Text><TouchableOpacity style={styles.darkRetryButton} onPress={() => loadQuote({ preserveExistingQuote: true })}><Text style={styles.darkRetryText}>Retry quote</Text></TouchableOpacity></View>}
+          <View style={[styles.eligibility, canCancel ? styles.eligible : styles.ineligible]}><Ionicons name={canCancel ? "checkmark-circle" : "information-circle"} size={18} color={canCancel ? "#027A48" : "#B42318"} /><Text style={[styles.eligibilityText, { color: canCancel ? "#027A48" : "#B42318" }]}>{canCancel ? (isFreeCancellation === true ? "Eligible for full booking cancellation · Supplier free-cancellation window" : "Eligible for full booking cancellation") : cannotCancelReason || "Cancellation unavailable"}</Text></View>
+          <MoneyRow label="Total paid" amount={totalPaid} currency={currency} dark />
+          <MoneyRow label="Supplier cancellation charge" amount={supplierCharge} currency={currency} dark deduction />
+          <MoneyRow label="Service charge" amount={serviceCharge} currency={currency} dark deduction />
+          {Number(markupRetained) > 0 && <MoneyRow label="Markup retained" amount={markupRetained} currency={currency} dark deduction />}
+          <MoneyRow label="Total cancellation deduction" amount={totalCharge} currency={currency} dark strong />
+          {hasHotelValue(refundAmount) && <View style={styles.refundRow}><Text style={styles.refundLabel}>REFUND AMOUNT</Text><Text style={styles.refundValue}>{formatHotelQuoteMoney(refundAmount, currency)}</Text></View>}
+          {!!lastCancellationDate && <Text style={styles.quoteDate}>Cancellation policy evaluated at {formatHotelDateTime(lastCancellationDate)}</Text>}
+          {!quoteComplete && <View style={styles.staleQuoteError}><Text style={styles.darkErrorText}>Unable to calculate cancellation charges. Please try again or contact support.</Text><TouchableOpacity style={styles.darkRetryButton} onPress={() => loadQuote({ preserveExistingQuote: true })}><Text style={styles.darkRetryText}>Retry quote</Text></TouchableOpacity></View>}
           <Text style={styles.authorityNote}>All amounts are displayed exactly from the current backend cancellation quote.</Text>
         </>}
       </Section>
 
-      {slabs.length > 0 && <Section title="Cancellation policy" icon="time-outline"><PolicyRows slabs={slabs} /></Section>}
+      {Number(refundAmount) === 0 && <View style={styles.warning}><Ionicons name="alert-circle-outline" size={20} color="#B42318" /><Text style={styles.warningText}>This booking is non-refundable. No refund will be issued.</Text></View>}
+
+      {slabs.length > 0 && <Section title="Cancellation policy" icon="time-outline"><PolicyRows slabs={slabs} currency={currency} /></Section>}
 
       <Section title="Reason for cancellation" icon="chatbox-ellipses-outline">
         <View style={styles.reasonGrid}>{REASONS.map((reason) => {
           const selected = selectedReason === reason;
           return <TouchableOpacity key={reason} style={[styles.reasonChip, selected && styles.reasonChipSelected]} onPress={() => setSelectedReason(reason)} activeOpacity={0.8}><Text style={[styles.reasonChipText, selected && styles.reasonChipTextSelected]}>{reason}</Text></TouchableOpacity>;
         })}</View>
-        {selectedReason === "Other" && <TextInput style={styles.reasonInput} value={otherReason} onChangeText={setOtherReason} placeholder="Enter cancellation reason" placeholderTextColor="#98A2B3" maxLength={250} multiline />}
+        {selectedReason === "Other" && <TextInput style={styles.reasonInput} value={otherReason} onChangeText={setOtherReason} placeholder="Enter cancellation reason (optional)" placeholderTextColor="#98A2B3" maxLength={2000} multiline />}
       </Section>
 
       <Section title="Refund destination" icon="return-down-back-outline">
-        <View style={styles.destination}><View style={styles.radioSelected}><View style={styles.radioDot} /></View><View style={styles.destinationCopy}><Text style={styles.destinationTitle}>Original payment method</Text><Text style={styles.destinationText}>The backend will return any eligible refund to the original payment source.</Text></View></View>
+        <RefundChoice selected={refundPreference === "ORIGINAL_PAYMENT_METHOD"} onPress={() => setRefundPreference("ORIGINAL_PAYMENT_METHOD")} title="Original payment method" text="Refund to original bank/card/UPI source. Refunds typically reflect within 5–7 business days." />
+        <RefundChoice selected={refundPreference === "WALLET"} onPress={() => setRefundPreference("WALLET")} title="Pick&Book Wallet" text="Credit the eligible refund to your Pick&Book wallet. Wallet refunds reflect instantly." />
       </Section>
 
       <View style={styles.warning}><Ionicons name="warning-outline" size={20} color="#B42318" /><Text style={styles.warningText}>Review the backend quote carefully. Full Hotel cancellation cannot be undone.</Text></View>
     </ScrollView>
 
     <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-      <View><Text style={styles.footerLabel}>YOU GET BACK</Text><Text style={styles.footerAmount}>{hasHotelValue(refundAmount) ? formatHotelMoney(refundAmount) : "—"}</Text></View>
+      <View><Text style={styles.footerLabel}>YOU GET BACK</Text><Text style={styles.footerAmount}>{hasHotelValue(refundAmount) ? formatHotelQuoteMoney(refundAmount, currency) : "—"}</Text></View>
       <TouchableOpacity style={[styles.confirmButton, !canSubmit && styles.confirmDisabled]} onPress={requestConfirmation} disabled={!canSubmit} activeOpacity={0.85}>{submitting ? <ActivityIndicator color="#FFF" /> : <><Text style={styles.confirmText}>Confirm cancellation</Text><Ionicons name="arrow-forward" size={20} color="#FFF" /></>}</TouchableOpacity>
     </View>
   </SafeAreaView>;
@@ -190,9 +275,11 @@ export default function HotelBookingCancellationScreen({ navigation, route }) {
 
 function Section({ title, icon, children, dark }) { return <View style={[styles.section, dark && styles.darkSection]}><View style={styles.sectionHeader}><View style={[styles.sectionIcon, dark && styles.darkSectionIcon]}><Ionicons name={icon} size={19} color={dark ? "#FFFFFF" : BRAND} /></View><Text style={[styles.sectionTitle, dark && styles.darkSectionTitle]}>{title}</Text></View>{children}</View>; }
 function Meta({ icon, text }) { return !text ? null : <View style={styles.meta}><Ionicons name={icon} size={14} color="#7A2630" /><Text style={styles.metaText} numberOfLines={2}>{text}</Text></View>; }
-function MoneyRow({ label, amount, strong, dark, deduction }) { if (!hasHotelValue(amount)) return null; return <View style={[styles.moneyRow, strong && styles.strongMoneyRow, dark && styles.darkMoneyRow, dark && strong && styles.darkStrongMoneyRow]}><Text style={[styles.moneyLabel, strong && styles.strongMoneyText, dark && styles.darkMoneyLabel, dark && strong && styles.darkStrongMoneyText]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strongMoneyText, dark && styles.darkMoneyValue, dark && strong && styles.darkStrongMoneyText]}>{deduction ? "− " : ""}{formatHotelMoney(amount)}</Text></View>; }
+function MoneyRow({ label, amount, currency, strong, dark, deduction }) { if (!hasHotelValue(amount)) return null; return <View style={[styles.moneyRow, strong && styles.strongMoneyRow, dark && styles.darkMoneyRow, dark && strong && styles.darkStrongMoneyRow]}><Text style={[styles.moneyLabel, strong && styles.strongMoneyText, dark && styles.darkMoneyLabel, dark && strong && styles.darkStrongMoneyText]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strongMoneyText, dark && styles.darkMoneyValue, dark && strong && styles.darkStrongMoneyText]}>{deduction ? "− " : ""}{formatHotelQuoteMoney(amount, currency)}</Text></View>; }
 
-function PolicyRows({ slabs }) {
+function RefundChoice({ selected, onPress, title, text }) { return <TouchableOpacity style={[styles.destination, selected && styles.destinationSelected]} onPress={onPress} activeOpacity={0.8}><View style={[styles.radio, selected && styles.radioSelected]}>{selected && <View style={styles.radioDot} />}</View><View style={styles.destinationCopy}><Text style={styles.destinationTitle}>{title}</Text><Text style={styles.destinationText}>{text}</Text></View></TouchableOpacity>; }
+
+function PolicyRows({ slabs, currency }) {
   return slabs.map((slab, index) => {
     const active = Boolean(quoteValue(slab, ["isActive", "IsActive", "active", "Active"], false));
     const label = String(quoteValue(slab, ["label", "Label", "description", "Description", "window", "Window"], "Cancellation window") || "Cancellation window");
@@ -200,7 +287,7 @@ function PolicyRows({ slabs }) {
     const to = quoteValue(slab, ["to", "To", "toDate", "ToDate", "endAt", "EndAt"], null);
     const charge = quoteNumber(slab, ["cancellationFee", "CancellationFee", "cancellationCharge", "CancellationCharge", "estimatedDeduction", "EstimatedDeduction"]);
     const refund = quoteNumber(slab, ["refundAmount", "RefundAmount", "estimatedRefund", "EstimatedRefund", "refundReturn", "RefundReturn"]);
-    return <View key={`${label}-${index}`} style={[styles.policyRow, active && styles.activePolicyRow]}><View style={styles.policyCopy}><View style={styles.policyTitleRow}><Text style={styles.policyTitle}>{label}</Text>{active && <Text style={styles.activeLabel}>CURRENT</Text>}</View>{(from || to) && <Text style={styles.policyWindow}>{[formatHotelDateTime(from), formatHotelDateTime(to)].filter(Boolean).join(" → ")}</Text>}</View><View style={styles.policyAmounts}>{hasHotelValue(charge) && <Text style={styles.policyCharge}>{formatHotelMoney(charge)} fee</Text>}{hasHotelValue(refund) && <Text style={styles.policyRefund}>{formatHotelMoney(refund)} refund</Text>}</View></View>;
+    return <View key={`${label}-${index}`} style={[styles.policyRow, active && styles.activePolicyRow]}><View style={styles.policyCopy}><View style={styles.policyTitleRow}><Text style={styles.policyTitle}>{label}</Text>{active && <Text style={styles.activeLabel}>CURRENT</Text>}</View>{(from || to) && <Text style={styles.policyWindow}>{[formatHotelDateTime(from), formatHotelDateTime(to)].filter(Boolean).join(" → ")}</Text>}</View><View style={styles.policyAmounts}>{hasHotelValue(charge) && <Text style={styles.policyCharge}>{formatHotelQuoteMoney(charge, currency)} fee</Text>}{hasHotelValue(refund) && <Text style={styles.policyRefund}>{formatHotelQuoteMoney(refund, currency)} refund</Text>}</View></View>;
   });
 }
 
@@ -208,9 +295,9 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: SURFACE }, header: { height: 64, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: "#EEE9EA", backgroundColor: SURFACE }, backButton: { width: 44, height: 44, borderRadius: 14, borderWidth: 1, borderColor: BORDER, alignItems: "center", justifyContent: "center" }, headerCopy: { flex: 1, alignItems: "center" }, headerTitle: { color: NAVY, fontSize: 17, fontWeight: "800" }, headerSubtitle: { color: BRAND, fontSize: 9, fontWeight: "900", letterSpacing: 0.7, marginTop: 2 }, headerSpacer: { width: 44 }, content: { padding: 16, gap: 14, backgroundColor: BACKGROUND },
   summaryCard: { backgroundColor: "#FFF1F2", borderRadius: 20, borderWidth: 1, borderColor: "#F4CDD2", padding: 17 }, summaryHotel: { color: NAVY, fontSize: 20, lineHeight: 26, fontWeight: "900" }, summaryAddress: { color: MUTED, fontSize: 12, lineHeight: 17, marginTop: 4 }, summaryMeta: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 14 }, meta: { flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 130 }, metaText: { color: "#7A2630", fontSize: 11, lineHeight: 15, fontWeight: "700", flex: 1 },
   section: { backgroundColor: SURFACE, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 16 }, sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }, sectionIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "#FDECEF", alignItems: "center", justifyContent: "center" }, sectionTitle: { color: NAVY, fontSize: 16, fontWeight: "800", flex: 1 }, darkSection: { backgroundColor: "#21191E", borderColor: "#21191E", padding: 20 }, darkSectionIcon: { backgroundColor: "#7E1827" }, darkSectionTitle: { color: "#FFFFFF", textTransform: "uppercase", fontSize: 11, letterSpacing: 1.1 }, fullBookingText: { color: "#475467", fontSize: 12, lineHeight: 18 },
-  loadingRow: { minHeight: 80, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }, darkLoadingText: { color: "#E8DDE0", fontSize: 12 }, darkErrorText: { color: "#FFD7DC", fontSize: 12, lineHeight: 18 }, darkRetryButton: { alignSelf: "flex-start", marginTop: 10, borderRadius: 10, borderWidth: 1, borderColor: "#B85A68", paddingHorizontal: 13, paddingVertical: 9 }, darkRetryText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" }, eligibility: { flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 12, padding: 11, marginBottom: 8 }, eligible: { backgroundColor: "#ECFDF3" }, ineligible: { backgroundColor: "#FEF3F2" }, eligibilityText: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: "800" },
-  moneyRow: { minHeight: 42, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 15, borderTopWidth: 1, borderTopColor: "#F0EBEC", paddingVertical: 9 }, moneyLabel: { color: MUTED, fontSize: 12, flex: 1 }, moneyValue: { color: NAVY, fontSize: 13, fontWeight: "800" }, strongMoneyRow: { backgroundColor: "#FFF5F6", borderRadius: 10, borderTopWidth: 0, paddingHorizontal: 10, marginTop: 4 }, strongMoneyText: { color: "#8C1725", fontWeight: "900" }, darkMoneyRow: { borderTopColor: "rgba(255,255,255,0.10)" }, darkMoneyLabel: { color: "#D6C9CD" }, darkMoneyValue: { color: "#FFFFFF" }, darkStrongMoneyRow: { backgroundColor: "rgba(255,255,255,0.08)" }, darkStrongMoneyText: { color: "#FFFFFF" }, refundRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(255,255,255,0.10)", borderRadius: 13, padding: 13, marginTop: 8 }, refundLabel: { color: "#FFFFFF", fontSize: 10, fontWeight: "900", letterSpacing: 0.7 }, refundValue: { color: "#86E9B0", fontSize: 24, fontWeight: "900" }, authorityNote: { color: "#CDBEC3", fontSize: 10, lineHeight: 16, marginTop: 12 },
+  loadingRow: { minHeight: 80, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }, refreshingQuote: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }, staleQuoteError: { marginBottom: 10 }, darkLoadingText: { color: "#E8DDE0", fontSize: 12 }, darkErrorText: { color: "#FFD7DC", fontSize: 12, lineHeight: 18 }, darkRetryButton: { alignSelf: "flex-start", marginTop: 10, borderRadius: 10, borderWidth: 1, borderColor: "#B85A68", paddingHorizontal: 13, paddingVertical: 9 }, darkRetryText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" }, eligibility: { flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 12, padding: 11, marginBottom: 8 }, eligible: { backgroundColor: "#ECFDF3" }, ineligible: { backgroundColor: "#FEF3F2" }, eligibilityText: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: "800" },
+  moneyRow: { minHeight: 42, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 15, borderTopWidth: 1, borderTopColor: "#F0EBEC", paddingVertical: 9 }, moneyLabel: { color: MUTED, fontSize: 12, flex: 1 }, moneyValue: { color: NAVY, fontSize: 13, fontWeight: "800" }, strongMoneyRow: { backgroundColor: "#FFF5F6", borderRadius: 10, borderTopWidth: 0, paddingHorizontal: 10, marginTop: 4 }, strongMoneyText: { color: "#8C1725", fontWeight: "900" }, darkMoneyRow: { borderTopColor: "rgba(255,255,255,0.10)" }, darkMoneyLabel: { color: "#D6C9CD" }, darkMoneyValue: { color: "#FFFFFF" }, darkStrongMoneyRow: { backgroundColor: "rgba(255,255,255,0.08)" }, darkStrongMoneyText: { color: "#FFFFFF" }, refundRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(255,255,255,0.10)", borderRadius: 13, padding: 13, marginTop: 8 }, refundLabel: { color: "#FFFFFF", fontSize: 10, fontWeight: "900", letterSpacing: 0.7 }, refundValue: { color: "#86E9B0", fontSize: 24, fontWeight: "900" }, quoteDate: { color: "#D6C9CD", fontSize: 10, lineHeight: 15, marginTop: 10 }, authorityNote: { color: "#CDBEC3", fontSize: 10, lineHeight: 16, marginTop: 12 },
   policyRow: { flexDirection: "row", gap: 10, borderTopWidth: 1, borderTopColor: "#F0EBEC", paddingVertical: 11 }, activePolicyRow: { backgroundColor: "#ECFDF3", borderRadius: 9, paddingHorizontal: 9 }, policyCopy: { flex: 1, minWidth: 0 }, policyTitleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }, policyTitle: { color: NAVY, fontSize: 11, lineHeight: 16, fontWeight: "800", flexShrink: 1 }, activeLabel: { color: "#027A48", backgroundColor: "#D1FADF", borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2, fontSize: 8, fontWeight: "900" }, policyWindow: { color: MUTED, fontSize: 9, lineHeight: 14, marginTop: 4 }, policyAmounts: { alignItems: "flex-end", maxWidth: 112 }, policyCharge: { color: "#B54708", fontSize: 10, fontWeight: "800" }, policyRefund: { color: "#027A48", fontSize: 10, fontWeight: "800", marginTop: 4 },
-  reasonGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, reasonChip: { borderWidth: 1, borderColor: BORDER, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: "#FFFFFF" }, reasonChipSelected: { borderColor: BRAND, backgroundColor: "#FFF0F2" }, reasonChipText: { color: MUTED, fontSize: 11, fontWeight: "700" }, reasonChipTextSelected: { color: BRAND }, reasonInput: { minHeight: 76, borderWidth: 1, borderColor: "#D0D5DD", borderRadius: 13, paddingHorizontal: 13, paddingVertical: 11, color: NAVY, fontSize: 13, marginTop: 12, textAlignVertical: "top" }, destination: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: BRAND, backgroundColor: "#FFF0F2", borderRadius: 14, padding: 13 }, radioSelected: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: BRAND, alignItems: "center", justifyContent: "center" }, radioDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: BRAND }, destinationCopy: { flex: 1 }, destinationTitle: { color: NAVY, fontSize: 13, fontWeight: "800" }, destinationText: { color: MUTED, fontSize: 10, lineHeight: 15, marginTop: 3 }, warning: { flexDirection: "row", alignItems: "flex-start", gap: 9, backgroundColor: "#FEF3F2", borderRadius: 14, padding: 13 }, warningText: { color: "#912018", fontSize: 11, lineHeight: 17, flex: 1 },
+  reasonGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, reasonChip: { borderWidth: 1, borderColor: BORDER, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: "#FFFFFF" }, reasonChipSelected: { borderColor: BRAND, backgroundColor: "#FFF0F2" }, reasonChipText: { color: MUTED, fontSize: 11, fontWeight: "700" }, reasonChipTextSelected: { color: BRAND }, reasonInput: { minHeight: 76, borderWidth: 1, borderColor: "#D0D5DD", borderRadius: 13, paddingHorizontal: 13, paddingVertical: 11, color: NAVY, fontSize: 13, marginTop: 12, textAlignVertical: "top" }, destination: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: BORDER, backgroundColor: "#FFFFFF", borderRadius: 14, padding: 13, marginBottom: 10 }, destinationSelected: { borderColor: BRAND, backgroundColor: "#FFF0F2" }, radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: "#C7BFC1", alignItems: "center", justifyContent: "center" }, radioSelected: { borderColor: BRAND }, radioDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: BRAND }, destinationCopy: { flex: 1 }, destinationTitle: { color: NAVY, fontSize: 13, fontWeight: "800" }, destinationText: { color: MUTED, fontSize: 10, lineHeight: 15, marginTop: 3 }, warning: { flexDirection: "row", alignItems: "flex-start", gap: 9, backgroundColor: "#FEF3F2", borderRadius: 14, padding: 13 }, warningText: { color: "#912018", fontSize: 11, lineHeight: 17, flex: 1 },
   stickyFooter: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 88, paddingTop: 12, paddingHorizontal: 16, backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: "#EEE4E6", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14 }, footerLabel: { color: MUTED, fontSize: 9, fontWeight: "900", letterSpacing: 0.8 }, footerAmount: { color: NAVY, fontSize: 21, fontWeight: "900", marginTop: 2 }, confirmButton: { flex: 1, maxWidth: 260, minHeight: 56, paddingHorizontal: 14, borderRadius: 16, backgroundColor: BRAND, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, shadowColor: BRAND, shadowOpacity: 0.2, shadowRadius: 10, elevation: 3 }, confirmDisabled: { opacity: 0.45 }, confirmText: { color: "#FFF", fontSize: 14, fontWeight: "900" },
 });

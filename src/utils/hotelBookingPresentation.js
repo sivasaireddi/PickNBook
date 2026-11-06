@@ -40,7 +40,7 @@ export const normalizeHotelListStatus = (record = {}) => {
   ].filter(hasHotelValue);
   const tokens = values.map(normalizeHotelStatusToken);
   const has = (...expected) => expected.some((value) => tokens.includes(value));
-  if (has("cancelled", "canceled", "partiallycancelled", "cancelledandrefunded")) return "Cancelled";
+  if (has("cancelled", "canceled", "partiallycancelled", "cancelledandrefunded", "cancelledrefundprocessing", "cancelledrefundpending", "cancellednorefund")) return "Cancelled";
   if (has("failed", "paymentfailed", "failedsuppliererror", "bookingfailed")) return "Failed";
   if (has("pending", "pendingreconciliation", "inprogress", "processing")) return "Pending";
   if (has("past", "completed", "checkedout")) return "Past";
@@ -64,19 +64,23 @@ export const getHotelStatusPresentation = (listStatus, rawStatus = "") => {
     : presentation;
 };
 
-export const getHotelRefundPresentation = (status) => {
-  const token = normalizeHotelStatusToken(status);
-  if (["completed", "refunded", "refundcredited", "success"].includes(token)) {
+export const getHotelRefundPresentation = (status, canonicalStatus = "") => {
+  const tokens = [status, canonicalStatus].map(normalizeHotelStatusToken).filter(Boolean);
+  const has = (...expected) => expected.some((value) => tokens.includes(value));
+  if (has("cancelledandrefunded", "completed", "refunded", "refundcredited", "success")) {
     return { label: "Refund Credited", color: "#027A48", tint: "#ECFDF3", completed: true };
   }
-  if (["initiated", "pending", "processing", "refundprocessing"].includes(token)) {
+  if (has("cancelledrefundprocessing", "processing", "refundprocessing")) {
     return { label: "Refund Processing", color: "#B54708", tint: "#FFFAEB", completed: false };
   }
-  if (["notrequired", "norefundapplicable"].includes(token)) {
-    return { label: "No Refund Applicable", color: "#475569", tint: "#EEF2F6", completed: true };
+  if (has("cancelledrefundpending", "initiated", "pending")) {
+    return { label: "Refund Initiated", color: "#B54708", tint: "#FFFAEB", completed: false };
   }
-  if (["failed", "manualreview", "manualreviewrequired"].includes(token)) {
-    return { label: "Refund Under Review", color: "#B42318", tint: "#FEECEB", completed: false };
+  if (has("cancellednorefund", "notrequired", "norefundapplicable")) {
+    return { label: "Cancelled (No Refund)", color: "#475569", tint: "#EEF2F6", completed: true };
+  }
+  if (has("refundfailed", "failed", "manualreview", "manualreviewrequired")) {
+    return { label: "Refund Action Required", color: "#B42318", tint: "#FEECEB", completed: false };
   }
   return hasHotelValue(status)
     ? { label: String(status).replace(/_/g, " "), color: "#475569", tint: "#EEF2F6", completed: false }
@@ -129,12 +133,18 @@ export const normalizeHotelBooking = (record = {}) => {
   const checkIn = pickBookingValue(raw, ["checkInDate", "CheckInDate", "checkIn", "CheckIn"], null);
   const checkOut = pickBookingValue(raw, ["checkOutDate", "CheckOutDate", "checkOut", "CheckOut"], null);
   const rawStatus = String(pickBookingValue(raw, ["status", "Status", "canonicalStatus", "CanonicalStatus", "bookingStatus", "BookingStatus"], "") || "").trim();
+  const canonicalStatus = String(pickBookingValue(raw, ["canonicalStatus", "CanonicalStatus"], "") || "").trim();
+  const bookingStatus = String(pickBookingValue(raw, ["bookingStatus", "BookingStatus"], "") || "").trim();
+  const tripState = String(pickBookingValue(raw, ["tripState", "TripState"], "") || "").trim();
   const listStatus = normalizeHotelListStatus(raw);
-  const bookingId = pickBookingValue(raw, ["bookingId", "BookingId"], null);
+  const bookingId = pickBookingValue(raw, ["id", "Id", "bookingId", "BookingId"], null);
   const cancellationPolicy = pickBookingValue(raw, ["cancellationPolicy", "CancellationPolicy"], null);
   const policyCanCancel = pickBookingValue(firstObject(cancellationPolicy), ["canCancel", "CanCancel"], null);
   const explicitCanCancel = pickBookingValue(raw, ["canCancel", "CanCancel", "cancellationEligible", "CancellationEligible"], policyCanCancel);
-  const activeStatus = listStatus === "Upcoming";
+  const activeStatus = ["confirmed", "booked"].includes(normalizeHotelStatusToken(pickBookingValue(raw, ["status", "Status"], "")))
+    && normalizeHotelStatusToken(bookingStatus) === "upcoming"
+    && normalizeHotelStatusToken(tripState) === "upcoming"
+    && Boolean(toBookingDate(checkIn)?.getTime() > Date.now());
   const canCancel = Boolean(bookingId) && activeStatus && explicitCanCancel !== false;
   const leadGuest = guests.find((guest) => guest.lead) || guests[0] || {};
   const guestName = String(pickBookingValue(raw, ["guestName", "GuestName", "leadGuestName", "LeadGuestName"], leadGuest.name || "") || "").trim();
@@ -166,6 +176,9 @@ export const normalizeHotelBooking = (record = {}) => {
     confirmationNo: String(pickBookingValue(raw, ["confirmationNo", "ConfirmationNo", "confirmationNumber", "ConfirmationNumber", "pnr", "Pnr"], "") || "").trim(),
     providerBookingId: String(pickBookingValue(raw, ["providerBookingId", "ProviderBookingId", "srdvBookingId", "SrdvBookingId"], "") || "").trim(),
     status: rawStatus || listStatus,
+    canonicalStatus,
+    bookingStatus,
+    tripState,
     listStatus,
     statusPresentation: getHotelStatusPresentation(listStatus, rawStatus),
     canCancel,
@@ -199,9 +212,11 @@ export const normalizeHotelBooking = (record = {}) => {
     cancellationCharge: pickBookingValue(raw, ["cancellationChargeInr", "CancellationChargeInr", "cancellationCharge", "CancellationCharge"], null),
     supplierCancellationCharge: pickBookingValue(cancellationAudit, ["supplierCancellationCharge", "SupplierCancellationCharge"], null),
     serviceCharge: pickBookingValue(cancellationAudit, ["serviceCharge", "ServiceCharge"], null),
+    cancellationCurrency: String(pickBookingValue(cancellationAudit, ["currency", "Currency"], pickBookingValue(raw, ["currency", "Currency"], "")) || "").trim().toUpperCase(),
     refundAmount,
     refundStatus,
-    refundPresentation: getHotelRefundPresentation(refundStatus),
+    refundPreference: String(pickBookingValue(cancellationAudit, ["refundPreference", "RefundPreference", "refundDestination", "RefundDestination"], pickBookingValue(raw, ["refundPreference", "RefundPreference"], "")) || "").trim(),
+    refundPresentation: getHotelRefundPresentation(refundStatus, canonicalStatus),
     refundReference,
     refundCompletedAt: refundSettlementStage?.timestamp || null,
     lifecycle,
@@ -225,5 +240,28 @@ export const formatHotelGuestSummary = (booking) => {
 };
 
 export const formatHotelMoney = formatBookingCurrency;
+export const isValidHotelCancellationQuote = (quote = {}) => [
+  ["totalPaid", "TotalPaid"],
+  ["cancellationFee", "CancellationFee"],
+  ["supplierCancellationCharge", "SupplierCancellationCharge"],
+  ["serviceCharge", "ServiceCharge"],
+  ["refundAmount", "RefundAmount"],
+].every((keys) => {
+  const value = pickBookingValue(quote, keys, null);
+  return value !== null && value !== "" && Number.isFinite(Number(value));
+});
+export const formatHotelQuoteMoney = (value, currency = "INR") => {
+  if (!hasHotelValue(value) || !Number.isFinite(Number(value))) return "";
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: String(currency || "INR").trim().toUpperCase(),
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value));
+  } catch {
+    return `${String(currency || "").trim().toUpperCase()} ${Number(value).toFixed(2)}`.trim();
+  }
+};
 export const formatHotelDate = formatBookingDate;
 export const formatHotelDateTime = formatBookingDateTime;

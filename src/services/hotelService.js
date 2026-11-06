@@ -536,13 +536,22 @@ export function bookHotel(payload) {
 /**
  * Step 7: Cancel Room Ã¢â‚¬â€ POST /api/Hotels/CancelRoom
  */
+export function normalizeHotelBookingId(value) {
+  const normalized = String(value ?? "").trim().replace(/^bk-/i, "");
+  if (!/^\d+$/.test(normalized)) throw new Error("A valid internal Hotel booking ID is required.");
+  return normalized;
+}
+
 export async function cancelHotelBooking(payload = {}) {
   hotelFlowLog("CANCEL BOOKING REQUEST", payload);
-  const bookingId = String(payload.bookingId ?? payload.BookingId ?? "").trim();
-  if (!bookingId) throw new Error("Hotel booking ID is required.");
+  const bookingId = normalizeHotelBookingId(payload.bookingId ?? payload.BookingId);
+  const preference = String(payload.refundPreference || "ORIGINAL_PAYMENT_METHOD").trim().toUpperCase();
+  if (!["ORIGINAL_PAYMENT_METHOD", "WALLET"].includes(preference)) {
+    throw new Error("A valid Hotel refund destination is required.");
+  }
   const formattedPayload = {
-    reason: String(payload.reason || payload.remarks || payload.Remarks || "Change of plans"),
-    refundPreference: String(payload.refundPreference || "ORIGINAL_PAYMENT_METHOD"),
+    reason: String(payload.reason || payload.remarks || payload.Remarks || "Cancelled by user").trim().slice(0, 2000) || "Cancelled by user",
+    refundPreference: preference,
   };
 
 
@@ -573,8 +582,7 @@ export async function cancelHotelBooking(payload = {}) {
 }
 
 export async function getHotelCancellationQuote(bookingId) {
-  const cleanId = String(bookingId ?? "").trim();
-  if (!cleanId) throw new Error("Hotel booking ID is required.");
+  const cleanId = normalizeHotelBookingId(bookingId);
   const token = await getStoredToken();
   try {
     const response = await axios.get(
@@ -588,8 +596,7 @@ export async function getHotelCancellationQuote(bookingId) {
 }
 
 export async function getHotelBookingById(bookingId) {
-  const cleanId = String(bookingId ?? "").trim();
-  if (!cleanId) throw new Error("Hotel booking ID is required.");
+  const cleanId = normalizeHotelBookingId(bookingId);
   const token = await getStoredToken();
   try {
     const response = await axios.get(

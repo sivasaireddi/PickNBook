@@ -9,6 +9,7 @@ import {
   formatHotelDateTime,
   formatHotelGuestSummary,
   formatHotelMoney,
+  formatHotelQuoteMoney,
   formatHotelStayRange,
   hasHotelValue,
   normalizeHotelBooking,
@@ -64,7 +65,14 @@ export default function HotelBookingDetailsScreen({ navigation, route }) {
     }
   }, [routeBookingId]);
 
-  useEffect(() => { loadBooking(); }, [loadBooking, route?.params?.refreshedAt]);
+  useEffect(() => {
+    if (route?.params?.skipInitialRefresh && routeBooking) {
+      setRawBooking(routeBooking);
+      setLoading(false);
+      return;
+    }
+    loadBooking();
+  }, [loadBooking, route?.params?.refreshedAt, route?.params?.skipInitialRefresh, routeBooking]);
 
   const status = booking.statusPresentation;
   const stayRange = formatHotelStayRange(booking);
@@ -164,17 +172,19 @@ export default function HotelBookingDetailsScreen({ navigation, route }) {
         <InfoRow label="Status" value="Cancelled" />
         <InfoRow label="Reason" value={cancellationReason} />
         <InfoRow label="Cancelled on" value={formatHotelDateTime(booking.cancelledAt)} />
-        {hasHotelValue(booking.totalPaid) && <MoneyRow label="Total paid" value={booking.totalPaid} />}
-        {hasHotelValue(booking.cancellationCharge) && <MoneyRow label="Cancellation deductions" value={booking.cancellationCharge} />}
-        {hasHotelValue(booking.refundAmount) && <MoneyRow label="Refund amount" value={booking.refundAmount} emphasis />}
+        {hasHotelValue(booking.totalPaid) && <MoneyRow label="Total paid" value={booking.totalPaid} currency={booking.cancellationCurrency} />}
+        {hasHotelValue(booking.cancellationCharge) && <MoneyRow label="Cancellation deductions" value={booking.cancellationCharge} currency={booking.cancellationCurrency} />}
+        {hasHotelValue(booking.refundAmount) && <MoneyRow label="Refund amount" value={booking.refundAmount} currency={booking.cancellationCurrency} emphasis />}
         {!!booking.refundPresentation && <View style={[styles.refundStatus, { backgroundColor: booking.refundPresentation.tint }]}><Ionicons name={booking.refundPresentation.completed ? "checkmark-circle" : "time-outline"} size={18} color={booking.refundPresentation.color} /><Text style={[styles.refundStatusText, { color: booking.refundPresentation.color }]}>{booking.refundPresentation.label}</Text></View>}
         <InfoRow label="Refund reference" value={booking.refundReference} />
         <InfoRow label="Refund completed on" value={formatHotelDateTime(booking.refundCompletedAt)} />
+        {booking.refundPresentation?.label === "Refund Action Required" && <Text style={styles.refundGuidance}>Booking cancelled. Refund processing is delayed. Our team is reconciling the refund with the payment provider.</Text>}
+        {!booking.refundPresentation?.completed && booking.refundPresentation?.label !== "Cancelled (No Refund)" && <Text style={styles.refundGuidance}>{booking.refundPreference === "WALLET" ? "Wallet refunds reflect instantly once processed." : "Refunds typically reflect in your original payment method within 5–7 business days."}</Text>}
         <Text style={styles.authorityNote}>Historical cancellation and refund values are shown from the booking details returned by the backend.</Text>
       </Section>}
 
       {booking.listStatus === "Failed" && (hasHotelValue(booking.refundAmount) || booking.refundPresentation || booking.refundReference) && <Section title="Refund status" icon="return-down-back-outline">
-        {hasHotelValue(booking.refundAmount) && <MoneyRow label="Refund amount" value={booking.refundAmount} emphasis />}
+        {hasHotelValue(booking.refundAmount) && <MoneyRow label="Refund amount" value={booking.refundAmount} currency={booking.cancellationCurrency} emphasis />}
         {!!booking.refundPresentation && <View style={[styles.refundStatus, { backgroundColor: booking.refundPresentation.tint }]}><Ionicons name={booking.refundPresentation.completed ? "checkmark-circle" : "time-outline"} size={18} color={booking.refundPresentation.color} /><Text style={[styles.refundStatusText, { color: booking.refundPresentation.color }]}>{booking.refundPresentation.label}</Text></View>}
         <InfoRow label="Refund reference" value={booking.refundReference} />
         <InfoRow label="Refund completed on" value={formatHotelDateTime(booking.refundCompletedAt)} />
@@ -205,7 +215,7 @@ function Section({ title, icon, children }) {
 }
 function DateEnd({ label, value, align = "left" }) { return <View style={[styles.dateEnd, align === "right" && styles.dateEndRight]}><Text style={styles.dateLabel}>{label}</Text><Text style={[styles.dateValue, align === "right" && styles.textRight]}>{value || "Not available"}</Text></View>; }
 function InfoRow({ label, value }) { if (!hasHotelValue(value)) return null; const stacked = String(value).length > 28; return <View style={[styles.infoRow, stacked && styles.infoRowStacked]}><Text style={styles.infoLabel}>{label}</Text><Text style={[styles.infoValue, stacked && styles.infoValueStacked]}>{String(value)}</Text></View>; }
-function MoneyRow({ label, value, emphasis }) { if (!hasHotelValue(value)) return null; return <View style={[styles.infoRow, emphasis && styles.emphasisRow]}><Text style={[styles.infoLabel, emphasis && styles.emphasisLabel]}>{label}</Text><Text style={[styles.infoValue, emphasis && styles.emphasisValue]}>{formatHotelMoney(value)}</Text></View>; }
+function MoneyRow({ label, value, currency, emphasis }) { if (!hasHotelValue(value)) return null; return <View style={[styles.infoRow, emphasis && styles.emphasisRow]}><Text style={[styles.infoLabel, emphasis && styles.emphasisLabel]}>{label}</Text><Text style={[styles.infoValue, emphasis && styles.emphasisValue]}>{currency ? formatHotelQuoteMoney(value, currency) : formatHotelMoney(value)}</Text></View>; }
 function Notice({ tone, title, text }) { const error = tone === "error"; return <View style={[styles.notice, error ? styles.errorNotice : styles.warningNotice]}><Ionicons name={error ? "alert-circle-outline" : "time-outline"} size={22} color={error ? "#B42318" : "#B54708"} /><View style={styles.noticeCopy}><Text style={[styles.noticeTitle, { color: error ? "#B42318" : "#B54708" }]}>{title}</Text><Text style={styles.noticeText}>{text}</Text></View></View>; }
 
 function LifecycleRow({ stage, last }) {
@@ -239,7 +249,7 @@ const styles = StyleSheet.create({
   notice: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 15, padding: 14 }, warningNotice: { backgroundColor: "#FFFAEB" }, errorNotice: { backgroundColor: "#FEF3F2" }, noticeCopy: { flex: 1 }, noticeTitle: { fontSize: 13, fontWeight: "900" }, noticeText: { color: "#475467", fontSize: 11, lineHeight: 17, marginTop: 4 },
   section: { backgroundColor: SURFACE, borderRadius: 20, borderWidth: 1, borderColor: BORDER, padding: 16 }, sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 }, collapsedHeader: { marginBottom: 0 }, sectionIcon: { width: 36, height: 36, borderRadius: 11, backgroundColor: "#FDECEF", alignItems: "center", justifyContent: "center" }, sectionHeadingCopy: { flex: 1 }, sectionTitle: { color: NAVY, fontSize: 17, fontWeight: "800", flex: 1 }, sectionSubtitle: { color: MUTED, fontSize: 10, marginTop: 2 },
   infoRow: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 16, borderTopWidth: 1, borderTopColor: "#F0EBEC", paddingVertical: 10 }, infoRowStacked: { flexDirection: "column", alignItems: "flex-start", gap: 4 }, infoLabel: { color: MUTED, fontSize: 12, lineHeight: 17, fontWeight: "600", flex: 1 }, infoValue: { color: NAVY, fontSize: 13, lineHeight: 18, fontWeight: "700", flex: 1.25, textAlign: "right" }, infoValueStacked: { flex: 0, width: "100%", textAlign: "left" }, totalRow: { backgroundColor: "#FFF3F4", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }, totalLabel: { color: "#8C1725", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }, totalValue: { color: BRAND, fontSize: 22, fontWeight: "900" }, emphasisRow: { marginTop: 5, backgroundColor: "#F0FDF4", borderRadius: 11, borderTopWidth: 0, paddingHorizontal: 11 }, emphasisLabel: { color: "#067647", fontWeight: "800" }, emphasisValue: { color: "#067647", fontSize: 15, fontWeight: "900" },
-  guestSummary: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: "#F0EBEC", paddingTop: 11 }, guestSummaryText: { color: MUTED, fontSize: 11, flex: 1 }, refundStatus: { flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 12, padding: 11, marginTop: 8 }, refundStatusText: { fontSize: 12, fontWeight: "900" }, authorityNote: { color: "#98A2B3", fontSize: 10, lineHeight: 15, marginTop: 11 },
+  guestSummary: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: "#F0EBEC", paddingTop: 11 }, guestSummaryText: { color: MUTED, fontSize: 11, flex: 1 }, refundStatus: { flexDirection: "row", alignItems: "center", gap: 7, borderRadius: 12, padding: 11, marginTop: 8 }, refundStatusText: { fontSize: 12, fontWeight: "900" }, refundGuidance: { color: "#475467", fontSize: 11, lineHeight: 17, marginTop: 10 }, authorityNote: { color: "#98A2B3", fontSize: 10, lineHeight: 15, marginTop: 11 },
   policyDescription: { color: "#475467", fontSize: 12, lineHeight: 18, marginBottom: 7 }, policyRow: { flexDirection: "row", gap: 10, borderTopWidth: 1, borderTopColor: "#F0EBEC", paddingVertical: 11 }, activePolicyRow: { backgroundColor: "#ECFDF3", borderRadius: 9, paddingHorizontal: 9 }, policyCopy: { flex: 1, minWidth: 0 }, policyTitleRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 }, policyTitle: { color: NAVY, fontSize: 11, lineHeight: 16, fontWeight: "800", flexShrink: 1 }, activeLabel: { color: "#027A48", backgroundColor: "#D1FADF", borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2, fontSize: 8, fontWeight: "900" }, policyWindow: { color: MUTED, fontSize: 9, lineHeight: 14, marginTop: 4 }, policyAmounts: { alignItems: "flex-end", maxWidth: 112 }, policyCharge: { color: "#B54708", fontSize: 10, fontWeight: "800", textAlign: "right" }, policyRefund: { color: "#027A48", fontSize: 10, fontWeight: "800", marginTop: 4, textAlign: "right" }, cancelButton: { minHeight: 50, borderRadius: 14, backgroundColor: BRAND, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 13 }, cancelButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" }, unavailableText: { color: MUTED, fontSize: 12, fontStyle: "italic", paddingVertical: 7 },
   timelineRow: { flexDirection: "row", minHeight: 66 }, timelineRail: { width: 30, alignItems: "center" }, timelineDot: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" }, timelineLine: { flex: 1, width: 2, backgroundColor: "#F2C7CC" }, timelineCopy: { flex: 1, paddingLeft: 8, paddingBottom: 16 }, timelineTitleRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 }, timelineTitle: { color: NAVY, fontSize: 14, lineHeight: 19, fontWeight: "800", flex: 1 }, timelineStatus: { fontSize: 8, fontWeight: "900", marginTop: 3 }, timelineTime: { color: "#98A2B3", fontSize: 10, marginTop: 3 }, timelineText: { color: MUTED, fontSize: 11, lineHeight: 16, marginTop: 4 },
 });
