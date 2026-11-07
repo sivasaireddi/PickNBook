@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
+import { HOTEL_ROOM_HOLD_DURATION_MS } from "../utils/hotelRoomBlock";
 
 const HotelBookingContext = createContext(null);
 
@@ -23,6 +24,8 @@ const initialSessionState = {
   availableRooms: [],
   selectedRooms: [],
   blockedRoomResult: null,
+  blockExpiresAtMs: null,
+  successfulBlockRequestSnapshot: null,
   pricingPreview: null,
   passengers: [],
 };
@@ -44,6 +47,8 @@ export const HotelBookingProvider = ({ children }) => {
       availableRooms: [],
       selectedRooms: [],
       blockedRoomResult: null,
+      blockExpiresAtMs: null,
+      successfulBlockRequestSnapshot: null,
       pricingPreview: null,
       passengers: [],
     }));
@@ -57,6 +62,8 @@ export const HotelBookingProvider = ({ children }) => {
       availableRooms: [],
       selectedRooms: [],
       blockedRoomResult: null,
+      blockExpiresAtMs: null,
+      successfulBlockRequestSnapshot: null,
       pricingPreview: null,
       passengers: [],
     }));
@@ -75,6 +82,8 @@ export const HotelBookingProvider = ({ children }) => {
       ...prev,
       selectedRooms: Array.isArray(rooms) ? rooms : [rooms],
       blockedRoomResult: null,
+      blockExpiresAtMs: null,
+      successfulBlockRequestSnapshot: null,
       pricingPreview: null,
     }));
   }, []);
@@ -83,6 +92,25 @@ export const HotelBookingProvider = ({ children }) => {
     setBookingState((prev) => ({
       ...prev,
       blockedRoomResult: blockedResult,
+    }));
+  }, []);
+
+  const setSuccessfulBlockHold = useCallback((requestSnapshot) => {
+    const expiresAtMs = Date.now() + HOTEL_ROOM_HOLD_DURATION_MS;
+    const snapshot = JSON.parse(JSON.stringify(requestSnapshot));
+    setBookingState((prev) => ({
+      ...prev,
+      blockExpiresAtMs: expiresAtMs,
+      successfulBlockRequestSnapshot: snapshot,
+    }));
+    return expiresAtMs;
+  }, []);
+
+  const clearBlockHold = useCallback(() => {
+    setBookingState((prev) => ({
+      ...prev,
+      blockExpiresAtMs: null,
+      successfulBlockRequestSnapshot: null,
     }));
   }, []);
 
@@ -113,6 +141,8 @@ export const HotelBookingProvider = ({ children }) => {
         setHotelDetailsData,
         setSelectedRooms,
         setBlockedRoomResult,
+        setSuccessfulBlockHold,
+        clearBlockHold,
         setPricingPreview,
         setPassengers,
         clearSession,

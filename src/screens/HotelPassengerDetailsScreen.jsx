@@ -34,6 +34,11 @@ import {
   normalizeHotelTitle,
   resolveHotelSupplierCode,
 } from "../utils/hotelSupplierPayload";
+import {
+  getHotelRoomIdentity,
+  getHotelPricingInputs,
+  normalizeSuccessfulHotelBlock,
+} from "../utils/hotelRoomBlock";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -51,114 +56,6 @@ const isValidPAN = (value) => /^[A-Z]{3}[PCHFATGJLE][A-Z]{1}[0-9]{4}[A-Z]{1}$/.t
 const isValidName = (value) => /^[A-Za-z ]{2,}$/.test(String(value || "").trim());
 const VALID_TITLES = new Set(["Mr", "Mrs", "Ms"]);
 
-const getPricingInputs = (rooms = []) => rooms.reduce((totals, room) => {
-  const price = room?.Price || room?.price || {};
-  const rawTotal = Number(
-    room?.B2CTotalPrice || room?.b2CTotalPrice || room?.b2cTotalPrice ||
-    price.B2CTotalPrice || price.b2CTotalPrice || price.b2cTotalPrice || price.b2cFinalFare || price.B2CFinalFare ||
-    price.b2cDisplayFare || price.B2CDisplayFare || price.OfferedPrice || price.offeredPrice ||
-    price.PublishedPrice || price.publishedPrice || 0
-  );
-  const supplierPricing = room?.SupplierPricing || room?.supplierPricing || price.SupplierPricing || price.supplierPricing;
-  const supplierTotal = Number(supplierPricing?.TotalPrice ?? supplierPricing?.totalPrice ?? 0);
-
-  if (supplierPricing && supplierTotal > 0) {
-    const supplierBase = Number(supplierPricing.BasePrice ?? supplierPricing.basePrice ?? 0);
-    const hiddenMarkup = rawTotal - supplierTotal;
-    const b2cBase = supplierBase + hiddenMarkup;
-    totals.base += b2cBase;
-    totals.gst += rawTotal - b2cBase;
-    return totals;
-  }
-
-  const roomBase = Number(
-    room?.B2CBasePrice || room?.b2CBasePrice ||
-    price.B2CBasePrice || price.b2cBasePrice ||
-    price.RoomPrice || price.roomPrice || price.PublishedPrice || price.publishedPrice || 0
-  );
-  const gst = price.GST || price.gst || {};
-  const gstBreakupTotal = [
-    gst.CGSTAmount, gst.cgstAmount, gst.SGSTAmount, gst.sgstAmount,
-    gst.IGSTAmount, gst.igstAmount, gst.CessAmount, gst.cessAmount,
-  ].reduce((sum, value) => sum + (Number(value) || 0), 0);
-  totals.base += Number(price.b2CBasePrice ?? price.b2cBasePrice ?? roomBase);
-  totals.gst += Number(price.TotalGSTAmount ?? price.totalGSTAmount ?? 0) ||
-    Number(price.Tax ?? price.tax ?? 0) || gstBreakupTotal;
-  return totals;
-}, { base: 0, gst: 0 });
-
-const normalizeProviderId = (value) => value === null || value === undefined ? "" : String(value).trim();
-
-const getRoomIdentity = (room = {}) => ({
-  roomIndex: normalizeProviderId(room.RoomIndex ?? room.roomIndex),
-  roomTypeCode: normalizeProviderId(room.RoomTypeCode ?? room.roomTypeCode),
-  optionId: normalizeProviderId(room.OptionId ?? room.optionId),
-});
-
-const getBlockedRateCorrelationKey = (room = {}) => {
-  const ratePlanCode = normalizeProviderId(room.RatePlanCode ?? room.ratePlanCode);
-  const roomTypeName = normalizeProviderId(room.RoomTypeName ?? room.roomTypeName).toLowerCase();
-  const mealBasis = normalizeProviderId(room.MealBasis ?? room.mealBasis).toLowerCase();
-  return ratePlanCode && roomTypeName && mealBasis
-    ? `${ratePlanCode}\u001f${roomTypeName}\u001f${mealBasis}`
-    : "";
-};
-
-const mergeBlockedRoomsWithSelectedIdentity = (blockedRooms, selectedRooms) => {
-  if (blockedRooms.length !== selectedRooms.length) {
-    throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
-  }
-
-  const selectedGroups = new Map();
-  selectedRooms.forEach((room) => {
-    const key = getBlockedRateCorrelationKey(room);
-    const identity = getRoomIdentity(room);
-    if (!key || !identity.roomIndex || !identity.roomTypeCode || !identity.optionId) {
-      throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
-    }
-    const group = selectedGroups.get(key) || { count: 0, identityKey: "", identity: null, ambiguous: false };
-    const identityKey = `${identity.roomIndex}\u001f${identity.roomTypeCode}\u001f${identity.optionId}`;
-    if (group.identityKey && group.identityKey !== identityKey) group.ambiguous = true;
-    group.count += 1;
-    group.identityKey = group.identityKey || identityKey;
-    group.identity = group.identity || identity;
-    selectedGroups.set(key, group);
-  });
-
-  const blockedCounts = new Map();
-  blockedRooms.forEach((room) => {
-    const key = getBlockedRateCorrelationKey(room);
-    if (!key) throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
-    blockedCounts.set(key, (blockedCounts.get(key) || 0) + 1);
-  });
-
-  selectedGroups.forEach((group, key) => {
-    if (blockedCounts.get(key) !== group.count || group.ambiguous || !group.identity) {
-      throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
-    }
-  });
-  if (blockedCounts.size !== selectedGroups.size) {
-    throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
-  }
-
-  return blockedRooms.map((blockedRoom) => {
-    const group = selectedGroups.get(getBlockedRateCorrelationKey(blockedRoom));
-    const selectedIdentity = group?.identity;
-    if (!selectedIdentity) {
-      throw new Error("Selected hotel rate option is missing or no longer matches the room hold.");
-    }
-    return {
-      ...blockedRoom,
-      RoomIndex: selectedIdentity.roomIndex,
-      RoomTypeCode: selectedIdentity.roomTypeCode,
-      OptionId: selectedIdentity.optionId,
-      roomIndex: selectedIdentity.roomIndex,
-      roomTypeCode: selectedIdentity.roomTypeCode,
-      optionId: selectedIdentity.optionId,
-    };
-  });
-};
-
 export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const {
     session,
@@ -167,6 +64,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     selectedRooms: contextSelectedRooms,
     setBlockedRoomResult,
     setPricingPreview: setContextPricingPreview,
+    setSuccessfulBlockHold,
   } = useHotelBooking();
 
   const routeParams = route?.params || {};
@@ -217,7 +115,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const loadAuthoritativePricing = async (rooms, couponCode = "") => {
     const requestId = ++pricingRequestSequenceRef.current;
     const normalizedCoupon = String(couponCode || "").trim().toUpperCase();
-    const inputs = getPricingInputs(rooms);
+    const inputs = getHotelPricingInputs(rooms);
     setPricingStatus("loading");
     setValidatingCoupon(true);
     setPricingPreview(null);
@@ -290,30 +188,12 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       const res = await blockHotelRoom(blockRoomPayload);
       console.log("[HotelPassengerDetails] BlockRoom result:", JSON.stringify(res, null, 2));
 
-      const blockResObj = res?.BlockRoomResult || res?.blockRoomResult || res || {};
-      const blockErrorObj = blockResObj?.error || blockResObj?.Error;
-      const canProceed = blockResObj?.canProceedToBook ?? blockResObj?.CanProceedToBook;
-      const availabilityType = String(blockResObj?.availabilityType ?? blockResObj?.AvailabilityType ?? "").toLowerCase();
-      const errorCode = Number(blockErrorObj?.errorCode ?? blockErrorObj?.ErrorCode);
-      const blockedRooms = blockResObj.HotelRoomsDetails || blockResObj.hotelRoomsDetails;
-      if (
-        !Number.isFinite(errorCode) ||
-        errorCode !== 0 ||
-        availabilityType !== "confirm" ||
-        canProceed !== true ||
-        !Array.isArray(blockedRooms) ||
-        blockedRooms.length === 0
-      ) {
-        throw new Error(blockErrorObj?.errorMessage || blockErrorObj?.ErrorMessage || "This room is no longer available.");
-      }
-      const authoritativeRooms = mergeBlockedRoomsWithSelectedIdentity(blockedRooms, selectedRoomSlots);
-      const normalizedBlockResult = {
-        ...blockResObj,
-        HotelRoomsDetails: authoritativeRooms,
-        hotelRoomsDetails: authoritativeRooms,
-      };
+      const { blockResult: normalizedBlockResult, authoritativeRooms } =
+        normalizeSuccessfulHotelBlock(res, selectedRoomSlots);
+      const blockResObj = normalizedBlockResult;
       setBlockedResultData(normalizedBlockResult);
       setBlockedRoomResult(normalizedBlockResult);
+      setSuccessfulBlockHold(blockRoomPayload);
 
       const pricingOutcome = await loadAuthoritativePricing(authoritativeRooms, "");
       if (pricingOutcome?.stale || !pricingOutcome?.result) {
@@ -548,7 +428,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       if (targetTraceId === null || !targetResultIndex || !targetHotelCode) {
         throw new Error("Hotel session information is incomplete. Please select the hotel again.");
       }
-      const finalRoomIdentities = authoritativeRoomList.map(getRoomIdentity);
+      const finalRoomIdentities = authoritativeRoomList.map(getHotelRoomIdentity);
       if (
         finalRoomIdentities.length === 0 ||
         finalRoomIdentities.some((identity) => !identity.roomIndex || !identity.roomTypeCode || !identity.optionId)

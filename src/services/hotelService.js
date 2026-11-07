@@ -468,14 +468,21 @@ export async function blockHotelRoom(payload = {}) {
     hotelFlowLog("BLOCK ROOM RESPONSE", response.data);
 
 
-    if (response?.data?.blockRoomResult?.error?.errorCode && response.data.blockRoomResult.error.errorCode !== 0) {
-      throw new Error(response.data.blockRoomResult.error.errorMessage || "BlockRoom API returned an error");
+    const blockResponse = response?.data?.blockRoomResult || response?.data?.BlockRoomResult;
+    const responseError = blockResponse?.error || blockResponse?.Error;
+    const responseErrorCode = responseError?.errorCode ?? responseError?.ErrorCode;
+    if (responseErrorCode !== undefined && responseErrorCode !== null && Number(responseErrorCode) !== 0) {
+      const blockError = new Error(responseError?.errorMessage || responseError?.ErrorMessage || "BlockRoom API returned an error");
+      blockError.errorCode = responseErrorCode;
+      throw blockError;
     }
 
     return response.data;
   } catch (err) {
     hotelFlowError("BLOCK ROOM", err);
-    throw toHotelFlowError(err, "Room availability verification failed.");
+    const wrapped = toHotelFlowError(err, "Room availability verification failed.");
+    if (!wrapped.errorCode && err?.errorCode) wrapped.errorCode = err.errorCode;
+    throw wrapped;
   }
 }
 

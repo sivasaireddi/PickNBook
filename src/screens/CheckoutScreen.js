@@ -18,7 +18,15 @@ import { getStoredAuthToken } from '../utils/authSession';
 import BookingConfirmationScreen from './BookingConfirmationScreen';
 import BookingFailureScreen from './BookingFailureScreen';
 import HotelBookingConfirmationScreen from './dashboard/bottomTabScreens/HotelBookingConfirmationScreen';
-import { getHotelBookingById } from '../services/hotelService';
+import { blockHotelRoom, getHotelBookingById, getHotelPricingPreview } from '../services/hotelService';
+import { useHotelBooking } from '../context/HotelBookingContext';
+import {
+  formatHotelBlockTime,
+  getHotelBlockRemainingSeconds,
+  getHotelBlockTimerState,
+  getHotelPricingInputs,
+  normalizeSuccessfulHotelBlock,
+} from '../utils/hotelRoomBlock';
 import {
   formatBusSeatHoldTime,
   getBusSeatHoldRemainingMs,
@@ -129,6 +137,14 @@ const CheckoutScreen = ({ route, navigation }) => {
     bookingAttempt,
     hotelPricing,
   } = route?.params || {};
+  const {
+    blockExpiresAtMs,
+    successfulBlockRequestSnapshot,
+    setSuccessfulBlockHold,
+    clearBlockHold,
+    setBlockedRoomResult,
+    setPricingPreview,
+  } = useHotelBooking();
   const insets = useSafeAreaInsets();
   const [authToken, setAuthToken] = useState(userToken || '');
   const payPressRef = useRef(false);
@@ -142,6 +158,17 @@ const CheckoutScreen = ({ route, navigation }) => {
   const [holdRemainingMs, setHoldRemainingMs] = useState(() =>
     getBusSeatHoldRemainingMs(seatHold?.expiresAt)
   );
+  const [hotelRemainingSeconds, setHotelRemainingSeconds] = useState(() =>
+    getHotelBlockRemainingSeconds(blockExpiresAtMs)
+  );
+  const [activeHotelPricing, setActiveHotelPricing] = useState(hotelPricing || null);
+  const [activePayableAmount, setActivePayableAmount] = useState(Number(amount || 0));
+  const [activeBookingDetails, setActiveBookingDetails] = useState(bookingDetails || null);
+  const [hotelPricingReady, setHotelPricingReady] = useState(Boolean(hotelPricing && Number(amount) > 0));
+  const [hotelRechecking, setHotelRechecking] = useState(false);
+  const [hotelHoldMessage, setHotelHoldMessage] = useState('');
+  const [hotelPriceChanged, setHotelPriceChanged] = useState(false);
+  const [chooseRoomRequired, setChooseRoomRequired] = useState(false);
 
   useEffect(() => {
     if (!authToken) {
@@ -179,7 +206,7 @@ const CheckoutScreen = ({ route, navigation }) => {
   const fare = reviewDetails?.fareSummary || {};
   const passengers = Array.isArray(reviewDetails?.passengers) ? reviewDetails.passengers : [];
   const seats = Array.isArray(reviewDetails?.seats) ? reviewDetails.seats : [];
-  const payableAmount = Number(amount || 0);
+  const payableAmount = isHotel ? activePayableAmount : Number(amount || 0);
   const loading = ['creating_order', 'awaiting_payment', 'verifying'].includes(status);
   const currentSeatHold = useMemo(() => ({
     blockKey: seatHold?.blockKey || bookingDetails?.blockKey,
@@ -225,6 +252,13 @@ const CheckoutScreen = ({ route, navigation }) => {
     tripIdentityMatches,
   ]);
   const paymentReady = !isBus || busPrePaymentValidation.valid;
+  const hotelTimerState = useMemo(
+    () => getHotelBlockTimerState(blockExpiresAtMs, Date.now()),
+    [blockExpiresAtMs, hotelRemainingSeconds]
+  );
+  const hotelPaymentReady = !isHotel || (
+    ['normal', 'warning'].includes(hotelTimerState.key) && hotelPricingReady && !hotelRechecking
+  );
 
   const loadHotelConfirmation = useCallback(async () => {
     hotelConfirmationAttemptedRef.current = true;
@@ -339,8 +373,28 @@ const CheckoutScreen = ({ route, navigation }) => {
     };
   }, [currentSeatHold.expiresAt, isBus]);
 
+  useEffect(() => {
+    if (!isHotel) return undefined;
+    const syncRemainingTime = () => {
+      setHotelRemainingSeconds(getHotelBlockRemainingSeconds(blockExpiresAtMs));
+    };
+    syncRemainingTime();
+    const timer = setInterval(syncRemainingTime, 1000);
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncRemainingTime();
+    });
+    return () => {
+      clearInterval(timer);
+      appStateSubscription.remove();
+    };
+  }, [blockExpiresAtMs, isHotel]);
+
+  useEffect(() => {
+    if (isHotel && status === 'success') clearBlockHold();
+  }, [clearBlockHold, isHotel, status]);
+
   const fareRows = useMemo(() => {
-    if (isHotel) return buildHotelFareRows(hotelPricing);
+    if (isHotel) return buildHotelFareRows(activeHotelPricing);
 
     const rows = [];
     if (fare.subtotal !== undefined) rows.push(['Seat / Base Fare', money(fare.subtotal)]);
@@ -355,11 +409,118 @@ const CheckoutScreen = ({ route, navigation }) => {
     }
     if (Number(fare.convenienceFee) > 0) rows.push(['Convenience fee', money(fare.convenienceFee)]);
     return rows;
-  }, [fare, hotelPricing, isHotel]);
+  }, [activeHotelPricing, fare, isHotel]);
+
+  const chooseRoomAgain = useCallback(() => {
+    navigation.popTo('HotelOfferDetails');
+  }, [navigation]);
+
+  const handleHotelRecheck = useCallback(async () => {
+    if (!isHotel || hotelRechecking) return;
+    if (!successfulBlockRequestSnapshot) {
+      setHotelHoldMessage('Room hold needs to be verified before payment.');
+      setChooseRoomRequired(true);
+      return;
+    }
+    setHotelRechecking(true);
+    setHotelPricingReady(false);
+    setHotelHoldMessage('');
+    setHotelPriceChanged(false);
+    setChooseRoomRequired(false);
+    try {
+      const response = await blockHotelRoom(successfulBlockRequestSnapshot);
+      const selectedRooms = successfulBlockRequestSnapshot.HotelRoomsDetails || [];
+      const { blockResult, authoritativeRooms } = normalizeSuccessfulHotelBlock(response, selectedRooms);
+      setBlockedRoomResult(blockResult);
+      const newExpiresAt = setSuccessfulBlockHold(successfulBlockRequestSnapshot);
+      setHotelRemainingSeconds(getHotelBlockRemainingSeconds(newExpiresAt));
+
+      const pricingInputs = getHotelPricingInputs(authoritativeRooms);
+      const couponCode = String(customerDetails?.couponCode || '').trim().toUpperCase();
+      const freshPricing = await getHotelPricingPreview({
+        HotelCode: successfulBlockRequestSnapshot.HotelCode,
+        B2CBasePrice: pricingInputs.base,
+        SrdvGstAmount: pricingInputs.gst,
+        CouponCode: couponCode,
+      });
+      const freshTotal = Number(freshPricing?.finalTotal ?? freshPricing?.FinalTotal);
+      if (!Number.isFinite(freshTotal) || freshTotal <= 0) {
+        throw new Error('The latest payable amount could not be verified.');
+      }
+      const nextPricing = { ...freshPricing, appliedCoupon: couponCode || null };
+      setPricingPreview(nextPricing);
+      setActiveHotelPricing(nextPricing);
+      setActiveBookingDetails((current) => ({
+        ...current,
+        Price: freshTotal,
+        CouponCode: couponCode,
+        HotelRoomsDetails: (current?.HotelRoomsDetails || []).map((room, index) => {
+          const freshRoom = authoritativeRooms[index] || {};
+          const freshPrice = freshRoom.Price || freshRoom.price || {};
+          const offeredPrice = Number(
+            freshRoom.OfferedPrice ?? freshRoom.offeredPrice ??
+            freshPrice.OfferedPrice ?? freshPrice.offeredPrice ?? room.OfferedPrice
+          );
+          const roomPrice = Number(
+            freshPrice.RoomPrice ?? freshPrice.roomPrice ?? room?.Price?.RoomPrice
+          );
+          return {
+            ...room,
+            OfferedPrice: Number.isFinite(offeredPrice) ? offeredPrice : room.OfferedPrice,
+            Price: {
+              ...room.Price,
+              RoomPrice: Number.isFinite(roomPrice) ? roomPrice : room?.Price?.RoomPrice,
+              OfferedPrice: Number.isFinite(offeredPrice) ? offeredPrice : room?.Price?.OfferedPrice,
+            },
+          };
+        }),
+      }));
+      setHotelPriceChanged(Math.abs(freshTotal - activePayableAmount) > 0.009);
+      setActivePayableAmount(freshTotal);
+      setHotelPricingReady(true);
+    } catch (recheckError) {
+      const errorCode = String(recheckError?.errorCode || '').toUpperCase();
+      const message = String(recheckError?.message || 'Unable to recheck this room.');
+      const traceExpired = recheckError?.isTraceExpired || recheckError?.status === 410 || errorCode === 'TRACE_ID_EXPIRED';
+      const unavailable = errorCode === 'SUPPLIER_ERROR_101' || /no longer available|supplier.*unavailable/i.test(message);
+      if (traceExpired) {
+        setHotelHoldMessage('This hotel search session has expired. Please select the room again to get the latest availability.');
+        setChooseRoomRequired(true);
+      } else if (unavailable) {
+        setHotelHoldMessage('This room is no longer available. Please choose another room.');
+        setChooseRoomRequired(true);
+      } else {
+        setHotelHoldMessage(message);
+      }
+    } finally {
+      setHotelRechecking(false);
+    }
+  }, [
+    activePayableAmount,
+    customerDetails?.couponCode,
+    hotelRechecking,
+    isHotel,
+    setBlockedRoomResult,
+    setPricingPreview,
+    setSuccessfulBlockHold,
+    successfulBlockRequestSnapshot,
+  ]);
 
   const handlePayPress = async () => {
     if (payPressRef.current || loading) return;
     payPressRef.current = true;
+
+    if (isHotel) {
+      const liveRemainingSeconds = getHotelBlockRemainingSeconds(blockExpiresAtMs, Date.now());
+      setHotelRemainingSeconds(liveRemainingSeconds);
+      if (liveRemainingSeconds <= 30 || !hotelPricingReady || hotelRechecking) {
+        payPressRef.current = false;
+        setHotelHoldMessage(liveRemainingSeconds <= 0
+          ? 'Please recheck room availability before continuing.'
+          : 'Please recheck the room before payment.');
+        return;
+      }
+    }
 
     // Re-read the absolute expiry at tap time so a stale displayed second can
     // never open Cashfree at the hold boundary.
@@ -399,7 +560,8 @@ const CheckoutScreen = ({ route, navigation }) => {
       if (tokenToUse) setAuthToken(tokenToUse);
     }
 
-    if (!tokenToUse || !bookingDetails || !customerDetails || payableAmount <= 0) {
+    const paymentBookingDetails = isHotel ? activeBookingDetails : bookingDetails;
+    if (!tokenToUse || !paymentBookingDetails || !customerDetails || payableAmount <= 0) {
       payPressRef.current = false;
       Alert.alert('Checkout unavailable', 'Required booking or session details are missing.');
       return;
@@ -425,7 +587,7 @@ const CheckoutScreen = ({ route, navigation }) => {
       couponCode: customerDetails.couponCode || null,
       promotionId: null,
       returnUrl: 'https://gopickandbook.in/payment/cashfree/return?order_id={order_id}',
-      bookingPayloadJson: JSON.stringify(bookingDetails),
+      bookingPayloadJson: JSON.stringify(paymentBookingDetails),
     });
   };
 
@@ -556,6 +718,59 @@ const CheckoutScreen = ({ route, navigation }) => {
           </>
         ) : null}
 
+        {isHotel ? (
+          <View
+            style={[
+              styles.hotelHoldCard,
+              hotelTimerState.key === 'warning' && styles.hotelHoldWarning,
+              ['critical', 'expired', 'missing'].includes(hotelTimerState.key) && styles.hotelHoldCritical,
+            ]}
+            accessible
+            accessibilityLabel={`Room hold, ${Math.floor(hotelRemainingSeconds / 60)} minutes ${hotelRemainingSeconds % 60} seconds remaining`}
+          >
+            <View style={styles.hotelHoldTopRow}>
+              <View style={styles.hotelHoldTitleRow}>
+                <Ionicons
+                  name="time-outline"
+                  size={22}
+                  color={['critical', 'expired', 'missing'].includes(hotelTimerState.key) ? '#B91C1C' : hotelTimerState.key === 'warning' ? '#B45309' : '#15803D'}
+                />
+                <Text style={styles.hotelHoldTitle}>
+                  {hotelTimerState.key === 'normal' ? 'Room Blocked' :
+                    hotelTimerState.key === 'warning' ? 'Room hold expires soon' :
+                    hotelTimerState.key === 'critical' ? 'Room hold expiring' :
+                    hotelTimerState.key === 'expired' ? 'Room hold expired' : 'Room hold verification required'}
+                </Text>
+              </View>
+              <Text style={styles.hotelHoldTime}>{formatHotelBlockTime(hotelRemainingSeconds)}</Text>
+            </View>
+            <Text style={styles.hotelHoldText}>
+              {hotelTimerState.key === 'normal' ? 'Your room is temporarily reserved.' :
+                hotelTimerState.key === 'warning' ? 'Complete payment soon to keep this room.' :
+                hotelTimerState.key === 'critical' ? 'Recheck the room before starting payment.' :
+                hotelTimerState.key === 'expired' ? 'Please recheck room availability before continuing.' :
+                'Room hold needs to be verified before payment.'}
+            </Text>
+            {!!hotelHoldMessage && <Text style={styles.hotelHoldErrorText}>{hotelHoldMessage}</Text>}
+            {hotelPriceChanged ? (
+              <View style={styles.hotelPriceNotice}>
+                <Text style={styles.hotelPriceNoticeTitle}>Room price updated</Text>
+                <Text style={styles.hotelPriceNoticeText}>The hotel has updated the room price. Please review the new total before payment.</Text>
+              </View>
+            ) : null}
+            {['critical', 'expired', 'missing'].includes(hotelTimerState.key) || hotelHoldMessage ? (
+              <TouchableOpacity
+                style={styles.hotelRecheckButton}
+                onPress={chooseRoomRequired ? chooseRoomAgain : handleHotelRecheck}
+                disabled={hotelRechecking}
+              >
+                {hotelRechecking ? <ActivityIndicator color="#FFFFFF" size="small" /> : null}
+                <Text style={styles.hotelRecheckButtonText}>{chooseRoomRequired ? 'Choose Room Again' : 'Recheck Room'}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeading}>
             <View style={styles.sectionIcon}><MaterialCommunityIcons name="receipt-text-outline" size={19} color="#C9152B" /></View>
@@ -573,7 +788,7 @@ const CheckoutScreen = ({ route, navigation }) => {
           <Text style={styles.payLabel}>TOTAL PAYABLE</Text>
           <Text style={styles.payAmount}>{money(payableAmount)}</Text>
         </View>
-        <TouchableOpacity style={[styles.payButton, (loading || !paymentReady) && styles.payButtonDisabled]} onPress={handlePayPress} disabled={loading || !paymentReady}>
+        <TouchableOpacity style={[styles.payButton, (loading || !paymentReady || !hotelPaymentReady) && styles.payButtonDisabled]} onPress={handlePayPress} disabled={loading || !paymentReady || !hotelPaymentReady}>
           {loading ? (
             <><ActivityIndicator color="#FFFFFF" size="small" /><Text style={styles.payButtonText}>{status === 'verifying' ? 'Verifying' : 'Please wait'}</Text></>
           ) : (
@@ -658,6 +873,20 @@ const styles = StyleSheet.create({
   accentText: { color: '#C9152B', fontSize: 17, fontWeight: '900' },
   discountText: { color: '#16A34A' },
   amountNote: { color: '#94A3B8', fontSize: 10, lineHeight: 15, marginTop: 6 },
+  hotelHoldCard: { borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
+  hotelHoldWarning: { borderColor: '#FDE68A', backgroundColor: '#FFFBEB' },
+  hotelHoldCritical: { borderColor: '#FECACA', backgroundColor: '#FEF2F2' },
+  hotelHoldTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  hotelHoldTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 },
+  hotelHoldTitle: { color: '#0F172A', fontSize: 15, fontWeight: '800', flexShrink: 1 },
+  hotelHoldTime: { color: '#0F172A', fontSize: 19, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  hotelHoldText: { color: '#475569', fontSize: 12, lineHeight: 18, marginTop: 8 },
+  hotelHoldErrorText: { color: '#B91C1C', fontSize: 12, lineHeight: 18, fontWeight: '700', marginTop: 8 },
+  hotelPriceNotice: { borderRadius: 12, padding: 11, marginTop: 11, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#FECACA' },
+  hotelPriceNoticeTitle: { color: '#B91C1C', fontSize: 13, fontWeight: '800' },
+  hotelPriceNoticeText: { color: '#64748B', fontSize: 11, lineHeight: 16, marginTop: 3 },
+  hotelRecheckButton: { minHeight: 44, borderRadius: 13, marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#D7192D' },
+  hotelRecheckButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   payBar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingTop: 12, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E2E8F0', shadowColor: '#0F172A', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: -5 }, elevation: 14 },
   payLabel: { color: '#64748B', fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
   payAmount: { color: '#0F172A', fontSize: 21, fontWeight: '900', marginTop: 2 },
