@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import * as SecureStore from "expo-secure-store";
 import { blockHotelRoom, getHotelPricingPreview, fetchHotelCoupons } from "../services/hotelService";
@@ -30,7 +33,6 @@ import {
   assertHotelSupplierPayload,
   buildHotelPassenger,
   hotelGenderFromTitle,
-  isPlaceholderHotelEmail,
   normalizeHotelTitle,
   resolveHotelSupplierCode,
 } from "../utils/hotelSupplierPayload";
@@ -39,6 +41,13 @@ import {
   getHotelPricingInputs,
   normalizeSuccessfulHotelBlock,
 } from "../utils/hotelRoomBlock";
+import { getTravelers } from "../services/travelerService";
+import {
+  HOTEL_GUEST_FIELD_ORDER,
+  getHotelGuestErrors,
+  mapSavedTravelerToHotelGuest,
+  normalizeHotelGuestPhone,
+} from "../utils/hotelGuestForm";
 
 const formatCurrency = (value, currency = "INR") => {
   const num = Number(value || 0);
@@ -49,12 +58,6 @@ const formatCurrency = (value, currency = "INR") => {
     maximumFractionDigits: 2,
   }).format(num);
 };
-
-const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
-const isValidPhone = (value) => /^[6-9]\d{9}$/.test(String(value || "").trim());
-const isValidPAN = (value) => /^[A-Z]{3}[PCHFATGJLE][A-Z]{1}[0-9]{4}[A-Z]{1}$/.test(String(value || "").trim().toUpperCase());
-const isValidName = (value) => /^[A-Za-z ]{2,}$/.test(String(value || "").trim());
-const VALID_TITLES = new Set(["Mr", "Mrs", "Ms"]);
 
 export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const {
@@ -107,10 +110,49 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   const [paxState, setPaxState] = useState({});
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [touchedFields, setTouchedFields] = useState({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [useSavedTraveler, setUseSavedTraveler] = useState(false);
+  const [savedTravelers, setSavedTravelers] = useState([]);
+  const [savedTravelerStatus, setSavedTravelerStatus] = useState("loading");
+  const [selectedTravelerId, setSelectedTravelerId] = useState("");
+  const [showTravelerPicker, setShowTravelerPicker] = useState(false);
+  const scrollRef = useRef(null);
+  const inputRefs = useRef({});
 
   const [showCouponSheet, setShowCouponSheet] = useState(false);
   const [showPolicySheet, setShowPolicySheet] = useState(false);
   const pricingRequestSequenceRef = useRef(0);
+
+  useEffect(() => {
+    setTouchedFields({});
+    setSubmitAttempted(false);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    getTravelers({ type: "Adult" })
+      .then((travelers) => {
+        if (!mounted) return;
+        setSavedTravelers(Array.isArray(travelers) ? travelers : []);
+        setSavedTravelerStatus("success");
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setSavedTravelers([]);
+        setSavedTravelerStatus("error");
+      });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   const loadAuthoritativePricing = async (rooms, couponCode = "") => {
     const requestId = ++pricingRequestSequenceRef.current;
@@ -240,7 +282,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       for (let a = 0; a < numAdults; a++) {
         const key = `room-${rIdx}-pax-${globalPaxIdx}`;
         initialState[key] = {
-          title: "Mr",
+          title: "",
           firstName: "",
           lastName: "",
           email: "",
@@ -257,7 +299,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       for (let c = 0; c < numChildren; c++) {
         const key = `room-${rIdx}-pax-${globalPaxIdx}`;
         initialState[key] = {
-          title: "Mr",
+          title: "",
           firstName: "",
           lastName: "",
           email: "",
@@ -275,13 +317,68 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   };
 
   const handleUpdatePax = (key, field, value) => {
+    const nextValue = field === "phone" ? normalizeHotelGuestPhone(value) : value;
     setPaxState((prev) => ({
       ...prev,
       [key]: {
         ...prev[key],
-        [field]: value,
+        [field]: nextValue,
       },
     }));
+  };
+
+  const markFieldTouched = (key, field) => {
+    setTouchedFields((current) => ({ ...current, [`${key}.${field}`]: true }));
+  };
+
+  const registerInput = (key, field, ref) => {
+    if (ref) inputRefs.current[`${key}.${field}`] = ref;
+  };
+
+  const getOrderedInputKeys = () => {
+    const result = [];
+    authoritativeRoomList.forEach((roomObj, rIdx) => {
+      const guestConfig = roomGuestsConfig[rIdx] || roomGuestsConfig[0] || { NoOfAdults: "2", NoOfChild: "0" };
+      const totalPax = (Number(guestConfig.NoOfAdults) || 1) + (Number(guestConfig.NoOfChild) || 0);
+      for (let pIdx = 0; pIdx < totalPax; pIdx++) {
+        const key = `room-${rIdx}-pax-${pIdx}`;
+        const pax = paxState[key] || {};
+        ["firstName", "lastName", "age", ...(pax.isLead ? ["email", "phone"] : [])].forEach((field) => result.push(`${key}.${field}`));
+      }
+    });
+    return result;
+  };
+
+  const focusField = (compoundKey) => {
+    const input = inputRefs.current[compoundKey];
+    if (!input) return;
+    requestAnimationFrame(() => {
+      input.focus?.();
+      setTimeout(() => scrollRef.current?.scrollToFocusedInput?.(input, 150, 0), Platform.OS === "android" ? 350 : 100);
+    });
+  };
+
+  const focusNextField = (key, field) => {
+    const order = getOrderedInputKeys();
+    const next = order[order.indexOf(`${key}.${field}`) + 1];
+    if (next) focusField(next);
+    else Keyboard.dismiss();
+  };
+
+  const selectSavedTraveler = (traveler) => {
+    const leadKey = "room-0-pax-0";
+    const mapped = mapSavedTravelerToHotelGuest(traveler);
+    setPaxState((current) => ({
+      ...current,
+      [leadKey]: { ...current[leadKey], ...mapped, isLead: true, isChild: false },
+    }));
+    setSelectedTravelerId(String(traveler.id));
+    setTouchedFields((current) => {
+      const next = { ...current };
+      HOTEL_GUEST_FIELD_ORDER.forEach((field) => delete next[`${leadKey}.${field}`]);
+      return next;
+    });
+    setShowTravelerPicker(false);
   };
 
   const handleApplyCoupon = async (codeOverride) => {
@@ -357,27 +454,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
       for (let pIdx = 0; pIdx < totalPax; pIdx++) {
         const key = `room-${rIdx}-pax-${pIdx}`;
         const pax = paxState[key] || {};
-        const paxErrors = {};
-
-        if (!VALID_TITLES.has(pax.title)) paxErrors.title = "Select Mr, Mrs, or Ms";
-        if (!isValidName(pax.firstName)) paxErrors.firstName = "Enter at least 2 letters";
-        if (!isValidName(pax.lastName)) paxErrors.lastName = "Enter at least 2 letters";
-        const age = Number(pax.age);
-        if (!Number.isInteger(age) || (pax.isChild ? age < 0 || age > 17 : age < 18 || age > 99)) {
-          paxErrors.age = pax.isChild ? "Child age must be 0–17" : "Adult age must be 18–99";
-        }
-
-        if (pax.isLead) {
-          if (!isValidEmail(pax.email) || isPlaceholderHotelEmail(pax.email)) paxErrors.email = "Enter your real email address";
-          if (!isValidPhone(pax.phone)) paxErrors.phone = "Valid 10-digit mobile is required";
-        }
-
-        if (isPANMandatory && (!pax.pan || !isValidPAN(pax.pan))) {
-          paxErrors.pan = "Valid 10-character PAN is required";
-        }
-        if (isPassportMandatory && (!pax.passport || !pax.passport.trim())) {
-          paxErrors.passport = "Passport number is required";
-        }
+        const paxErrors = getHotelGuestErrors(pax, { isPANMandatory, isPassportMandatory });
 
         if (Object.keys(paxErrors).length > 0) {
           isValid = false;
@@ -415,8 +492,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
   }), [pricingPreview]);
 
   const handleBookRoom = async () => {
+    setSubmitAttempted(true);
     if (!validationState.isValid) {
-      Alert.alert("Check Passenger Details", validationState.globalError || "Please fill all required fields correctly.");
+      const firstInvalid = Object.entries(validationState.fieldErrors)
+        .flatMap(([key, errors]) => HOTEL_GUEST_FIELD_ORDER.filter((field) => errors[field]).map((field) => `${key}.${field}`))[0];
+      if (firstInvalid) {
+        const [, field] = firstInvalid.split(".");
+        setTimeout(() => focusField(firstInvalid), 120);
+      } else if (validationState.globalError && agreedToTerms) {
+        Alert.alert("Hotel checkout unavailable", validationState.globalError);
+      }
       return;
     }
 
@@ -584,7 +669,16 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <CheckoutHeader onBackPress={() => navigation.goBack()} />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        enableOnAndroid
+        enableAutomaticScroll
+        extraScrollHeight={24}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+      >
         <BookingSummary
           hotelName={hotel.name || hotel.hotelName}
           location={hotel.address}
@@ -610,7 +704,10 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
             for (let pIdx = 0; pIdx < totalPax; pIdx++) {
               const key = `room-${rIdx}-pax-${pIdx}`;
               const pax = paxState[key] || {};
-              const errors = validationState.fieldErrors[key] || {};
+              const allErrors = validationState.fieldErrors[key] || {};
+              const errors = Object.fromEntries(
+                Object.entries(allErrors).filter(([field]) => submitAttempted || touchedFields[`${key}.${field}`])
+              );
               const guestHasErrors = Object.keys(errors).length > 0;
 
               const isLead = pax.isLead;
@@ -623,6 +720,52 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
                   isExpandedDefault={isLead}
                   hasError={guestHasErrors}
                 >
+                  {isLead ? (
+                    <View style={styles.savedTravelerBox}>
+                      <View style={styles.savedTravelerToggleRow}>
+                        <View style={styles.savedTravelerToggleCopy}>
+                          <Text style={styles.savedTravelerTitle}>Use saved traveler</Text>
+                          <Text style={styles.savedTravelerHint}>Populate this lead guest from your profiles.</Text>
+                        </View>
+                        <Switch
+                          value={useSavedTraveler}
+                          onValueChange={(enabled) => {
+                            setUseSavedTraveler(enabled);
+                            if (!enabled) setSelectedTravelerId("");
+                          }}
+                          trackColor={{ false: "#CBD5E1", true: "#FCA5A5" }}
+                          thumbColor={useSavedTraveler ? "#DC2626" : "#FFFFFF"}
+                        />
+                      </View>
+                      {useSavedTraveler ? (
+                        <View style={styles.savedTravelerPickerWrap}>
+                          <Text style={styles.savedTravelerLabel}>Saved traveler</Text>
+                          {savedTravelerStatus === "loading" ? (
+                            <View style={styles.savedTravelerMessageRow}>
+                              <ActivityIndicator size="small" color="#DC2626" />
+                              <Text style={styles.savedTravelerMessage}>Loading saved travelers...</Text>
+                            </View>
+                          ) : savedTravelerStatus === "error" ? (
+                            <Text style={styles.savedTravelerWarning}>Saved travelers couldn't be loaded. You can continue by entering the guest details manually.</Text>
+                          ) : savedTravelers.length === 0 ? (
+                            <Text style={styles.savedTravelerMessage}>No saved travelers found. You can enter guest details manually.</Text>
+                          ) : (
+                            <Pressable style={styles.savedTravelerPicker} onPress={() => setShowTravelerPicker(true)}>
+                              <Text style={[styles.savedTravelerPickerText, !selectedTravelerId && styles.savedTravelerPlaceholder]} numberOfLines={1}>
+                                {selectedTravelerId
+                                  ? (() => {
+                                      const traveler = savedTravelers.find((item) => String(item.id) === selectedTravelerId);
+                                      return [traveler?.title, traveler?.firstName, traveler?.lastName].filter(Boolean).join(" ") || "Choose traveler";
+                                    })()
+                                  : "Choose traveler"}
+                              </Text>
+                              <Ionicons name="chevron-down" size={18} color="#64748B" />
+                            </Pressable>
+                          )}
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
                   <GuestForm
                     isLead={pax.isLead}
                     isChild={pax.isChild}
@@ -644,6 +787,15 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
                     onChangePan={(val) => handleUpdatePax(key, "pan", val)}
                     onChangePassport={(val) => handleUpdatePax(key, "passport", val)}
                     onChangeAge={(val) => handleUpdatePax(key, "age", val)}
+                    onBlurField={(field) => markFieldTouched(key, field)}
+                    onFocusField={(field) => {
+                      const input = inputRefs.current[`${key}.${field}`];
+                      if (input) {
+                        setTimeout(() => scrollRef.current?.scrollToFocusedInput?.(input, 150, 0), Platform.OS === "android" ? 350 : 100);
+                      }
+                    }}
+                    onSubmitField={(field) => focusNextField(key, field)}
+                    registerInput={(field, ref) => registerInput(key, field, ref)}
                     errors={errors}
                   />
                 </GuestAccordion>
@@ -675,6 +827,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           agreedToTerms={agreedToTerms}
           setAgreedToTerms={setAgreedToTerms}
           onViewPolicies={() => setShowPolicySheet(true)}
+          error={submitAttempted && !agreedToTerms ? "Please confirm the booking policies before continuing." : ""}
         />
 
         <FareSummary
@@ -684,7 +837,7 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
           discount={fareBreakdown.discount}
           totalPrice={fareBreakdown.total}
         />
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Modals & Sheets */}
       <CouponBottomSheet
@@ -720,12 +873,38 @@ export default function HotelPassengerDetailsScreen({ navigation, route }) {
         </View>
       </Modal>
 
-      <CheckoutBottomBar
-        totalPrice={fareBreakdown.total}
-        onConfirm={handleBookRoom}
-        disabled={!agreedToTerms || !validationState.isValid || pricingStatus !== "valid" || validatingCoupon}
-        loading={bookingLoading}
-      />
+      <Modal visible={showTravelerPicker} transparent animationType="fade" onRequestClose={() => setShowTravelerPicker(false)}>
+        <Pressable style={styles.travelerModalOverlay} onPress={() => setShowTravelerPicker(false)}>
+          <Pressable style={styles.travelerModalCard} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.travelerModalHeader}>
+              <Text style={styles.travelerModalTitle}>Choose traveler</Text>
+              <Pressable onPress={() => setShowTravelerPicker(false)} hitSlop={10}>
+                <Ionicons name="close" size={22} color="#64748B" />
+              </Pressable>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {savedTravelers.map((traveler) => (
+                <Pressable key={String(traveler.id)} style={styles.travelerOption} onPress={() => selectSavedTraveler(traveler)}>
+                  <View style={styles.travelerOptionCopy}>
+                    <Text style={styles.travelerOptionName}>{[traveler.title, traveler.firstName, traveler.lastName].filter(Boolean).join(" ") || traveler.fullName || "Traveler"}</Text>
+                    {traveler.phoneNumber ? <Text style={styles.travelerOptionMeta}>{String(traveler.phoneNumber).replace(/^(\d{4})\d+(\d{2})$/, "$1••••$2")}</Text> : null}
+                  </View>
+                  {String(traveler.id) === selectedTravelerId ? <Ionicons name="checkmark-circle" size={21} color="#DC2626" /> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {!keyboardVisible ? (
+        <CheckoutBottomBar
+          totalPrice={fareBreakdown.total}
+          onConfirm={handleBookRoom}
+          disabled={blockingRooms || Boolean(blockError) || pricingStatus !== "valid" || validatingCoupon}
+          loading={bookingLoading}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -849,6 +1028,73 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 4,
   },
+  savedTravelerBox: {
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 6,
+  },
+  savedTravelerToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  savedTravelerToggleCopy: { flex: 1 },
+  savedTravelerTitle: { fontSize: 13, fontWeight: "800", color: "#0F172A" },
+  savedTravelerHint: { fontSize: 11, color: "#64748B", marginTop: 2 },
+  savedTravelerPickerWrap: { marginTop: 12, gap: 6 },
+  savedTravelerLabel: { fontSize: 12, fontWeight: "700", color: "#64748B" },
+  savedTravelerMessageRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  savedTravelerMessage: { fontSize: 11, color: "#64748B", lineHeight: 16, flex: 1 },
+  savedTravelerWarning: { fontSize: 11, color: "#B45309", lineHeight: 16 },
+  savedTravelerPicker: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  savedTravelerPickerText: { flex: 1, fontSize: 13, fontWeight: "700", color: "#0F172A" },
+  savedTravelerPlaceholder: { color: "#94A3B8", fontWeight: "600" },
+  travelerModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    justifyContent: "flex-end",
+  },
+  travelerModalCard: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 18,
+    paddingBottom: 30,
+    maxHeight: "60%",
+  },
+  travelerModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  travelerModalTitle: { fontSize: 17, fontWeight: "900", color: "#0F172A" },
+  travelerOption: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+    paddingVertical: 10,
+  },
+  travelerOptionCopy: { flex: 1, marginRight: 12 },
+  travelerOptionName: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
+  travelerOptionMeta: { fontSize: 11, color: "#64748B", marginTop: 3 },
   roomBlockContainer: {
     gap: 4,
   },

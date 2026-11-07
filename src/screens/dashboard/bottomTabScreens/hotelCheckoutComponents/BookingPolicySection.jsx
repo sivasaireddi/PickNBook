@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-export default function BookingPolicySection({ agreedToTerms, setAgreedToTerms, onViewPolicies }) {
+export default function BookingPolicySection({ agreedToTerms, setAgreedToTerms, onViewPolicies, error = "" }) {
   return (
     <View style={styles.container}>
       <Text style={styles.sectionTitle}>Booking Policies</Text>
@@ -15,6 +15,7 @@ export default function BookingPolicySection({ agreedToTerms, setAgreedToTerms, 
           I confirm that all guest details are accurate and agree to the booking policies.
         </Text>
       </Pressable>
+      {error ? <Text style={styles.errorText}>⚠ {error}</Text> : null}
 
       <Pressable style={styles.viewPolicyBtn} onPress={onViewPolicies}>
         <Text style={styles.viewPolicyText}>View cancellation policy</Text>
@@ -79,5 +80,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#0F172A",
-  }
+  },
+  errorText: {
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
 });

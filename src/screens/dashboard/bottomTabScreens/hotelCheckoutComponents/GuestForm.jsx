@@ -1,12 +1,12 @@
 import React, { useState } from "react";
-import { StyleSheet, Text, TextInput, View, Pressable, useWindowDimensions } from "react-native";
+import { Keyboard, StyleSheet, Text, TextInput, View, Pressable, useWindowDimensions } from "react-native";
 
 const TITLE_OPTIONS = ["Mr", "Mrs", "Ms"];
 
 export default function GuestForm({
   isLead = false,
   isChild = false,
-  title = "Mr",
+  title = "",
   firstName = "",
   lastName = "",
   email = "",
@@ -24,6 +24,10 @@ export default function GuestForm({
   onChangePan,
   onChangePassport,
   onChangeAge,
+  onBlurField,
+  onFocusField,
+  onSubmitField,
+  registerInput,
   errors = {} // Object containing validation error messages for fields
 }) {
   const { width } = useWindowDimensions();
@@ -32,19 +36,23 @@ export default function GuestForm({
   return (
     <View style={styles.formContainer}>
       {/* Title selector */}
-      <View style={styles.inputWrap}>
+      <View ref={(ref) => registerInput?.("title", ref)} collapsable={false} style={styles.inputWrap}>
         <Text style={styles.label}>Title</Text>
         <View style={styles.titleRow}>
           {TITLE_OPTIONS.map((t) => (
             <Pressable
               key={t}
               style={[styles.titleChip, title === t && styles.titleChipActive]}
-              onPress={() => onChangeTitle && onChangeTitle(t)}
+              onPress={() => {
+                onChangeTitle && onChangeTitle(t);
+                onBlurField && onBlurField("title");
+              }}
             >
               <Text style={[styles.titleChipText, title === t && styles.titleChipTextActive]}>{t}</Text>
             </Pressable>
           ))}
         </View>
+        {errors.title ? <Text style={styles.errorText}>⚠ {errors.title}</Text> : null}
       </View>
 
       {/* Name inputs */}
@@ -56,6 +64,12 @@ export default function GuestForm({
             onChangeText={onChangeFirstName} 
             placeholder="First Name" 
             error={errors.firstName}
+            inputRef={(ref) => registerInput?.("firstName", ref)}
+            onFocus={() => onFocusField?.("firstName")}
+            onBlur={() => onBlurField?.("firstName")}
+            returnKeyType="next"
+            submitBehavior="submit"
+            onSubmitEditing={() => onSubmitField?.("firstName")}
           />
         </View>
         <View style={{ flex: 1 }}>
@@ -65,6 +79,12 @@ export default function GuestForm({
             onChangeText={onChangeLastName} 
             placeholder="Last Name" 
             error={errors.lastName}
+            inputRef={(ref) => registerInput?.("lastName", ref)}
+            onFocus={() => onFocusField?.("lastName")}
+            onBlur={() => onBlurField?.("lastName")}
+            returnKeyType="next"
+            submitBehavior="submit"
+            onSubmitEditing={() => onSubmitField?.("lastName")}
           />
         </View>
       </View>
@@ -77,6 +97,12 @@ export default function GuestForm({
         keyboardType="number-pad"
         maxLength={2}
         error={errors.age}
+        inputRef={(ref) => registerInput?.("age", ref)}
+        onFocus={() => onFocusField?.("age")}
+        onBlur={() => onBlurField?.("age")}
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => onSubmitField?.("age")}
       />
 
       {/* Contact details for Lead Passenger or Primary Input */}
@@ -90,15 +116,20 @@ export default function GuestForm({
             keyboardType="email-address"
             autoCapitalize="none"
             error={errors.email}
+            inputRef={(ref) => registerInput?.("email", ref)}
+            onFocus={() => onFocusField?.("email")}
+            onBlur={() => onBlurField?.("email")}
+            returnKeyType="next"
+            submitBehavior="submit"
+            onSubmitEditing={() => onSubmitField?.("email")}
           />
-          <Input
-            label="Mobile Number"
+          <PhoneInput
             value={phone}
             onChangeText={onChangePhone}
-            placeholder="10-digit mobile"
-            keyboardType="phone-pad"
-            maxLength={10}
             error={errors.phone}
+            inputRef={(ref) => registerInput?.("phone", ref)}
+            onFocus={() => onFocusField?.("phone")}
+            onBlur={() => onBlurField?.("phone")}
           />
         </>
       )}
@@ -133,22 +164,53 @@ export default function GuestForm({
 
 function Input(props) {
   const [isFocused, setIsFocused] = useState(false);
+  const { inputRef, error, label, onFocus, onBlur, ...inputProps } = props;
   
   return (
     <View style={styles.inputWrap}>
-      <Text style={styles.label}>{props.label}</Text>
+      <Text style={styles.label}>{label}</Text>
       <TextInput 
-        {...props} 
+        {...inputProps}
+        ref={inputRef}
         style={[
           styles.input, 
           isFocused && styles.inputFocused,
-          props.error && styles.inputError
+          error && styles.inputError
         ]} 
         placeholderTextColor="#94A3B8" 
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
+        onFocus={(event) => { setIsFocused(true); onFocus?.(event); }}
+        onBlur={(event) => { setIsFocused(false); onBlur?.(event); }}
       />
-      {props.error ? <Text style={styles.errorText}>⚠ {props.error}</Text> : null}
+      {error ? <Text style={styles.errorText}>⚠ {error}</Text> : null}
+    </View>
+  );
+}
+
+function PhoneInput({ value, onChangeText, error, inputRef, onFocus, onBlur }) {
+  const [isFocused, setIsFocused] = useState(false);
+  return (
+    <View style={styles.inputWrap}>
+      <Text style={styles.label}>Mobile Number</Text>
+      <View style={[styles.phoneShell, isFocused && styles.inputFocused, error && styles.inputError]}>
+        <Text style={styles.phonePrefix}>+91</Text>
+        <View style={styles.phoneDivider} />
+        <TextInput
+          ref={inputRef}
+          style={styles.phoneInput}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder="10-digit mobile"
+          placeholderTextColor="#94A3B8"
+          keyboardType="number-pad"
+          maxLength={10}
+          returnKeyType="done"
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={Keyboard.dismiss}
+          onFocus={(event) => { setIsFocused(true); onFocus?.(event); }}
+          onBlur={(event) => { setIsFocused(false); onBlur?.(event); }}
+        />
+      </View>
+      {error ? <Text style={styles.errorText}>⚠ {error}</Text> : null}
     </View>
   );
 }
@@ -187,6 +249,34 @@ const styles = StyleSheet.create({
   inputFocused: {
     borderColor: "#0F172A",
     backgroundColor: "#F8FAFC",
+  },
+  phoneShell: {
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+  },
+  phonePrefix: {
+    paddingHorizontal: 14,
+    color: "#0F172A",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  phoneDivider: {
+    width: 1,
+    height: 26,
+    backgroundColor: "#CBD5E1",
+  },
+  phoneInput: {
+    flex: 1,
+    height: "100%",
+    paddingHorizontal: 12,
+    color: "#0F172A",
+    fontSize: 14,
+    fontWeight: "600",
   },
   inputError: {
     borderColor: "#EF4444",

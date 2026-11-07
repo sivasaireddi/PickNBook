@@ -9,6 +9,10 @@ export default function GuestAccordion({ title, subtitle, isExpandedDefault, has
     setIsExpanded(!isExpanded);
   };
 
+  useEffect(() => {
+    if (hasError) setIsExpanded(true);
+  }, [hasError]);
+
   return (
     <View style={styles.container}>
       <Pressable style={styles.header} onPress={toggleAccordion}>
