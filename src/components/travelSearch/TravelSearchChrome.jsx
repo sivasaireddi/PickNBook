@@ -17,16 +17,21 @@ import { theme } from "../../theme/tokens";
 const HERO_MIN_HEIGHT = 232;
 const HERO_MAX_HEIGHT = 272;
 
-export function TravelSearchHero({ image, title, subtitle, onBack }) {
+export function TravelSearchHero({ image, title, subtitle, onBack, compact = false }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const heroHeight = Math.min(Math.max(height * 0.29, HERO_MIN_HEIGHT), HERO_MAX_HEIGHT);
+  const heroHeight = compact
+    ? Math.min(Math.max(height * 0.23, 190), 220)
+    : Math.min(Math.max(height * 0.29, HERO_MIN_HEIGHT), HERO_MAX_HEIGHT);
 
   return (
     <View style={styles.heroClip}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       <ImageBackground source={image} resizeMode="cover" style={[styles.hero, { height: heroHeight }]}>
-        <LinearGradient colors={["rgba(9,14,30,0.16)", "rgba(9,14,30,0.78)"]} style={styles.heroGradient}>
+        <LinearGradient
+          colors={["rgba(9,14,30,0.16)", "rgba(9,14,30,0.78)"]}
+          style={[styles.heroGradient, compact && styles.heroGradientCompact]}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Go back"
@@ -42,8 +47,8 @@ export function TravelSearchHero({ image, title, subtitle, onBack }) {
           </Pressable>
 
           <View style={styles.heroCopy}>
-            <Text style={styles.heroTitle}>{title}</Text>
-            <Text style={styles.heroSubtitle}>{subtitle}</Text>
+            <Text style={[styles.heroTitle, compact && styles.heroTitleCompact]}>{title}</Text>
+            {!!subtitle && <Text style={styles.heroSubtitle}>{subtitle}</Text>}
           </View>
         </LinearGradient>
       </ImageBackground>
@@ -112,10 +117,12 @@ const styles = StyleSheet.create({
   heroClip: { overflow: "hidden", borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
   hero: { width: "100%" },
   heroGradient: { flex: 1, paddingHorizontal: theme.spacing.md, paddingBottom: 48 },
+  heroGradientCompact: { paddingBottom: 32 },
   backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.94)", borderWidth: 1, borderColor: "rgba(255,255,255,0.65)", alignItems: "center", justifyContent: "center", shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.14, shadowRadius: 9, elevation: 5 },
   backButtonPressed: { opacity: 0.82, transform: [{ scale: 0.96 }] },
   heroCopy: { marginTop: "auto", maxWidth: 330 },
   heroTitle: { fontFamily: theme.typography.fontFamily.display.bold, fontSize: 28, lineHeight: 32, letterSpacing: -0.6, color: theme.colors.card },
+  heroTitleCompact: { fontSize: 25, lineHeight: 29 },
   heroSubtitle: { marginTop: 5, fontFamily: theme.typography.fontFamily.body.regular, fontSize: 13, lineHeight: 19, color: "rgba(255,255,255,0.82)" },
   panelHeading: { marginBottom: theme.spacing.lg },
   panelEyebrow: { fontFamily: theme.typography.fontFamily.body.semiBold, fontSize: 10, letterSpacing: 1.1, color: theme.colors.redDeep },

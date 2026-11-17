@@ -4,7 +4,7 @@ const baseExpoConfig = {
   "scheme": "picknbook",
   "version": "1.0.0",
   "orientation": "portrait",
-  "icon": "./assets/App-Icon-Square.png",
+  "icon": "./assets/launcher-icon.png",
   "userInterfaceStyle": "light",
   "splash": {
     "image": "./assets/Splash-Icon.png",
@@ -23,8 +23,8 @@ const baseExpoConfig = {
       }
     },
     "adaptiveIcon": {
-      "backgroundColor": "#ffffff",
-      "foregroundImage": "./assets/App-Icon-Square.png"
+      "backgroundColor": "#FF0000",
+      "foregroundImage": "./assets/android-adaptive-foreground.png"
     },
     "permissions": [
       "INTERNET",

@@ -24,7 +24,7 @@ import TravellerBottomSheet from "../bottomSheets/TravellerBottomSheet";
 import CabinBottomSheet from "../bottomSheets/CabinBottomSheet";
 import AirportSearchModal from "../components/AirportSearchModal";
 import OffersCarousel from "../components/OffersCarousel";
-import { AssuranceStrip, SearchPanelHeading, TravelPrimaryButton, TravelSearchHero } from "../components/travelSearch/TravelSearchChrome";
+import { TravelPrimaryButton, TravelSearchHero } from "../components/travelSearch/TravelSearchChrome";
 
 import { theme } from "../theme/tokens";
 import { scale } from "../utils/responsive";
@@ -32,14 +32,15 @@ import { normalizeCityName } from "../screens/dashboard/bottomTabScreens/flights
 
 const getAirportCity = (airport, fallback) => {
   const code = airport?.airportCode || airport?.iataCode;
-  return normalizeCityName(code || airport?.cityName || airport?.city || fallback);
+  return normalizeCityName(airport?.cityName || airport?.city || code || fallback);
 };
 
 // Reusable animated pressable - identical pattern to HotelsScreen
-const AnimatedPressable = ({ children, style, onPress, disabled, activeScale = 0.95, wrapperStyle }) => {
+const AnimatedPressable = ({ children, style, onPress, disabled, activeScale = 0.95, wrapperStyle, ...pressableProps }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   return (
     <Pressable
+      {...pressableProps}
       style={wrapperStyle}
       onPressIn={() => { if (disabled) return; Animated.spring(scaleAnim, { toValue: activeScale, useNativeDriver: true }).start(); }}
       onPressOut={() => { if (disabled) return; Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start(); }}
@@ -201,18 +202,18 @@ export default function FlightSearchScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
       >
 
-        {/* Hero Banner — identical treatment to HotelsScreen */}
+        {/* Compact flight-search hero */}
         <TravelSearchHero
           image={require("../../assets/flightBanner.png")}
-          title="Your next destination starts here."
-          subtitle="Compare fares and plan your journey."
+          title="Find your next flight"
+          compact
           onBack={() => navigation?.canGoBack?.() ? navigation.goBack() : navigation.navigate?.("DashBoard")}
         />
 
-        {/* Search Card — overlaps banner by 24px, identical to HotelsScreen */}
+        {/* Search card with a modest overlap below the hero */}
         <View style={styles.cardContainer}>
           <Animated.View style={[styles.card, { opacity: cardOpacity, transform: [{ translateY: cardTranslateY }, { scale: cardScale }] }]}>
-            <SearchPanelHeading title="Search flights" subtitle="Build your itinerary in a few simple steps." />
+            <Text style={styles.formHeading}>Search flights</Text>
 
             {/* Trip Type segmented control */}
             <View style={styles.segmentedRow}>
@@ -244,19 +245,19 @@ export default function FlightSearchScreen({ navigation }) {
                 {/* FROM / TO */}
                 <View style={styles.routeCard}>
                   {/* FROM column */}
-                  <AnimatedPressable style={styles.airportBlock} activeScale={0.97} onPress={() => { setActiveSegmentIndex(null); setShowOriginModal(true); }}>
+                  <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Select departure airport${origin?.airportCode ? `, ${getAirportCity(origin, "")} ${origin.airportCode}` : ""}`} style={styles.airportBlock} activeScale={0.97} onPress={() => { setActiveSegmentIndex(null); setShowOriginModal(true); }}>
                     <Text style={styles.fieldLabel}>FROM</Text>
                     <Text style={[styles.cityName, !origin && styles.emptyField]} numberOfLines={1}>{getAirportCity(origin, "Select city")}</Text>
                     {origin?.airportCode ? <Text style={styles.airportCode}>{origin.airportCode}</Text> : null}
                   </AnimatedPressable>
 
                   {/* Swap button column — sits between FROM and TO */}
-                  <AnimatedPressable style={styles.swapButton} activeScale={0.88} onPress={swapAirports}>
+                  <AnimatedPressable accessibilityRole="button" accessibilityLabel="Swap departure and arrival airports" style={styles.swapButton} activeScale={0.88} onPress={swapAirports}>
                     <Ionicons name="swap-horizontal" size={scale(19)} color={theme.colors.redDeep} />
                   </AnimatedPressable>
 
                   {/* TO column */}
-                  <AnimatedPressable style={[styles.airportBlock, styles.airportBlockRight]} activeScale={0.97} onPress={() => { setActiveSegmentIndex(null); setShowDestinationModal(true); }}>
+                  <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Select arrival airport${destination?.airportCode ? `, ${getAirportCity(destination, "")} ${destination.airportCode}` : ""}`} style={[styles.airportBlock, styles.airportBlockRight]} activeScale={0.97} onPress={() => { setActiveSegmentIndex(null); setShowDestinationModal(true); }}>
                     <Text style={[styles.fieldLabel, { textAlign: "right" }]}>TO</Text>
                     <Text style={[styles.cityName, !destination && styles.emptyField, { textAlign: "right" }]} numberOfLines={1}>{getAirportCity(destination, "Select city")}</Text>
                     {destination?.airportCode ? <Text style={[styles.airportCode, { textAlign: "right" }]}>{destination.airportCode}</Text> : null}
@@ -266,12 +267,12 @@ export default function FlightSearchScreen({ navigation }) {
                 {/* Boarding-pass perforation divider */}
                 {/* DEPARTURE / RETURN */}
                 <View style={styles.dateRow}>
-                  <AnimatedPressable style={styles.dateBlock} activeScale={0.96} onPress={handleOpenDepartureDate}>
+                  <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Departure date, ${departureDate ? formatDate(departureDate) : "not selected"}`} style={styles.dateBlock} activeScale={0.96} onPress={handleOpenDepartureDate}>
                     <Text style={styles.fieldLabel}>DEPARTURE</Text>
                     <Text style={[styles.dateValue, !departureDate && styles.datePlaceholder]}>{departureDate ? formatDate(departureDate) : "Select date"}</Text>
                   </AnimatedPressable>
                   <View style={styles.dateDivider} />
-                  <AnimatedPressable style={styles.dateBlock} activeScale={0.96} onPress={handleOpenReturnDate}>
+                  <AnimatedPressable accessibilityRole="button" accessibilityLabel={tripType === "roundtrip" && returnDate ? `Return date, ${formatDate(returnDate)}` : "Add return date"} style={styles.dateBlock} activeScale={0.96} onPress={handleOpenReturnDate}>
                     <Text style={styles.fieldLabel}>RETURN</Text>
                     {tripType === "roundtrip" && returnDate
                       ? <Text style={styles.dateValue}>{formatDate(returnDate)}</Text>
@@ -280,7 +281,7 @@ export default function FlightSearchScreen({ navigation }) {
                 </View>
 
                 {/* TRAVELLERS */}
-                <AnimatedPressable style={styles.optionRow} activeScale={0.97} onPress={() => setShowTravellerSheet(true)}>
+                <AnimatedPressable accessibilityRole="button" accessibilityLabel={`${totalTravellers} ${totalTravellers > 1 ? "travellers" : "adult"}`} style={styles.optionRow} activeScale={0.97} onPress={() => setShowTravellerSheet(true)}>
                   <View style={styles.optionIconCircle}><Ionicons name="person-outline" size={scale(18)} color={theme.colors.redDeep} /></View>
                   <View style={styles.optionTextContainer}>
                     <Text style={styles.fieldLabel}>TRAVELLERS</Text>
@@ -290,7 +291,7 @@ export default function FlightSearchScreen({ navigation }) {
                 </AnimatedPressable>
 
                 {/* CABIN */}
-                <AnimatedPressable style={styles.optionRow} activeScale={0.97} onPress={() => setShowCabinSheet(true)}>
+                <AnimatedPressable accessibilityRole="button" accessibilityLabel={`Cabin class, ${cabinClass}`} style={styles.optionRow} activeScale={0.97} onPress={() => setShowCabinSheet(true)}>
                   <View style={styles.optionIconCircle}><Ionicons name="briefcase-outline" size={scale(18)} color={theme.colors.redDeep} /></View>
                   <View style={styles.optionTextContainer}>
                     <Text style={styles.fieldLabel}>CABIN</Text>
@@ -305,7 +306,6 @@ export default function FlightSearchScreen({ navigation }) {
             )}
           </Animated.View>
 
-          <AssuranceStrip items={["One-way, return and multi-city", "Traveller options", "Secure booking"]} />
           <OffersCarousel serviceType="flight" />
         </View>
       </ScrollView>
@@ -350,28 +350,29 @@ const styles = StyleSheet.create({
   // Back button — identical to HotelsScreen
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#0F172A", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
 
-  // Card container — negative marginTop overlaps banner (identical to HotelsScreen)
-  cardContainer: { marginHorizontal: scale(16), marginTop: -scale(32) },
-  card: { backgroundColor: "#FFFFFF", borderRadius: scale(26), padding: scale(20), shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: scale(7) }, shadowOpacity: 0.08, shadowRadius: scale(16), elevation: 4 },
+  // Compact white surface with a modest overlap below the hero.
+  cardContainer: { marginHorizontal: theme.spacing.md, marginTop: -theme.spacing.xl },
+  card: { backgroundColor: theme.colors.card, borderRadius: scale(20), padding: theme.spacing.md, shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: scale(5) }, shadowOpacity: 0.07, shadowRadius: scale(12), elevation: 3 },
+  formHeading: { marginBottom: theme.spacing.md, fontFamily: theme.typography.fontFamily.display.bold, fontSize: scale(21), lineHeight: scale(26), letterSpacing: -0.3, color: theme.colors.ink },
 
   // Segmented trip-type control
-  segmentedRow:  { flexDirection: "row", backgroundColor: theme.colors.cloud, borderRadius: scale(14), padding: scale(4), marginBottom: scale(16), borderWidth: 1, borderColor: theme.colors.line },
-  segTab:        { flex: 1, paddingHorizontal: 2, alignItems: "center", justifyContent: "center", borderRadius: scale(11), minHeight: scale(42) },
+  segmentedRow:  { flexDirection: "row", backgroundColor: theme.colors.cloud, borderRadius: scale(12), padding: scale(3), marginBottom: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.line },
+  segTab:        { flex: 1, paddingHorizontal: 2, alignItems: "center", justifyContent: "center", borderRadius: scale(9), minHeight: 44 },
   segTabActive:  { backgroundColor: theme.colors.card, borderWidth: 1, borderColor: "#F1D5DA", shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 2 },
   segLabel:      { fontSize: scale(12), fontWeight: "500", color: "#8992A9" },
   segLabelActive:{ fontWeight: "700", color: theme.colors.redDeep },
 
   // FROM / TO route row — 3-column flex (no absolute positioning)
-  routeCard:        { flexDirection: "row", alignItems: "center", padding: scale(14), borderRadius: scale(18), backgroundColor: theme.colors.cloud, borderWidth: 1, borderColor: theme.colors.line, marginBottom: scale(12) },
-  airportBlock:     { flex: 1, flexBasis: 0, minWidth: 0, minHeight: scale(64), justifyContent: "center" },
+  routeCard:        { flexDirection: "row", alignItems: "center", paddingHorizontal: scale(10), paddingVertical: scale(8), borderRadius: scale(14), backgroundColor: theme.colors.cloud, borderWidth: 1, borderColor: theme.colors.line, marginBottom: theme.spacing.sm },
+  airportBlock:     { flex: 1, flexBasis: 0, minWidth: 0, minHeight: 56, justifyContent: "center" },
   airportBlockRight:{ alignItems: "flex-end" },
   fieldLabel:       { fontSize: scale(9), fontWeight: "800", color: "#94A3B8", letterSpacing: 0.7, textTransform: "uppercase", marginBottom: scale(2) },
-  cityName:         { fontSize: scale(14), fontWeight: "700", color: theme.colors.ink, marginBottom: scale(1) },
+  cityName:         { fontSize: scale(13), fontWeight: "700", color: theme.colors.ink, marginBottom: scale(1) },
   emptyField:       { color: "#9CA3AF", fontWeight: "500" },
-  airportCode:      { fontSize: scale(22), fontWeight: "900", color: "#0F172A", lineHeight: scale(26) },
+  airportCode:      { fontSize: scale(18), fontWeight: "900", color: theme.colors.ink, lineHeight: scale(22) },
 
   // Swap button — inline flex item, no absolute positioning
-  swapButton: { width: scale(42), height: scale(42), borderRadius: scale(21), backgroundColor: theme.colors.card, borderWidth: 1, borderColor: "#F1CDD3", justifyContent: "center", alignItems: "center", marginHorizontal: scale(8), shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
+  swapButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.card, borderWidth: 1, borderColor: "#F1CDD3", justifyContent: "center", alignItems: "center", marginHorizontal: scale(6), shadowColor: theme.colors.ink, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 2 },
 
   // Boarding-pass perforation divider
   perforationDivider:  { flexDirection: "row", alignItems: "center", height: scale(16), position: "relative", overflow: "hidden", marginBottom: scale(2) },
@@ -380,16 +381,16 @@ const styles = StyleSheet.create({
   dashedLine:          { flex: 1, height: 1, borderStyle: "dashed", borderWidth: 1, borderColor: "#E7E9F2", marginHorizontal: scale(12) },
 
   // Date row
-  dateRow:      { flexDirection: "row", marginBottom: scale(12), padding: scale(4), borderRadius: scale(16), backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.line },
-  dateBlock:    { flex: 1, minHeight: scale(58), justifyContent: "center", paddingHorizontal: scale(10) },
+  dateRow:      { flexDirection: "row", marginBottom: theme.spacing.sm, padding: scale(3), borderRadius: scale(14), backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.line },
+  dateBlock:    { flex: 1, minHeight: 52, justifyContent: "center", paddingHorizontal: scale(9) },
   dateDivider:  { width: 1, backgroundColor: "#E7E9F2", marginHorizontal: scale(9), alignSelf: "stretch" },
   dateValue:    { fontSize: scale(13), fontWeight: "700", color: "#0F172A" },
   datePlaceholder:{ color: "#9CA3AF", fontWeight: "500" },
   addReturnText:  { fontSize: scale(13), fontWeight: "700", color: "#B4182A" },
 
   // Option rows (Travellers / Cabin) — mirrors HotelsScreen input rows
-  optionRow:          { flexDirection: "row", alignItems: "center", minHeight: scale(60), backgroundColor: theme.colors.cloud, borderWidth: 1, borderColor: theme.colors.line, borderRadius: scale(16), paddingHorizontal: scale(14), marginBottom: scale(10) },
-  optionIconCircle:   { width: scale(38), height: scale(38), backgroundColor: "#FFF0F2", borderRadius: scale(13), justifyContent: "center", alignItems: "center", marginRight: scale(10) },
+  optionRow:          { flexDirection: "row", alignItems: "center", minHeight: 52, backgroundColor: theme.colors.cloud, borderWidth: 1, borderColor: theme.colors.line, borderRadius: scale(14), paddingHorizontal: scale(12), marginBottom: scale(8) },
+  optionIconCircle:   { width: scale(34), height: scale(34), backgroundColor: "#FFF0F2", borderRadius: scale(11), justifyContent: "center", alignItems: "center", marginRight: scale(9) },
   optionTextContainer:{ flex: 1 },
   optionValue:        { fontSize: scale(13), fontWeight: "600", color: "#1F2937" },
 
