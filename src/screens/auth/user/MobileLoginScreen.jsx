@@ -4,7 +4,7 @@ import AuthScreenLayout from "../../../components/auth/AuthScreenLayout";
 import PhoneLoginForm from "../../../components/auth/PhoneLoginForm";
 import { authTheme } from "../../../components/auth/authStyles";
 
-const MobileLoginScreen = ({ navigation }) => {
+const MobileLoginScreen = ({ navigation, route }) => {
   const goBack = () =>
     navigation.canGoBack() ? navigation.goBack() : navigation.navigate("Login");
 
@@ -23,7 +23,7 @@ const MobileLoginScreen = ({ navigation }) => {
         </View>
       )}
     >
-      <PhoneLoginForm navigation={navigation} />
+      <PhoneLoginForm navigation={navigation} returnTo={route?.params?.returnTo} returnParams={route?.params?.returnParams} />
     </AuthScreenLayout>
   );
 };

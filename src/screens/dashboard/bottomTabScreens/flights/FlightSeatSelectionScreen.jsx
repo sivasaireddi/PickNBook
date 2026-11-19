@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -24,6 +24,7 @@ import { SEAT_STATUS } from "./constants/seatMapConstants";
 const TEXT = "#0F172A";
 const MUTED = "#64748B";
 const PRIMARY_RED = "#E53935";
+const SEAT_MAP_IN_FLIGHT = new Map();
 
 function parsePassengers(flowState) {
   return Array.isArray(flowState.passengers) ? flowState.passengers : [];
@@ -82,7 +83,8 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
 
   const flowState = useMemo(() => ({ ...currentFlowState, ...routeParams }), [currentFlowState, routeParams]);
   const passengers = parsePassengers(flowState);
-  const passengerCount = Math.max(1, passengers.length || 1);
+  const seatEligiblePassengers = passengers.filter((passenger) => String(passenger.passengerType || "Adult").toLowerCase() !== "infant");
+  const passengerCount = Math.max(1, seatEligiblePassengers.length || 1);
 
   const traceId = flowState.traceId || flowState.flight?.traceId || routeParams.traceId || routeParams.flight?.traceId;
   const resultIndex = flowState.resultIndex || flowState.flight?.resultIndex || routeParams.resultIndex || routeParams.flight?.resultIndex;
@@ -122,10 +124,10 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
 
   // Dynamic SeatMap selection state
   const originCode = String(
-    flowState.flight?.fromCityCode || flowState.flight?.fromCity || flowState.searchContext?.from || "DEL"
+    flowState.flight?.fromCityCode || flowState.flight?.fromCity || flowState.searchContext?.from || ""
   ).toUpperCase();
   const destinationCode = String(
-    flowState.flight?.toCityCode || flowState.flight?.toCity || flowState.searchContext?.to || "BOM"
+    flowState.flight?.toCityCode || flowState.flight?.toCity || flowState.searchContext?.to || ""
   ).toUpperCase();
 
   const multiCityFlightsList = useMemo(() => {
@@ -155,6 +157,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
 
   // Dynamic SeatMap data map per leg index (0: Leg1, 1: Leg2, 2: Leg3, ...)
   const [legSeatDataMap, setLegSeatDataMap] = useState({});
+  const seatMapRequestRef = useRef({ key: "", promise: null, data: null });
 
   // Dynamic Seat selection labels per leg index
   const [legSeatLabelsMap, setLegSeatLabelsMap] = useState(() => {
@@ -204,17 +207,38 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
   const isLegSeatMapEmpty = !activeSrdvSeatData || !activeSrdvSeatData.Seats; 
   const activeSeatNotApplicable = seatNotApplicable || (!loading && isLegSeatMapEmpty);
 
-  const loadSeatMap = useCallback(async () => {
+  const loadSeatMap = useCallback(async ({ force = false } = {}) => {
     if (flowState.fareQuote?.SeatSelectAllowed === false || flowState.flight?.SeatSelectAllowed === false) {
       setSeatNotApplicable(true);
       setLoading(false);
       return;
     }
 
+    const requestKey = `${String(traceId)}|${String(resultIndex)}|${multiCityFlightsList.map((leg) => leg?.resultIndex || leg?.ResultIndex || "").join(",")}`;
+    if (!force && seatMapRequestRef.current.key === requestKey && seatMapRequestRef.current.data) {
+      setLegSeatDataMap(seatMapRequestRef.current.data);
+      setLoading(false);
+      return seatMapRequestRef.current.data;
+    }
+    const sharedRequest = SEAT_MAP_IN_FLIGHT.get(requestKey);
+    if (sharedRequest) {
+      seatMapRequestRef.current = { key: requestKey, promise: sharedRequest };
+      setLoading(true);
+      const sharedMap = await sharedRequest;
+      if (sharedMap && typeof sharedMap === "object") {
+        seatMapRequestRef.current.data = sharedMap;
+        setLegSeatDataMap(sharedMap);
+        setSeatNotApplicable(Object.keys(sharedMap).length === 0);
+      }
+      setLoading(false);
+      return sharedMap;
+    }
+
     setLoading(true);
     setError(null);
     setSeatNotApplicable(false);
 
+    const request = (async () => {
     try {
       if (!traceId || !resultIndex) {
         throw new Error("Session trace ID or flight result index missing. Please re-select flight.");
@@ -222,6 +246,14 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
 
       const resultIndices = String(resultIndex || "").split(",").map((s) => s.trim()).filter(Boolean);
       const updatedMap = {};
+      const responseByResultIndex = new Map();
+      const fetchSeatMapOnce = (targetResultIndex) => {
+        const key = String(targetResultIndex || "");
+        if (!responseByResultIndex.has(key)) {
+          responseByResultIndex.set(key, getFlightSeatMap({ traceId, resultIndex: targetResultIndex }));
+        }
+        return responseByResultIndex.get(key);
+      };
 
       console.log(`[SEATMAP_FETCH] Fetching seat maps for ${legCount} legs (TraceId: ${traceId}, Indices: ${resultIndices.join(" | ")})...`);
 
@@ -231,7 +263,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
           const legIdxStr = resultIndices[i] || resultIndices[0];
           console.log(`[SEATMAP_FETCH] Fetching Leg ${i + 1} seat map with ResultIndex: ${legIdxStr}...`);
           try {
-            const legRes = await getFlightSeatMap({ traceId, resultIndex: legIdxStr });
+            const legRes = await fetchSeatMapOnce(legIdxStr);
             if (legRes?.success && legRes?.data) {
               const rawLegData = legRes.data?.Results || legRes.data?.Response?.Results || legRes.data;
               const segSeatData = Array.isArray(rawLegData)
@@ -254,7 +286,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
 
       // 2. Fallback: If map is still incomplete, query combined resultIndex and parse array
       if (Object.keys(updatedMap).length < legCount) {
-        const res = await getFlightSeatMap({ traceId, resultIndex });
+        const res = await fetchSeatMapOnce(resultIndex);
         if (res?.success && res?.data) {
           const rawData = res.data?.Results || res.data?.Response?.Results || res.data;
 
@@ -284,6 +316,8 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
       if (Object.keys(updatedMap).length === 0) {
         setSeatNotApplicable(true);
       }
+      if (seatMapRequestRef.current.key === requestKey) seatMapRequestRef.current.data = updatedMap;
+      return updatedMap;
     } catch (err) {
       const msg = String(err?.message || "");
       console.log("[SEATMAP_FAILED] Seat map warning:", msg);
@@ -291,7 +325,15 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
       setSeatNotApplicable(true);
     } finally {
       setLoading(false);
+      if (seatMapRequestRef.current.key === requestKey) {
+        seatMapRequestRef.current.promise = null;
+      }
+      SEAT_MAP_IN_FLIGHT.delete(requestKey);
     }
+    })();
+    seatMapRequestRef.current = { key: requestKey, promise: request, data: null };
+    SEAT_MAP_IN_FLIGHT.set(requestKey, request);
+    return request;
   }, [traceId, resultIndex, legCount, multiCityFlightsList, flowState]);
 
   const handleFetchSSR = useCallback(async () => {
@@ -405,7 +447,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
     if (!seatNotApplicable && !isLegEmpty && currentLegLabels.filter(Boolean).length !== passengerCount) {
       Alert.alert(
         `Incomplete Leg ${activeLegIndex + 1} Seats`,
-        `Please select seats for all ${passengerCount} traveler(s) before proceeding to payment.`
+          `Please select seats for all ${passengerCount} seat-eligible traveler(s) before proceeding to Checkout.`
       );
       return;
     }
@@ -424,8 +466,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
       console.log(`  💺 Leg ${i + 1} Seats: ${legSeats}`);
     }
     console.log(`💰 Seat Surcharge Total: ₹${seatCharges}`);
-    console.log(`🧳 SSR Extra Baggage: ${selectedSsrBaggage ? JSON.stringify(selectedSsrBaggage) : "None"}`);
-    console.log(`🍱 SSR Meal Service: ${selectedSsrMeal ? JSON.stringify(selectedSsrMeal) : "None"}`);
+    console.log(`[Flight][SSR][Selection] baggage=${selectedSsrBaggage?.Code || "none"} meal=${selectedSsrMeal?.Code || "none"}`);
     console.log(`💳 Grand Total Payable: ₹${total}`);
     console.log("================================================================================");
 
@@ -475,8 +516,8 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
       payableAmount: total,
     });
 
-    console.log("[FlightSeatSelectionScreen] Navigating to FlightPaymentScreen...");
-    navigation.navigate("FlightPaymentScreen", nextState);
+    console.log("[FlightSeatSelectionScreen] Navigating to FlightCheckoutScreen...");
+    navigation.navigate("FlightCheckoutScreen", nextState);
   }, [activeLegIndex, legCount, legSeatLabelsMap, seatNotApplicable, passengerCount, seatCharges, selectedSsrBaggage, selectedSsrMeal, selectedOutboundBaggage, selectedReturnBaggage, selectedOutboundMeal, selectedReturnMeal, ssrCharges, total, flowState, baseFare, taxes, navigation]);
 
   const currentLegSeatsList = activeSeatLabels.filter(Boolean);
@@ -486,7 +527,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
 
   const ctaButtonTitle = activeLegIndex < legCount - 1
     ? `Select Leg ${activeLegIndex + 2} Seats →`
-    : "Proceed to Payment →";
+    : "Continue to Checkout →";
 
 
   return (
@@ -542,7 +583,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
           {!activeSeatNotApplicable && (
             <View style={styles.paxScrollContainer}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.passengerScroll}>
-                {passengers.map((passenger, index) => {
+                {seatEligiblePassengers.map((passenger, index) => {
                   const seatLabel = activeSeatLabels[index] || "";
                   const nameDisplay = passenger.name || passenger.fullName || (passenger.firstName && passenger.lastName ? `${passenger.firstName} ${passenger.lastName}` : `Passenger ${index + 1}`);
                   return (
@@ -599,7 +640,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
               <Text style={styles.errorText}>Seat Map Error</Text>
               <Text style={styles.errorSubText}>{error}</Text>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
-                <TouchableOpacity activeOpacity={0.8} onPress={loadSeatMap} style={styles.retryBtn}>
+                <TouchableOpacity activeOpacity={0.8} onPress={() => loadSeatMap({ force: true })} style={styles.retryBtn}>
                   <Text style={styles.retryBtnText}>Retry</Text>
                 </TouchableOpacity>
               </View>
@@ -668,7 +709,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
                             return (
                               <TouchableOpacity 
                                 key={idx} 
-                                onPress={() => setSelectedSsrBaggage(selected ? null : bag)} 
+                                onPress={() => setSelectedSsrBaggage(selected ? null : { ...bag, passengerIndex: 0, legIndex: activeLegIndex })}
                                 style={[styles.ssrChip, selected && styles.ssrChipActive]}
                               >
                                 <Text style={[styles.ssrChipText, selected && styles.ssrChipTextActive]}>
@@ -692,7 +733,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
                             return (
                               <TouchableOpacity 
                                 key={idx} 
-                                onPress={() => setSelectedSsrMeal(selected ? null : meal)} 
+                                onPress={() => setSelectedSsrMeal(selected ? null : { ...meal, passengerIndex: 0, legIndex: activeLegIndex })}
                                 style={[styles.ssrChip, selected && styles.ssrChipActive]}
                               >
                                 <Text style={[styles.ssrChipText, selected && styles.ssrChipTextActive]}>

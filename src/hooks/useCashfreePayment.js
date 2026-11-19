@@ -30,7 +30,7 @@ export const classifyVerification = (response, requestedBookingType) => {
 
   if (['failed', 'cancelled', 'canceled', 'expired'].includes(paymentStatus)) return 'failed';
   if (!['success', 'paid'].includes(paymentStatus)) return 'payment_pending';
-  if (!['bus', 'hotel'].includes(bookingType)) return 'success';
+  if (!['bus', 'hotel', 'flight'].includes(bookingType)) return 'success';
   if (fulfillmentStatus === 'success') return 'success';
   if (fulfillmentStatus.startsWith('failed')) return 'booking_failed';
   return 'booking_pending';
@@ -40,7 +40,7 @@ const TERMINAL_VERIFICATION_STATES = new Set(['success', 'booking_failed', 'fail
 const VERIFICATION_POLL_INTERVAL_MS = 5000;
 const MAX_VERIFICATION_ATTEMPTS = 24;
 
-export const useCashfreePayment = (userToken) => {
+export const useCashfreePayment = (userToken, options = {}) => {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState(null);
   const [orderId, setOrderId] = useState(null);
@@ -53,6 +53,8 @@ export const useCashfreePayment = (userToken) => {
   const bookingTypeRef = useRef(null);
   const verificationAttemptsRef = useRef(0);
   const verificationTimerRef = useRef(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const clearVerificationTimer = () => {
     if (verificationTimerRef.current) {
@@ -95,6 +97,7 @@ export const useCashfreePayment = (userToken) => {
         setError(nextStatus === 'failed' ? (result?.failureReason || result?.FailureReason || 'Payment was not completed.') : null);
         setStatus(nextStatus);
       }
+      optionsRef.current?.onVerification?.(result, nextStatus);
       if (
         !TERMINAL_VERIFICATION_STATES.has(nextStatus) &&
         verificationAttemptsRef.current < MAX_VERIFICATION_ATTEMPTS &&
@@ -126,7 +129,14 @@ export const useCashfreePayment = (userToken) => {
 
   useEffect(() => {
     isMounted.current = true;
-    const onVerify = (callbackOrderId) => verifyOrder(callbackOrderId, { restart: true });
+    const onVerify = (callbackOrderId) => {
+      optionsRef.current?.onCallback?.("verify", callbackOrderId);
+      if (optionsRef.current?.delegateVerification) {
+        launchInProgress.current = false;
+        return;
+      }
+      verifyOrder(callbackOrderId, { restart: true });
+    };
     const onError = (callbackError, callbackOrderId) => {
       if (!isMounted.current) return;
       const message = callbackError?.message || 'Payment was cancelled or failed.';
@@ -142,13 +152,16 @@ export const useCashfreePayment = (userToken) => {
         }
         orderIdRef.current = callbackOrderId;
         setOrderId(callbackOrderId);
-        if (wasCancelled) {
-          processedOrdersRef.current.add(callbackOrderKey);
-        }
       }
-      if (callbackOrderId && !wasCancelled) {
-        setError(message);
-        verifyOrder(callbackOrderId, { restart: true });
+      optionsRef.current?.onCallback?.(wasCancelled ? "cancelled" : "error", callbackOrderId || orderIdRef.current);
+      const orderToCheck = callbackOrderId || orderIdRef.current;
+      if (optionsRef.current?.delegateVerification && orderToCheck) {
+        launchInProgress.current = false;
+        return;
+      }
+      if (orderToCheck) {
+        setError(null);
+        verifyOrder(orderToCheck, { restart: true });
         return;
       }
       setError(message);
@@ -185,9 +198,11 @@ export const useCashfreePayment = (userToken) => {
 
       orderIdRef.current = returnedOrderId;
       setOrderId(returnedOrderId);
+      optionsRef.current?.onOrderCreated?.(response, returnedOrderId);
       setStatus('awaiting_payment');
       const session = new CFSession(paymentSessionId, returnedOrderId, CFEnvironment.PRODUCTION);
       CFPaymentGatewayService.doWebPayment(session);
+      optionsRef.current?.onOpened?.(returnedOrderId);
     } catch (err) {
       launchInProgress.current = false;
       if (isMounted.current) {

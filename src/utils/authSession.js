@@ -76,3 +76,32 @@ export const isJwtExpired = (token) => {
     return false
   }
 }
+
+export const getStoredAuthUserId = async () => {
+  try {
+    const rawUser = await SecureStore.getItemAsync('user')
+    if (rawUser) {
+      const user = JSON.parse(rawUser)
+      const storedId =
+        user?.id ?? user?.userId ?? user?.Id ?? user?.UserId ??
+        user?.customerId ?? user?.CustomerId ?? user?.accountId ?? user?.AccountId
+      if (storedId !== undefined && storedId !== null && String(storedId).trim()) {
+        return String(storedId).trim()
+      }
+    }
+
+    const token = await getStoredAuthToken()
+    if (!token || isJwtExpired(token)) return ''
+    const parts = token.split('.')
+    if (parts.length !== 3) return ''
+    let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    while (payload.length % 4 !== 0) payload += '='
+    const claims = JSON.parse(base64Decode(payload))
+    const claimId =
+      claims?.sub ?? claims?.nameid ?? claims?.userId ?? claims?.UserId ??
+      claims?.['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier']
+    return claimId !== undefined && claimId !== null ? String(claimId).trim() : ''
+  } catch {
+    return ''
+  }
+}

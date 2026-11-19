@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { toOpaqueId } from "../utils/flightFlowUtils";
 
 function getDepMin(timeStr) {
   if (!timeStr) return 0;
@@ -21,7 +22,7 @@ export function normalizeFlight(item, index, globalMinPrice) {
   const segment = item?.Segments?.[0]?.[0] || item?.Segments?.[0] || item?.segment || {};
 
   const airlineName = firstFareSeg?.AirlineName || item?.airlineName || item?.airline || segment?.Airline?.AirlineName || "Airline";
-  const airlineCode = firstFareSeg?.AirlineCode || item?.airlineCode || segment?.Airline?.AirlineCode || "AI";
+  const airlineCode = firstFareSeg?.AirlineCode || item?.airlineCode || segment?.Airline?.AirlineCode || "";
   const flightNumber = firstFareSeg?.FlightNumber || item?.flightNumber || segment?.Airline?.FlightNumber || "";
 
   // Explicitly use B2CFinalFare as source of truth
@@ -32,14 +33,14 @@ export function normalizeFlight(item, index, globalMinPrice) {
   const firstSegment = segmentsArr[0] || segment;
   const lastSegment = segmentsArr.length > 0 ? segmentsArr[segmentsArr.length - 1] : segment;
 
-  const depTimeRaw = firstSegment?.DepTime || item?.departureTimeIst || item?.departureTime || "12:00";
-  const arrTimeRaw = lastSegment?.ArrTime || item?.arrivalTimeIst || item?.arrivalTime || "14:00";
+  const depTimeRaw = firstSegment?.DepTime || item?.departureTimeIst || item?.departureTime || "";
+  const arrTimeRaw = lastSegment?.ArrTime || item?.arrivalTimeIst || item?.arrivalTime || "";
 
-  let depFormatted = "12:00";
+  let depFormatted = "--:--";
   if (depTimeRaw.includes("T")) depFormatted = depTimeRaw.split("T")[1].slice(0, 5);
   else if (depTimeRaw.length >= 5) depFormatted = depTimeRaw.slice(0, 5);
 
-  let arrFormatted = "14:00";
+  let arrFormatted = "--:--";
   if (arrTimeRaw.includes("T")) arrFormatted = arrTimeRaw.split("T")[1].slice(0, 5);
   else if (arrTimeRaw.length >= 5) arrFormatted = arrTimeRaw.slice(0, 5);
 
@@ -52,7 +53,7 @@ export function normalizeFlight(item, index, globalMinPrice) {
   if (!durationMinutes && segmentsArr.length > 0) {
     durationMinutes = segmentsArr.reduce((acc, seg) => acc + Number(seg.Duration || 0) + Number(seg.GroundTime || 0), 0);
   }
-  if (!durationMinutes) durationMinutes = Number(firstSegment?.Duration || 120);
+  if (!durationMinutes) durationMinutes = Number(firstSegment?.Duration || 0);
 
   const stops = segmentsArr.length > 1 ? segmentsArr.length - 1 : 0;
 
@@ -77,9 +78,15 @@ export function normalizeFlight(item, index, globalMinPrice) {
   const cabinClass = firstFareSeg?.CabinClassName || item?.travelClass || "Economy";
   
   const id = String(item?.id || item?.ResultIndex || fareDataMultiple?.ResultIndex || `flight-${index}`);
+  const traceId = toOpaqueId(item?.traceId) || toOpaqueId(item?.TraceId);
+  const resultIndex = toOpaqueId(item?.resultIndex) || toOpaqueId(item?.ResultIndex) || toOpaqueId(fareDataMultiple?.ResultIndex);
 
   return {
     id,
+    traceId,
+    TraceId: traceId,
+    resultIndex,
+    ResultIndex: resultIndex,
     airlineName,
     airlineCode,
     flightNumber,

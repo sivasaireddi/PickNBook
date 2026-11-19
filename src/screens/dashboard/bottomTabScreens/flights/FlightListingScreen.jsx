@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
 import {
   FlatList,
   ScrollView,
@@ -24,11 +24,45 @@ import FilterSheet from "./components/FilterSheet";
 import { getFlightFareQuote, searchFlights } from "./services/flightBookingService";
 import { writeFlightBookingFlowState } from "./services/flightBookingFlowStore";
 import { normalizeFlightObject, serializeSearchParamsForNavigation } from "./utils/flightNormalizeUtils";
+import { allSelectionsShareTraceId, compactFlightForFlow, extractAuthoritativeFare, isValidAuthoritativeFare, safeFlightLog, selectedFlightIdentity } from "./utils/flightFlowUtils";
 
 const PRIMARY_RED = "#E11D2E";
 const BACKGROUND_COLOR = "#F8F9FB";
 const TEXT_DARK = "#1F2937";
 const TEXT_MUTED = "#6B7280";
+
+function getRecoverableFareMessage(error) {
+  if (error?.backendCode === "MISSING_IDENTITY") {
+    return "This fare is missing required booking information. Refresh results to try again.";
+  }
+  if (error?.isNetworkError) {
+    return "Unable to confirm the fare. Check your connection and retry.";
+  }
+  const details = `${error?.backendCode || ""} ${error?.backendMessage || error?.message || ""}`.toLowerCase();
+  if (details.includes("price") && details.includes("change")) {
+    return "The airline changed this fare. Please retry to review the latest price.";
+  }
+  if (["expired", "unavailable", "not available", "sold out", "fare not found"].some((term) => details.includes(term))) {
+    return "This fare is no longer available. Please retry or select another fare.";
+  }
+  return "We couldn’t confirm this fare. Please retry or select another fare.";
+}
+
+function withAuthoritativeFare(selectedFare, fare) {
+  const current = selectedFare || {};
+  return {
+    ...current,
+    OfferedFare: fare.total,
+    B2CFinalFare: fare.total,
+    Fare: {
+      ...(current.Fare || {}),
+      BaseFare: fare.baseFare,
+      Tax: fare.tax,
+      OfferedFare: fare.total,
+      B2CFinalFare: fare.total,
+    },
+  };
+}
 
 export default function FlightListingScreen({ route, navigation }) {
   const routeParams = route?.params || {};
@@ -43,13 +77,12 @@ export default function FlightListingScreen({ route, navigation }) {
     return val.airportCode || val.cityName || val.airportId || fallback;
   };
 
-  const origin = formatCityCode(routeParams.origin || searchParams.from, "DEL");
-  const destination = formatCityCode(routeParams.destination || searchParams.to, "BOM");
-  const date = routeParams.departureDate || searchParams.date || "3 Aug 2026";
+  const origin = formatCityCode(routeParams.origin || searchParams.from, "—");
+  const destination = formatCityCode(routeParams.destination || searchParams.to, "—");
+  const date = routeParams.departureDate || searchParams.date || "";
   const returnDate = routeParams.returnDate || searchParams.returnDate || "";
   const adults = routeParams.adults || searchParams.adults || 1;
   const travelClass = routeParams.travelClass || searchParams.travelClass || "Economy";
-  const traceId = routeParams.traceId || searchParams.traceId || rawFlights?.[0]?.traceId || rawFlights?.[0]?.TraceId;
 
   const normTripType = String(searchParams.tripType || routeParams.tripType || "oneway").toLowerCase();
   const journeyTypeNum = Number(searchParams.journeyType || routeParams.journeyType || 1);
@@ -70,10 +103,7 @@ export default function FlightListingScreen({ route, navigation }) {
   const multiCitySegments = useMemo(() => {
     if (searchParams.formattedSegments && searchParams.formattedSegments.length > 0) return searchParams.formattedSegments;
     if (searchParams.multiCitySegments && searchParams.multiCitySegments.length > 0) return searchParams.multiCitySegments;
-    return [
-      { origin, destination, date },
-      { origin: destination, destination: "BLR", date },
-    ];
+    return [];
   }, [searchParams, origin, destination, date]);
 
   const isUnifiedRoundTrip = useMemo(() => {
@@ -127,6 +157,9 @@ export default function FlightListingScreen({ route, navigation }) {
   }, [isMultiCity, isRoundTrip, origin, destination]);
 
   const [loading, setLoading] = useState(false);
+  const [fareError, setFareError] = useState(null);
+  const fareQuoteInFlightRef = useRef(false);
+  const retryFareActionRef = useRef(null);
   const [sortSheetVisible, setSortSheetVisible] = useState(false);
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
 
@@ -184,12 +217,60 @@ export default function FlightListingScreen({ route, navigation }) {
     availableCabinClasses,
   } = useFlightResults(currentDisplayList);
 
+  const handleRefreshResults = useCallback(async () => {
+    if (fareQuoteInFlightRef.current) return;
+    fareQuoteInFlightRef.current = true;
+    setLoading(true);
+    try {
+      const refreshedFlights = await searchFlights({
+        ...searchParams,
+        from: searchParams.from || routeParams.origin || origin,
+        to: searchParams.to || routeParams.destination || destination,
+        date: searchParams.date || routeParams.departureDate || date,
+        returnDate: searchParams.returnDate || routeParams.returnDate || returnDate,
+      });
+      retryFareActionRef.current = null;
+      setFareError(null);
+      navigation.setParams({ flights: refreshedFlights, rawResults: refreshedFlights });
+    } catch (error) {
+      retryFareActionRef.current = handleRefreshResults;
+      setFareError({
+        message: "Unable to refresh flight results. Check your connection and try again.",
+        actionLabel: "Refresh Results",
+      });
+      safeFlightLog("[Flight][Search][HandledError]", {
+        status: error?.status || null,
+        message: String(error?.message || "Search refresh failed").slice(0, 240),
+        retryAvailable: true,
+      });
+    } finally {
+      fareQuoteInFlightRef.current = false;
+      setLoading(false);
+    }
+  }, [searchParams, routeParams.origin, routeParams.destination, routeParams.departureDate, routeParams.returnDate, origin, destination, date, returnDate, navigation]);
+
+  const recordFareQuoteFailure = useCallback((error, identity, retryAction, actionLabel = "Retry") => {
+    const message = getRecoverableFareMessage(error);
+    retryFareActionRef.current = retryAction;
+    setFareError({ message, actionLabel });
+    safeFlightLog("[Flight][FareQuote][HandledError]", {
+      httpStatus: error?.httpStatus || null,
+      backendCode: error?.backendCode || null,
+      message: String(error?.backendMessage || error?.message || message).slice(0, 240),
+      resolvedTraceId: identity?.resolvedTraceId || identity?.traceId || "",
+      resolvedResultIndex: identity?.resolvedResultIndex || identity?.resultIndex || "",
+      retryAvailable: Boolean(retryAction),
+    });
+  }, []);
+
   // Handle flight selection
   const handleSelectFlight = useCallback(
     async (selectedFlight) => {
       const flightObj = selectedFlight.rawItem || selectedFlight;
-      const resultIndex = flightObj?.resultIndex || flightObj?.ResultIndex;
-      const activeTraceId = traceId || selectedFlight.traceId || selectedFlight.TraceId || flightObj.traceId || flightObj.TraceId || rawFlights?.[0]?.traceId || rawFlights?.[0]?.TraceId;
+      const identity = selectedFlightIdentity(selectedFlight);
+      const resultIndex = identity.resultIndex;
+      const activeTraceId = identity.traceId;
+      safeFlightLog("[Flight][Results][FareSelected]", { ...identity, fareTierCount: flightObj?.FareDataMultiple?.length || 0 });
 
       if (isMultiCity && !isUnifiedMultiCity) {
         setSelectedLegFlights((prev) => {
@@ -220,36 +301,54 @@ export default function FlightListingScreen({ route, navigation }) {
       }
 
       // One-way or Unified Round-Trip selection handling
+      if (fareQuoteInFlightRef.current) return;
+      fareQuoteInFlightRef.current = true;
+      setFareError(null);
       setLoading(true);
       try {
-        console.log(`[FARE_REVALIDATION_STARTED] One-way selection revalidating fare with supplier | ResultIndex: ${resultIndex}`);
-        let fareQuoteRes = null;
-        if (activeTraceId && resultIndex) {
-          fareQuoteRes = await getFlightFareQuote({
-            traceId: activeTraceId,
-            resultIndex,
-            srdvType: flightObj.srdvType || "MixAPI",
-            srdvIndex: flightObj.srdvIndex || "2",
-            offeredFare: flightObj.offeredFare || flightObj.displayFare || flightObj.fare || selectedFlight?.price || 0,
-            baseFare: flightObj.baseFare || flightObj.displayFare || flightObj.fare || 0,
-            tax: flightObj.tax || 0,
-            isLCC: flightObj.isLCC,
-          });
+        safeFlightLog("[Flight][Results][FareIdentityResolved]", identity);
+        if (!activeTraceId || !resultIndex) {
+          const missingIdentityError = new Error("Selected fare is missing its originating TraceId or ResultIndex.");
+          missingIdentityError.backendCode = "MISSING_IDENTITY";
+          throw missingIdentityError;
         }
+        safeFlightLog("[Flight][FareQuote][Request]", {
+          endpoint: "/api/flight/srdv/FareQuote",
+          traceId: activeTraceId,
+          resultIndex,
+          srdvType: identity.srdvType,
+          srdvIndex: identity.srdvIndex,
+        });
+        const fareQuoteRes = await getFlightFareQuote({
+          traceId: activeTraceId,
+          resultIndex,
+          srdvType: identity.srdvType,
+          srdvIndex: identity.srdvIndex,
+          offeredFare: selectedFlight.offeredFare || selectedFlight.displayFare || selectedFlight.price || 0,
+          baseFare: selectedFlight.baseFare || 0,
+          tax: selectedFlight.tax || 0,
+          isLCC: identity.isLCC,
+        });
 
-        const fareObj = fareQuoteRes?.Results?.Fare || fareQuoteRes?.Fare || fareQuoteRes?.Results;
-        const confirmedFare = Number(fareObj?.OfferedFare || fareObj?.PublishedFare || selectedFlight.price || 0);
-        const baseFare = Number(fareObj?.BaseFare || confirmedFare);
-        const tax = Number(fareObj?.Tax || 0);
+        if (!fareQuoteRes) throw new Error("The airline fare could not be confirmed.");
+        safeFlightLog("[Flight][FareQuote][Response]", {
+          traceId: activeTraceId,
+          resultIndex,
+          status: 200,
+        });
+        const confirmed = extractAuthoritativeFare(fareQuoteRes, 0);
+        if (!isValidAuthoritativeFare(confirmed)) {
+          const invalidFareError = new Error("The supplier returned an invalid fare.");
+          invalidFareError.backendCode = "INVALID_FARE_QUOTE";
+          throw invalidFareError;
+        }
+        const confirmedFare = confirmed.total;
+        const baseFare = confirmed.baseFare;
+        const tax = confirmed.tax;
         const initialPrice = Number(flightObj.offeredFare || flightObj.displayFare || selectedFlight.price || 0);
 
         if (initialPrice > 0 && confirmedFare > 0 && initialPrice !== confirmedFare) {
-          console.warn(`[FARE_CHANGED] Supplier updated fare from ₹${initialPrice} to ₹${confirmedFare}`);
-          Alert.alert(
-            "Fare Updated by Airline",
-            `The airline updated the flight fare from ₹${initialPrice.toLocaleString("en-IN")} to ₹${confirmedFare.toLocaleString("en-IN")}.`,
-            [{ text: "OK" }]
-          );
+          safeFlightLog("[Flight][FareQuote][FareUpdated]", { total: confirmedFare, changed: true });
         }
 
         let normalizedMultiCityFlights = undefined;
@@ -284,24 +383,30 @@ export default function FlightListingScreen({ route, navigation }) {
         const payload = {
           traceId: activeTraceId,
           resultIndex,
-          srdvType: flightObj.srdvType || "MixAPI",
-          srdvIndex: flightObj.srdvIndex || "2",
-          isLCC: flightObj.isLCC,
+          srdvType: identity.srdvType,
+          srdvIndex: identity.srdvIndex,
+          source: identity.source,
+          isLCC: identity.isLCC,
           isRoundTrip: isUnifiedRoundTrip,
           isMultiCity: isUnifiedMultiCity,
           journeyType: isUnifiedMultiCity ? 3 : (isUnifiedRoundTrip ? 2 : (searchParams.journeyType || 1)),
           multiCityFlights: normalizedMultiCityFlights,
-          flight: {
-            ...flightObj,
+          flight: compactFlightForFlow(selectedFlight, {
             traceId: activeTraceId,
             resultIndex,
             selectedTravelClassPriceInr: confirmedFare,
+            displayFare: confirmedFare,
+            offeredFare: confirmedFare,
+            baseFare,
+            tax,
+            selectedFare: withAuthoritativeFare(selectedFlight.selectedFare, confirmed),
             fromCity: origin,
             toCity: destination,
             isRoundTrip: isUnifiedRoundTrip,
             isMultiCity: isUnifiedMultiCity,
-          },
+          }),
           fareQuote: fareQuoteRes?.Results || fareQuoteRes,
+          quoteTimestamp: Date.now(),
           searchContext: {
             ...searchParams,
             travelClass,
@@ -320,15 +425,23 @@ export default function FlightListingScreen({ route, navigation }) {
         };
 
         await writeFlightBookingFlowState(payload);
+        retryFareActionRef.current = null;
+        safeFlightLog("[Flight][Navigation]", { destinationRoute: "FlightPassengerDetailsScreen" });
         navigation.navigate("FlightPassengerDetailsScreen", payload);
       } catch (e) {
-        console.error("[FARE_REVALIDATION_FAILED] Select flight error:", e?.message);
-        Alert.alert("Supplier Fare Revalidation Failed", e?.message || "Unable to confirm real-time pricing from airline. Please try another flight.");
+        const isMissingIdentity = e?.backendCode === "MISSING_IDENTITY";
+        recordFareQuoteFailure(
+          e,
+          identity,
+          isMissingIdentity ? handleRefreshResults : () => handleSelectFlight(selectedFlight),
+          isMissingIdentity ? "Refresh Results" : "Retry"
+        );
       } finally {
+        fareQuoteInFlightRef.current = false;
         setLoading(false);
       }
     },
-    [isMultiCity, activeLegIndex, multiCitySegments.length, isRoundTrip, activeTab, returnFlightsList.length, traceId, rawFlights, origin, destination, searchParams, travelClass, date, navigation]
+    [isMultiCity, activeLegIndex, multiCitySegments.length, isRoundTrip, activeTab, returnFlightsList.length, rawFlights, origin, destination, searchParams, travelClass, date, navigation, recordFareQuoteFailure, handleRefreshResults]
   );
 
   const handleConfirmMultiCity = async () => {
@@ -341,12 +454,19 @@ export default function FlightListingScreen({ route, navigation }) {
       return;
     }
 
+    if (fareQuoteInFlightRef.current) return;
+    fareQuoteInFlightRef.current = true;
+    setFareError(null);
     setLoading(true);
     try {
-      const activeTraceId = traceId || selectedLegFlights[0]?.rawItem?.traceId || selectedLegFlights[0]?.traceId;
+      if (!allSelectionsShareTraceId(selectedLegFlights)) {
+        Alert.alert("Unsupported flight combination", "These multi-city legs came from different supplier sessions. Please choose flights from the same combined search result.");
+        return;
+      }
+      const activeTraceId = selectedFlightIdentity(selectedLegFlights[0]).traceId;
       
       // Use Set to extract unique ResultIndexes to pass to getFlightFareQuote
-      const uniqueIndices = Array.from(new Set(selectedLegFlights.map((f) => f.rawItem?.ResultIndex || f.rawItem?.resultIndex || f.resultIndex || f.ResultIndex).filter(Boolean)));
+      const uniqueIndices = Array.from(new Set(selectedLegFlights.map((f) => selectedFlightIdentity(f).resultIndex).filter(Boolean)));
       const combinedResultIndex = uniqueIndices.join(",");
       
       const initialTotal = calculateMultiCityTotal(selectedLegFlights);
@@ -355,37 +475,42 @@ export default function FlightListingScreen({ route, navigation }) {
 
       let fareQuoteRes = null;
       if (activeTraceId && combinedResultIndex) {
-        try {
-          fareQuoteRes = await getFlightFareQuote({
+        fareQuoteRes = await getFlightFareQuote({
             traceId: activeTraceId,
             resultIndex: combinedResultIndex,
-            srdvType: selectedLegFlights[0]?.rawItem?.srdvType || "MixAPI",
-            srdvIndex: selectedLegFlights[0]?.rawItem?.srdvIndex || "2",
+            srdvType: selectedFlightIdentity(selectedLegFlights[0]).srdvType,
+            srdvIndex: selectedFlightIdentity(selectedLegFlights[0]).srdvIndex,
             offeredFare: initialTotal,
             baseFare: initialTotal,
             tax: 0,
-            isLCC: selectedLegFlights.some((f) => f.isLCC),
+            isLCC: selectedLegFlights.some((f) => selectedFlightIdentity(f).isLCC),
           });
-        } catch (quoteErr) {
-          console.warn("[FARE_REVALIDATION_WARNING] Multi-city combined quote returned error, proceeding with leg fares:", quoteErr?.message);
-        }
       }
 
-      const fareObj = fareQuoteRes?.Results?.Fare || fareQuoteRes?.Fare || fareQuoteRes?.Results;
-      const confirmedTotal = Number(fareObj?.OfferedFare || fareObj?.PublishedFare || initialTotal);
-      const baseFare = Number(fareObj?.BaseFare || confirmedTotal);
-      const tax = Number(fareObj?.Tax || 0);
+      if (!fareQuoteRes) throw new Error("The combined multi-city fare could not be confirmed.");
+      const confirmed = extractAuthoritativeFare(fareQuoteRes, 0);
+      if (!isValidAuthoritativeFare(confirmed)) {
+        const invalidFareError = new Error("The supplier returned an invalid fare.");
+        invalidFareError.backendCode = "INVALID_FARE_QUOTE";
+        throw invalidFareError;
+      }
+      const confirmedTotal = confirmed.total;
+      const baseFare = confirmed.baseFare;
+      const tax = confirmed.tax;
+      if (initialTotal > 0 && confirmedTotal > 0 && initialTotal !== confirmedTotal) {
+        safeFlightLog("[Flight][FareQuote][FareUpdated]", { total: confirmedTotal, changed: true });
+      }
 
       // Normalize all multi-city leg objects to guarantee clean origin/destination display across screens
       const normalizedMultiCityFlights = selectedLegFlights.map((leg, idx) => {
         const segInfo = multiCitySegments[idx] || {};
-        const originCode = String(segInfo.origin?.airportCode || segInfo.from || leg.fromCity || leg.origin || "DEL").toUpperCase();
+        const originCode = String(segInfo.origin?.airportCode || segInfo.from || leg.fromCity || leg.origin || "").toUpperCase();
         const originCity = String(segInfo.origin?.cityName || segInfo.origin?.airportName || leg.fromCity || originCode);
 
-        const destCode = String(segInfo.destination?.airportCode || segInfo.to || leg.toCity || leg.destination || "BOM").toUpperCase();
+        const destCode = String(segInfo.destination?.airportCode || segInfo.to || leg.toCity || leg.destination || "").toUpperCase();
         const destCity = String(segInfo.destination?.cityName || segInfo.destination?.airportName || leg.toCity || destCode);
 
-        return normalizeFlightObject({
+        return compactFlightForFlow(normalizeFlightObject({
           ...leg,
           fromCity: originCity,
           toCity: destCity,
@@ -397,7 +522,7 @@ export default function FlightListingScreen({ route, navigation }) {
           destinationCode: destCode,
           originCity,
           destinationCity: destCity,
-        }, idx);
+        }, idx));
       });
 
       const serializableSearchParams = serializeSearchParamsForNavigation({
@@ -411,21 +536,27 @@ export default function FlightListingScreen({ route, navigation }) {
       const payload = {
         traceId: activeTraceId,
         resultIndex: combinedResultIndex,
-        srdvType: selectedLegFlights[0]?.rawItem?.srdvType || "MixAPI",
-        srdvIndex: selectedLegFlights[0]?.rawItem?.srdvIndex || "2",
-        isLCC: selectedLegFlights.some((f) => (f.rawItem || f).isLCC),
+        srdvType: selectedFlightIdentity(selectedLegFlights[0]).srdvType,
+        srdvIndex: selectedFlightIdentity(selectedLegFlights[0]).srdvIndex,
+        source: selectedFlightIdentity(selectedLegFlights[0]).source,
+        isLCC: selectedLegFlights.some((f) => selectedFlightIdentity(f).isLCC),
         isMultiCity: true,
         journeyType: 3,
         multiCityFlights: normalizedMultiCityFlights,
-        flight: {
-          ...normalizedMultiCityFlights[0],
+        flight: compactFlightForFlow(normalizedMultiCityFlights[0], {
           traceId: activeTraceId,
           resultIndex: combinedResultIndex,
           selectedTravelClassPriceInr: confirmedTotal,
+          displayFare: confirmedTotal,
+          offeredFare: confirmedTotal,
+          baseFare,
+          tax,
+          selectedFare: withAuthoritativeFare(selectedLegFlights[0]?.selectedFare, confirmed),
           fromCity: origin,
           toCity: destination,
-        },
+        }),
         fareQuote: fareQuoteRes?.Results || fareQuoteRes,
+        quoteTimestamp: Date.now(),
         searchContext: serializableSearchParams,
         fareSummary: {
           baseFare,
@@ -440,9 +571,9 @@ export default function FlightListingScreen({ route, navigation }) {
       await writeFlightBookingFlowState(payload);
       navigation.navigate("FlightPassengerDetailsScreen", payload);
     } catch (e) {
-      console.error("[FARE_REVALIDATION_FAILED] Multi-city error:", e?.message);
-      Alert.alert("Supplier Fare Revalidation Failed", e?.message || "Unable to confirm real-time pricing from airline. Please try another flight.");
+      recordFareQuoteFailure(e, selectedFlightIdentity(selectedLegFlights[0] || {}), () => handleConfirmMultiCity());
     } finally {
+      fareQuoteInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -457,70 +588,78 @@ export default function FlightListingScreen({ route, navigation }) {
       return;
     }
 
+    if (fareQuoteInFlightRef.current) return;
+    fareQuoteInFlightRef.current = true;
+    setFareError(null);
     setLoading(true);
     try {
       const outboundObj = selectedOutboundFlight.rawItem || selectedOutboundFlight;
       const returnObj = selectedReturnFlight.rawItem || selectedReturnFlight;
-      const activeTraceId = traceId || outboundObj.traceId || returnObj.traceId;
+      if (!allSelectionsShareTraceId([selectedOutboundFlight, selectedReturnFlight])) {
+        Alert.alert("Unsupported flight combination", "Split-session round trips are not supported yet. Please choose an onward and return option from the same combined search result.");
+        return;
+      }
+      const activeTraceId = selectedFlightIdentity(selectedOutboundFlight).traceId;
 
       const outboundPrice = Number(selectedOutboundFlight.displayFare || selectedOutboundFlight.price || 0);
       const returnPrice = Number(selectedReturnFlight.displayFare || selectedReturnFlight.price || 0);
       const initialTotal = outboundPrice + returnPrice;
 
       // Complete combined ResultIndex for SRDV Round Trip
-      const combinedResultIndex = `${outboundObj.resultIndex || ""},${returnObj.resultIndex || ""}`;
+      const combinedResultIndex = `${selectedFlightIdentity(selectedOutboundFlight).resultIndex},${selectedFlightIdentity(selectedReturnFlight).resultIndex}`;
 
       console.log(`[FARE_REVALIDATION_STARTED] Round-trip selection revalidating fare with supplier | ResultIndex: ${combinedResultIndex}`);
 
       let fareQuoteRes = null;
       if (activeTraceId && combinedResultIndex) {
-        try {
-          fareQuoteRes = await getFlightFareQuote({
+        fareQuoteRes = await getFlightFareQuote({
             traceId: activeTraceId,
             resultIndex: combinedResultIndex,
-            srdvType: outboundObj.srdvType || "MixAPI",
-            srdvIndex: outboundObj.srdvIndex || "2",
+            srdvType: selectedFlightIdentity(selectedOutboundFlight).srdvType,
+            srdvIndex: selectedFlightIdentity(selectedOutboundFlight).srdvIndex,
             offeredFare: initialTotal,
             baseFare: initialTotal,
             tax: 0,
-            isLCC: Boolean(outboundObj.isLCC || returnObj.isLCC),
+            isLCC: Boolean(selectedFlightIdentity(selectedOutboundFlight).isLCC || selectedFlightIdentity(selectedReturnFlight).isLCC),
           });
-        } catch (quoteErr) {
-          console.warn("[FARE_REVALIDATION_WARNING] Combined quote call returned error, proceeding with individual leg quotes:", quoteErr?.message);
-        }
       }
 
-      const fareObj = fareQuoteRes?.Results?.Fare || fareQuoteRes?.Fare || fareQuoteRes?.Results;
-      const confirmedTotal = Number(fareObj?.OfferedFare || fareObj?.PublishedFare || initialTotal);
+      if (!fareQuoteRes) throw new Error("The combined round-trip fare could not be confirmed.");
+      const confirmed = extractAuthoritativeFare(fareQuoteRes, 0);
+      if (!isValidAuthoritativeFare(confirmed)) {
+        const invalidFareError = new Error("The supplier returned an invalid fare.");
+        invalidFareError.backendCode = "INVALID_FARE_QUOTE";
+        throw invalidFareError;
+      }
+      const confirmedTotal = confirmed.total;
 
       if (initialTotal > 0 && confirmedTotal > 0 && initialTotal !== confirmedTotal) {
-        console.warn(`[FARE_CHANGED] Supplier updated round-trip total from ₹${initialTotal} to ₹${confirmedTotal}`);
-        Alert.alert(
-          "Fare Updated by Airline",
-          `The airline updated the total round-trip fare from ₹${initialTotal.toLocaleString("en-IN")} to ₹${confirmedTotal.toLocaleString("en-IN")}.`,
-          [{ text: "OK" }]
-        );
+        safeFlightLog("[Flight][FareQuote][FareUpdated]", { total: confirmedTotal, changed: true });
       }
 
       const payload = {
         traceId: activeTraceId,
         resultIndex: combinedResultIndex,
-        srdvType: outboundObj.srdvType || "MixAPI",
-        srdvIndex: outboundObj.srdvIndex || "2",
-        isLCC: Boolean(outboundObj.isLCC || returnObj.isLCC),
+        srdvType: selectedFlightIdentity(selectedOutboundFlight).srdvType,
+        srdvIndex: selectedFlightIdentity(selectedOutboundFlight).srdvIndex,
+        source: selectedFlightIdentity(selectedOutboundFlight).source,
+        isLCC: Boolean(selectedFlightIdentity(selectedOutboundFlight).isLCC || selectedFlightIdentity(selectedReturnFlight).isLCC),
         isRoundTrip: true,
-        outboundFlight: selectedOutboundFlight,
-        returnFlight: selectedReturnFlight,
-        flight: {
-          ...outboundObj,
+        outboundFlight: compactFlightForFlow(selectedOutboundFlight),
+        returnFlight: compactFlightForFlow(selectedReturnFlight),
+        flight: compactFlightForFlow(selectedOutboundFlight, {
           isRoundTrip: true,
-          outbound: selectedOutboundFlight,
-          return: selectedReturnFlight,
           selectedTravelClassPriceInr: confirmedTotal,
+          displayFare: confirmedTotal,
+          offeredFare: confirmedTotal,
+          baseFare: confirmed.baseFare,
+          tax: confirmed.tax,
+          selectedFare: withAuthoritativeFare(selectedOutboundFlight.selectedFare, confirmed),
           fromCity: origin,
           toCity: destination,
-        },
+        }),
         fareQuote: fareQuoteRes?.Results || fareQuoteRes,
+        quoteTimestamp: Date.now(),
         searchContext: {
           ...searchParams,
           travelClass,
@@ -529,8 +668,8 @@ export default function FlightListingScreen({ route, navigation }) {
           journeyType: 2,
         },
         fareSummary: {
-          baseFare: confirmedTotal,
-          tax: 0,
+          baseFare: confirmed.baseFare,
+          tax: confirmed.tax,
           markup: 0,
           convenienceFee: 0,
           discount: 0,
@@ -541,9 +680,9 @@ export default function FlightListingScreen({ route, navigation }) {
       await writeFlightBookingFlowState(payload);
       navigation.navigate("FlightPassengerDetailsScreen", payload);
     } catch (e) {
-      console.error("[FARE_REVALIDATION_FAILED] Round trip error:", e?.message);
-      Alert.alert("Supplier Fare Revalidation Failed", e?.message || "Unable to confirm real-time pricing from airline. Please try another flight.");
+      recordFareQuoteFailure(e, selectedFlightIdentity(selectedOutboundFlight || {}), () => handleConfirmRoundTrip());
     } finally {
+      fareQuoteInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -559,7 +698,7 @@ export default function FlightListingScreen({ route, navigation }) {
         passengers={`${adults} Pax`}
         travelClass={travelClass}
         onBack={() => navigation.goBack()}
-        onModify={() => navigation.navigate("FlightSearchScreen")}
+        onModify={() => navigation.navigate("FlightScreen", { restoreSearchParams: searchParams })}
       />
 
       {/* Multi-City Tab Controller Banner */}
@@ -647,6 +786,28 @@ export default function FlightListingScreen({ route, navigation }) {
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={PRIMARY_RED} />
           <Text style={styles.loadingText}>Confirming flight details...</Text>
+        </View>
+      )}
+
+      {fareError && (
+        <View style={styles.fareErrorBanner} accessibilityRole="alert">
+          <Ionicons name="alert-circle-outline" size={20} color="#B91C1C" />
+          <Text style={styles.fareErrorText}>{fareError.message}</Text>
+          <TouchableOpacity
+            accessibilityRole="button"
+            disabled={loading}
+            onPress={() => retryFareActionRef.current?.()}
+            style={styles.fareErrorAction}
+          >
+            <Text style={styles.fareErrorActionText}>{fareError.actionLabel || "Retry"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityRole="button"
+            onPress={() => setFareError(null)}
+            style={styles.fareErrorDismiss}
+          >
+            <Ionicons name="close" size={18} color={TEXT_MUTED} />
+          </TouchableOpacity>
         </View>
       )}
 
@@ -777,6 +938,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: PRIMARY_RED,
+  },
+  fareErrorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  fareErrorText: {
+    flex: 1,
+    color: "#991B1B",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  fareErrorAction: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  fareErrorActionText: {
+    color: PRIMARY_RED,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  fareErrorDismiss: {
+    padding: 4,
   },
   emptyContainer: {
     alignItems: "center",

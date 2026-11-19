@@ -20,9 +20,11 @@ export default function FareRuleModal({
   onClose,
   loading = false,
   fareRuleData = null,
-  origin = "DEL",
-  destination = "BOM",
-  airline = "Flight",
+  error = "",
+  onRetry,
+  origin = "",
+  destination = "",
+  airline = "Selected flight",
 }) {
   const parsedData = useMemo(() => {
     return parseRawFareRules(fareRuleData);
@@ -75,6 +77,13 @@ export default function FareRuleModal({
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={PRIMARY_RED} />
                 <Text style={styles.loadingText}>Fetching live fare rules & penalties...</Text>
+              </View>
+            ) : error ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="alert-circle-outline" size={40} color={PRIMARY_RED} />
+                <Text style={styles.emptyTitle}>Fare rules unavailable</Text>
+                <Text style={styles.emptyText}>{error}</Text>
+                {!!onRetry && <TouchableOpacity onPress={onRetry} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity>}
               </View>
             ) : (
               <>
@@ -141,11 +150,12 @@ export default function FareRuleModal({
                   ))
                 ) : (
                   <View style={styles.emptyContainer}>
-                    <Ionicons name="shield-checkmark-outline" size={40} color="#059669" />
-                    <Text style={styles.emptyTitle}>Standard Policy Applies</Text>
+                    <Ionicons name="document-text-outline" size={40} color={TEXT_MUTED} />
+                    <Text style={styles.emptyTitle}>Fare rules unavailable</Text>
                     <Text style={styles.emptyText}>
-                      Standard airline cancellation, date change penalties, and statutory taxes refund policies apply to this booking segment.
+                      The airline did not provide fare-rule details for this selection.
                     </Text>
+                    {!!onRetry && <TouchableOpacity onPress={onRetry} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity>}
                   </View>
                 )}
               </>
@@ -177,6 +187,8 @@ const styles = StyleSheet.create({
     maxHeight: "85%",
     paddingBottom: 20,
   },
+  retryButton: { marginTop: 14, paddingHorizontal: 22, paddingVertical: 10, borderRadius: 12, backgroundColor: PRIMARY_RED },
+  retryButtonText: { color: "#FFFFFF", fontWeight: "800" },
   handleWrap: {
     alignItems: "center",
     paddingVertical: 10,

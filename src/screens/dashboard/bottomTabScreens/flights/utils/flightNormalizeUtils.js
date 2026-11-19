@@ -2,6 +2,8 @@
  * Canonical Normalizer for Flight Objects across all application screens.
  * Eliminates undefined ➔ undefined route display and ensures consistent property names.
  */
+import { toOpaqueId } from "./flightFlowUtils";
+
 export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
   if (!flight) return null;
 
@@ -17,7 +19,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
     raw.Origin?.CityCode ||
     raw.fromCity ||
     raw.from ||
-    "DEL"
+    ""
   ).toUpperCase();
 
   const originCity = String(
@@ -40,7 +42,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
     raw.Destination?.CityCode ||
     raw.toCity ||
     raw.to ||
-    "BOM"
+    ""
   ).toUpperCase();
 
   const destinationCity = String(
@@ -59,7 +61,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
     flight.airline ||
     raw.AirlineCode ||
     raw.Airline?.AirlineCode ||
-    "6E"
+    ""
   );
 
   const airlineName = String(
@@ -84,6 +86,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
     raw.ResultIndex ||
     ""
   );
+  const traceId = toOpaqueId(flight.traceId) || toOpaqueId(flight.TraceId) || toOpaqueId(raw.traceId) || toOpaqueId(raw.TraceId);
 
   // Price & Fare
   const price = Number(
@@ -100,7 +103,10 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
     ...raw,
     ...flight,
     legIndex: fallbackLegIndex,
+    traceId,
+    TraceId: traceId,
     resultIndex,
+    ResultIndex: resultIndex,
     airlineCode,
     airlineName,
     flightNumber,
@@ -121,7 +127,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
  * Normalizes Date instances to YYYY-MM-DD string for navigation serialization.
  */
 export function normalizeDateString(dateVal) {
-  if (!dateVal) return new Date().toISOString().slice(0, 10);
+  if (!dateVal) return "";
   if (typeof dateVal === "string") {
     if (dateVal.includes("T")) return dateVal.split("T")[0];
     return dateVal;

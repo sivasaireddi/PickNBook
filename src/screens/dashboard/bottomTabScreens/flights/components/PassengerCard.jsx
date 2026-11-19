@@ -41,7 +41,7 @@ export const PassengerCard = React.memo(({
             adjustsFontSizeToFit
             minimumFontScale={0.85}
           >
-            {isInternational ? "Passport Req." : "ID Verified"}
+            {isInternational ? "Passport Req." : "Details Required"}
           </Text>
         </View>
       </View>
@@ -88,7 +88,7 @@ export const PassengerCard = React.memo(({
       {/* DOB & Nationality Row */}
       <View style={[styles.row, width < 430 && styles.rowStacked]}>
         <InputField
-          label={isInternational ? "DATE OF BIRTH" : "DATE OF BIRTH (OPTIONAL)"}
+          label={isInternational || passenger.passengerType !== "Adult" ? "DATE OF BIRTH" : "DATE OF BIRTH (OPTIONAL)"}
           value={passenger.dob}
           onChangeText={(val) => onUpdatePassenger(index, "dob", val)}
           placeholder="YYYY-MM-DD"
@@ -104,6 +104,7 @@ export const PassengerCard = React.memo(({
           onChangeText={(val) => onUpdatePassenger(index, "nationality", val)}
           placeholder="e.g. Indian"
           iconName="globe-outline"
+          error={errors[`p-${index}-nationality`]}
           containerStyle={styles.flex1}
         />
       </View>

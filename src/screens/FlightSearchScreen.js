@@ -60,14 +60,14 @@ const TRIPS = [
   { id: "multicity", label: "Multi-city" },
 ];
 
-export default function FlightSearchScreen({ navigation }) {
+export default function FlightSearchScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const {
     origin, setOrigin,
     destination, setDestination,
     departureDate, setDepartureDate,
     returnDate, setReturnDate,
-    multiCitySegments,
+    multiCitySegments, setMultiCitySegments,
     addMultiCitySegment, removeMultiCitySegment, updateMultiCitySegment,
     travellers, updateTravellers,
     cabinClass, setCabinClass,
@@ -94,6 +94,28 @@ export default function FlightSearchScreen({ navigation }) {
   const [datePickerSegIndex, setDatePickerSegIndex] = useState(0);
 
   const [searching, setSearching] = useState(false);
+  const restoredSearchRef = useRef(false);
+
+  useEffect(() => {
+    const saved = route?.params?.restoreSearchParams;
+    if (!saved || restoredSearchRef.current) return;
+    restoredSearchRef.current = true;
+    if (saved.origin) setOrigin(saved.origin);
+    if (saved.destination) setDestination(saved.destination);
+    if (saved.date || saved.departureDate) setDepartureDate(new Date(saved.date || saved.departureDate));
+    if (saved.returnDate) setReturnDate(new Date(saved.returnDate));
+    if (saved.tripType) setTripType(saved.tripType);
+    if (saved.travelClass || saved.cabinClass) setCabinClass(saved.travelClass || saved.cabinClass);
+    if (saved.travellers) updateTravellers(saved.travellers);
+    else updateTravellers({ adults: saved.adults, children: saved.children, infants: saved.infants });
+    if (Array.isArray(saved.multiCitySegments) && saved.multiCitySegments.length >= 2) {
+      setMultiCitySegments(saved.multiCitySegments.map((segment) => ({
+        ...segment,
+        date: new Date(segment.date || segment.departureDate),
+        departureDate: new Date(segment.date || segment.departureDate),
+      })));
+    }
+  }, [route?.params?.restoreSearchParams, setOrigin, setDestination, setDepartureDate, setReturnDate, setTripType, setCabinClass, updateTravellers, setMultiCitySegments]);
 
   useEffect(() => {
     Animated.parallel([

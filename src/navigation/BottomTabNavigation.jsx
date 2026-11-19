@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
-import { Keyboard, Platform, StyleSheet, View, Animated } from "react-native";
+import { Keyboard, StyleSheet, View, Animated } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import HomeScreen from "../screens/dashboard/bottomTabScreens/HomeScreen";
 import HotelsScreen from "../screens/dashboard/bottomTabScreens/HotelsScreen";
@@ -19,6 +20,8 @@ import ProfileScreen from "../screens/dashboard/bottomTabScreens/ProfileScreen";
 
 const Tab = createBottomTabNavigator();
 const HomeStack = createNativeStackNavigator();
+const NORMAL_TAB_BAR_HEIGHT = 64;
+const MIN_BOTTOM_SPACING = 8;
 
 function HomeStackNavigator() {
   return (
@@ -93,6 +96,9 @@ function AnimatedTabBarLabel({ focused, label, color }) {
 }
 
 export default function BottomTabNavigation() {
+  const insets = useSafeAreaInsets();
+  const bottomPadding = Math.max(insets.bottom, MIN_BOTTOM_SPACING);
+
   return (
     <Tab.Navigator
       initialRouteName="Home"
@@ -104,9 +110,9 @@ export default function BottomTabNavigation() {
           backgroundColor: "#FFFFFF",
           borderTopWidth: 1,
           borderTopColor: "#F1F5F9",
-          height: Platform.OS === "ios" ? 84 : 64,
+          height: NORMAL_TAB_BAR_HEIGHT + insets.bottom,
           paddingTop: 6,
-          paddingBottom: Platform.OS === "ios" ? 22 : 8,
+          paddingBottom: bottomPadding,
           elevation: 8,
           shadowColor: "#000000",
           shadowOffset: { width: 0, height: -3 },

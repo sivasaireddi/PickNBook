@@ -20,7 +20,7 @@ import BordingNDroppingPoints from "../screens/dashboard/bottomTabScreens/Bordin
 import FlightListingScreen from "../screens/dashboard/bottomTabScreens/flights/FlightListingScreen";
 import FlightPassengerDetailsScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPassengerDetailsScreen";
 import FlightSeatSelectionScreen from "../screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen";
-import FlightPaymentScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPaymentScreen";
+import FlightCheckoutScreen from "../screens/dashboard/bottomTabScreens/flights/FlightCheckoutScreen";
 import FlightPaymentProcessingScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPaymentProcessingScreen";
 import FlightConfirmationScreen from "../screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen";
 import FlightDetailsScreen from "../screens/dashboard/bottomTabScreens/flights/FlightDetailsScreen";
@@ -107,7 +107,7 @@ const StackNavigation = () => {
       <Stack.Screen name="FlightListingScreen" component={FlightListingScreen} />
       <Stack.Screen name="FlightPassengerDetailsScreen" component={FlightPassengerDetailsScreen} />
       <Stack.Screen name="FlightSeatSelectionScreen" component={FlightSeatSelectionScreen} />
-      <Stack.Screen name="FlightPaymentScreen" component={FlightPaymentScreen} />
+      <Stack.Screen name="FlightCheckoutScreen" component={FlightCheckoutScreen} />
       <Stack.Screen name="FlightPaymentProcessingScreen" component={FlightPaymentProcessingScreen} />
       <Stack.Screen name="FlightConfirmationScreen" component={FlightConfirmationScreen} />
       <Stack.Screen name="FlightDetailsScreen" component={FlightDetailsScreen} />

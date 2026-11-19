@@ -32,21 +32,36 @@ export async function writeFlightBookingFlowState(partialState) {
       resultIndex: String(next.resultIndex || next.flight?.resultIndex || ""),
       srdvType: String(next.srdvType || next.flight?.srdvType || "MixAPI"),
       srdvIndex: String(next.srdvIndex || next.flight?.srdvIndex || "2"),
+      source: next.source ?? next.flight?.source ?? null,
+      selectedFareType: next.flight?.selectedFareType || next.selectedFareType || null,
       pnr: next.pnr || "",
       bookingId: next.bookingId || "",
       ticketStatus: next.ticketStatus || "Confirmed",
       isLCC: Boolean(next.isLCC),
       payableAmount: Number(next.payableAmount || next.fareSummary?.totalFare || 0),
-      contact: next.contact ? { email: next.contact.email, mobile: next.contact.mobile } : undefined,
-      passengers: Array.isArray(next.passengers)
-        ? next.passengers.map((p) => ({
-            title: p.title,
-            firstName: p.firstName,
-            lastName: p.lastName,
-            gender: p.gender,
-            passengerType: p.passengerType,
-          }))
-        : [],
+      journeyType: Number(next.journeyType || next.searchContext?.journeyType || 1),
+      isInternational: Boolean(next.isInternational),
+      quoteTimestamp: next.quoteTimestamp || null,
+      fareSummary: next.fareSummary ? {
+        baseFare: Number(next.fareSummary.baseFare || 0),
+        tax: Number(next.fareSummary.tax || 0),
+        seatSurcharge: Number(next.fareSummary.seatSurcharge || 0),
+        ssrSurcharge: Number(next.fareSummary.ssrSurcharge || 0),
+        totalFare: Number(next.fareSummary.totalFare || 0),
+      } : undefined,
+      searchContext: next.searchContext ? {
+        journeyType: next.searchContext.journeyType,
+        tripType: next.searchContext.tripType,
+        adults: next.searchContext.adults,
+        children: next.searchContext.children,
+        infants: next.searchContext.infants,
+        travelClass: next.searchContext.travelClass,
+        date: next.searchContext.date,
+        returnDate: next.searchContext.returnDate,
+        from: next.searchContext.from,
+        to: next.searchContext.to,
+      } : undefined,
+      selectedSeatLabels: Array.isArray(next.selectedSeatLabels) ? next.selectedSeatLabels.slice(0, 12) : [],
     };
 
     const jsonStr = JSON.stringify(compactState);

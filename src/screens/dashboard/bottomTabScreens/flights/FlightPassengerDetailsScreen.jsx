@@ -8,6 +8,7 @@ import { getTravelers } from "../../../../services/travelerService";
 import { getStoredAuthToken } from "../../../../utils/authSession";
 import { getFlightFareRule } from "./services/flightBookingService";
 import { cleanFareRuleHtml } from "./utils/flightUtils";
+import { safeFlightLog, validateFlightPassenger } from "./utils/flightFlowUtils";
 
 // Redesigned Theme & Components
 import { COLORS } from "./theme/passengerDetailsTheme";
@@ -63,38 +64,42 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     return { adults, children, infants };
   }, [flowState.searchContext]);
 
-  const totalPassengers = Math.max(1, travellersCount.adults + travellersCount.children);
+  const totalPassengers = Math.max(1, travellersCount.adults + travellersCount.children + travellersCount.infants);
 
   // International flight check for passport requirements
   const isInternational = useMemo(() => {
-    const indianCodes = ["DEL", "BOM", "BLR", "MAA", "HYD", "CCU", "PNQ", "AMD", "JAI", "COK", "GOI", "VGA", "VTZ"];
-    const from = String(flowState.flight?.from || flowState.searchContext?.from || "DEL").toUpperCase();
-    const to = String(flowState.flight?.to || flowState.searchContext?.to || "BOM").toUpperCase();
-    const segs = flowState.searchContext?.segments || [];
-    const allCodes = [
-      from,
-      to,
-      ...segs.map((s) => String(s.origin || s.from || "").toUpperCase()),
-      ...segs.map((s) => String(s.destination || s.to || "").toUpperCase()),
-    ];
-    return allCodes.some((code) => code && !indianCodes.includes(code));
+    if (typeof flowState.isInternational === "boolean") return flowState.isInternational;
+    const rawSegments = flowState.flight?.Segments?.flat?.() || flowState.flight?.rawItem?.Segments?.flat?.() || [];
+    const countryCodes = [
+      ...rawSegments.flatMap((segment) => [
+      segment?.Origin?.CountryCode,
+      segment?.Destination?.CountryCode,
+      ]),
+      flowState.searchContext?.origin?.countryCode,
+      flowState.searchContext?.origin?.CountryCode,
+      flowState.searchContext?.destination?.countryCode,
+      flowState.searchContext?.destination?.CountryCode,
+    ].filter(Boolean).map((code) => String(code).toUpperCase());
+    return countryCodes.some((code) => !["IN", "IND", "INDIA"].includes(code));
   }, [flowState]);
 
   // Passengers state
-  const [passengers, setPassengers] = useState(
-    Array.from({ length: totalPassengers }, (_, index) => ({
+  const [passengers, setPassengers] = useState(() => {
+    if (Array.isArray(flowState.passengers) && flowState.passengers.length === totalPassengers) return flowState.passengers;
+    return Array.from({ length: totalPassengers }, (_, index) => ({
       title: "Mr",
       firstName: "",
       lastName: "",
       gender: "Male",
       dob: "",
-      nationality: "Indian",
+      nationality: "",
       passportNo: "",
-      passportExpiry: "2030-12-31",
-      passportIssueCountryCode: "IN",
-      passengerType: index < travellersCount.adults ? "Adult" : "Child",
-    }))
-  );
+      passportExpiry: "",
+      passportIssueDate: "",
+      passportIssueCountryCode: "",
+      passengerType: index < travellersCount.adults ? "Adult" : index < travellersCount.adults + travellersCount.children ? "Child" : "Infant",
+    }));
+  });
 
   // Contact details state
   const [contact, setContact] = useState({
@@ -106,11 +111,12 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
   const [fareRuleModalVisible, setFareRuleModalVisible] = useState(false);
   const [fareRuleLoading, setFareRuleLoading] = useState(false);
   const [fareRuleData, setFareRuleData] = useState(null);
+  const [fareRuleError, setFareRuleError] = useState("");
 
   const handleFetchFareRules = useCallback(async () => {
     setFareRuleModalVisible(true);
-    if (fareRuleData) return;
     setFareRuleLoading(true);
+    setFareRuleError("");
     try {
       const activeTraceId = flowState.traceId || flowState.flight?.traceId || routeParams.traceId || routeParams.flight?.traceId;
       const activeResultIndex = flowState.resultIndex || flowState.flight?.resultIndex || routeParams.resultIndex || routeParams.flight?.resultIndex;
@@ -129,18 +135,16 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
         srdvIndex: activeSrdvIndex,
       });
 
-      console.log("\n==========================================");
-      console.log("📋 [FLIGHT FARE RULE API RESPONSE RETURNED]:");
-      console.log(JSON.stringify(res, null, 2));
-      console.log("==========================================\n");
+      safeFlightLog("[Flight][FareRule][Response]", { status: res?.success === false ? "unavailable" : "received", resultIndex: activeResultIndex });
 
       setFareRuleData(res);
     } catch (err) {
       console.error("[FlightPassengerDetailsScreen] Fare rule fetch error:", err?.message);
+      setFareRuleError(err?.message || "Fare rules are currently unavailable.");
     } finally {
       setFareRuleLoading(false);
     }
-  }, [fareRuleData, flowState, routeParams]);
+  }, [flowState, routeParams]);
 
   const fareRulesList = useMemo(() => {
     if (fareRuleData?.code === "FARE_RULE_UNAVAILABLE" || (fareRuleData?.success === false && (!fareRuleData?.data || fareRuleData?.data?.length === 0))) {
@@ -175,11 +179,9 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       const list = await getTravelers(token);
       setSavedTravelers(list || []);
 
-      if (list && list.length > 0) {
-        handleSelectTraveler(list[0]);
-      }
+      safeFlightLog("[Flight][Travelers][Response]", { status: "received", flightCount: list?.length || 0 });
     } catch (err) {
-      console.log("[FlightPassengerDetailsScreen] Error fetching travelers:", err);
+      console.warn("[Flight][Travelers][Error]", { message: err?.message || "Unable to load saved travelers" });
       setTravelersError("Unable to load saved travelers.");
     } finally {
       setTravelersLoading(false);
@@ -213,6 +215,12 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
         firstName,
         lastName,
         gender: traveler.gender === "Transgender" ? "Others" : (traveler.gender || "Male"),
+        dob: traveler.dateOfBirth || traveler.dob || next[0].dob,
+        nationality: traveler.nationality || next[0].nationality,
+        passportNo: traveler.passportNumber || traveler.passportNo || next[0].passportNo,
+        passportExpiry: traveler.passportExpiry || next[0].passportExpiry,
+        passportIssueDate: traveler.passportIssueDate || next[0].passportIssueDate,
+        passportIssueCountryCode: traveler.passportIssueCountryCode || next[0].passportIssueCountryCode,
       };
       return next;
     });
@@ -255,59 +263,11 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
 
     // Validate Passenger names & fields
     passengers.forEach((p, idx) => {
-      if (!p.firstName.trim()) {
-        nextErrors[`p-${idx}-firstName`] = "First name is required";
+      const invalid = validateFlightPassenger(p, { international: isInternational, departureDate: flowState.searchContext?.date || flowState.searchContext?.departureDate });
+      invalid.forEach((field) => {
+        nextErrors[`p-${idx}-${field}`] = `${p.passengerType} passenger ${idx + 1}: ${field.replace(/([A-Z])/g, " $1").toLowerCase()} is invalid`;
         isValid = false;
-      }
-      if (!p.lastName.trim()) {
-        nextErrors[`p-${idx}-lastName`] = "Last name is required";
-        isValid = false;
-      }
-      
-      if (isInternational) {
-        if (!p.dob || !p.dob.trim()) {
-          nextErrors[`p-${idx}-dob`] = "DOB required for intl flights";
-          isValid = false;
-        }
-        if (!p.passportNo || !p.passportNo.trim()) {
-          nextErrors[`p-${idx}-passportNo`] = "Passport number required";
-          isValid = false;
-        }
-        if (!p.passportExpiry || !p.passportExpiry.trim()) {
-          nextErrors[`p-${idx}-passportExpiry`] = "Passport expiry required";
-          isValid = false;
-        }
-        if (!p.passportIssueDate || !p.passportIssueDate.trim()) {
-          nextErrors[`p-${idx}-passportIssueDate`] = "Issue date required";
-          isValid = false;
-        }
-        if (!p.passportIssueCountryCode || !p.passportIssueCountryCode.trim()) {
-          nextErrors[`p-${idx}-passportIssueCountryCode`] = "Issue country required";
-          isValid = false;
-        }
-        if (!p.nationality || !p.nationality.trim()) {
-          // nationality validation
-          isValid = false;
-        }
-      } else if (p.passportNo && p.passportNo.trim().length > 0) {
-        // If they voluntarily entered a passport, require the rest
-        if (!p.dob || !p.dob.trim()) {
-          nextErrors[`p-${idx}-dob`] = "DOB required with passport";
-          isValid = false;
-        }
-        if (!p.passportExpiry || !p.passportExpiry.trim()) {
-          nextErrors[`p-${idx}-passportExpiry`] = "Expiry required";
-          isValid = false;
-        }
-        if (!p.passportIssueDate || !p.passportIssueDate.trim()) {
-          nextErrors[`p-${idx}-passportIssueDate`] = "Issue date required";
-          isValid = false;
-        }
-        if (!p.passportIssueCountryCode || !p.passportIssueCountryCode.trim()) {
-          nextErrors[`p-${idx}-passportIssueCountryCode`] = "Country required";
-          isValid = false;
-        }
-      }
+      });
     });
 
     // Validate Contacts
@@ -316,7 +276,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       nextErrors["email"] = "Enter a valid email address";
       isValid = false;
     }
-    if (!contact.mobile.trim() || contact.mobile.length < 10) {
+    if (!/^\d{10}$/.test(contact.mobile.trim())) {
       nextErrors["mobile"] = "Enter a valid 10-digit mobile number";
       isValid = false;
     }
@@ -327,8 +287,9 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     }
 
     setErrors(nextErrors);
+    safeFlightLog("[Flight][Passengers][Validation]", { validationPassed: isValid, invalidFields: Object.keys(nextErrors) });
     return isValid;
-  }, [passengers, contact, isInternational, acknowledgementAccepted]);
+  }, [passengers, contact, isInternational, acknowledgementAccepted, flowState.searchContext?.date, flowState.searchContext?.departureDate]);
 
   // Handle Continue to Seat Selection
   const handleContinue = useCallback(async () => {
@@ -368,6 +329,8 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
       passengers,
       contact,
       acknowledgementAccepted,
+      isInternational,
+      fareRuleState: fareRuleError ? "error" : fareRuleData ? "loaded" : "not_loaded",
       selectedSeats: [],
       selectedSeatLabels: [],
       fareSummary: flowState.fareSummary || {
@@ -379,7 +342,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
     await writeFlightBookingFlowState(nextState);
     console.log("[FlightPassengerDetailsScreen] Navigating to FlightSeatSelectionScreen...");
     navigation.navigate("FlightSeatSelectionScreen", nextState);
-  }, [validateDetails, errors, passengers, contact, acknowledgementAccepted, flowState, routeParams, navigation]);
+  }, [validateDetails, errors, passengers, contact, acknowledgementAccepted, flowState, routeParams, navigation, isInternational, fareRuleData, fareRuleError]);
 
   const handleBackPress = useCallback(() => {
     navigation.goBack();
@@ -470,9 +433,11 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
           onClose={() => setFareRuleModalVisible(false)}
           loading={fareRuleLoading}
           fareRuleData={fareRuleData}
-          origin={flowState.flight?.from || flowState.searchContext?.from || "DEL"}
-          destination={flowState.flight?.to || flowState.searchContext?.to || "BOM"}
-          airline={flowState.flight?.airlineName || "Flight"}
+          error={fareRuleError}
+          onRetry={handleFetchFareRules}
+          origin={flowState.flight?.from || flowState.searchContext?.from || ""}
+          destination={flowState.flight?.to || flowState.searchContext?.to || ""}
+          airline={flowState.flight?.airlineName || "Selected flight"}
         />
 
         {/* Sticky Action Footer */}

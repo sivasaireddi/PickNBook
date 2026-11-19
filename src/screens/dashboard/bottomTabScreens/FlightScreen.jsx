@@ -2,10 +2,10 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import FlightSearchScreen from "./flights/FlightSearchScreen";
 
-export default function FlightScreen({ navigation }) {
+export default function FlightScreen({ navigation, route }) {
   return (
     <View style={styles.screen}>
-      <FlightSearchScreen navigation={navigation} />
+      <FlightSearchScreen navigation={navigation} route={route} />
     </View>
   );
 }

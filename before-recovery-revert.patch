@@ -1,0 +1,3114 @@
+diff --git a/App.js b/App.js
+index 91caa62..38a7255 100644
+--- a/App.js
++++ b/App.js
+@@ -1,6 +1,6 @@
+ import "react-native-gesture-handler";
+-import React, { useEffect } from "react";
+-import { NavigationContainer } from '@react-navigation/native';
++import React, { useCallback, useEffect, useRef } from "react";
++import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+ import StackNavigation from './src/navigation/StackNavigation';
+ import { GestureHandlerRootView } from "react-native-gesture-handler";
+ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+@@ -19,6 +19,10 @@ import {
+   Inter_600SemiBold,
+ } from '@expo-google-fonts/inter';
+ import * as SplashScreen from 'expo-splash-screen';
++import { getStoredAuthToken, isJwtExpired } from './src/utils/authSession';
++import { clearFlightPaymentRecovery, isRecoverableFlightPayment, readFlightPaymentRecovery } from './src/screens/dashboard/bottomTabScreens/flights/services/flightPaymentRecoveryStore';
++
++const navigationRef = createNavigationContainerRef();
+ 
+ // Prevent auto-hiding the splash screen while fonts are loading
+ SplashScreen.preventAutoHideAsync().catch(() => {
+@@ -26,6 +30,8 @@ SplashScreen.preventAutoHideAsync().catch(() => {
+ });
+ 
+ export default function App() {
++  const recoveryCheckedRef = useRef(false);
++  const recoveryCheckInFlightRef = useRef(false);
+   const [fontsLoaded, fontError] = useFonts({
+     SpaceGrotesk_600SemiBold,
+     SpaceGrotesk_700Bold,
+@@ -40,6 +46,36 @@ export default function App() {
+     }
+   }, [fontsLoaded, fontError]);
+ 
++  const handleNavigationStateChange = useCallback(async () => {
++    if (!navigationRef.isReady()) return;
++    const current = navigationRef.getCurrentRoute()?.name;
++    if (current === 'SplashScreen') return;
++    if (current === 'Login') {
++      recoveryCheckedRef.current = false;
++      return;
++    }
++    if (recoveryCheckedRef.current || recoveryCheckInFlightRef.current) return;
++
++    recoveryCheckInFlightRef.current = true;
++    try {
++      const [token, recovery] = await Promise.all([getStoredAuthToken(), readFlightPaymentRecovery()]);
++      if (!token || isJwtExpired(token) || !navigationRef.isReady()) return;
++      recoveryCheckedRef.current = true;
++      if (recovery && !isRecoverableFlightPayment(recovery)) {
++        await clearFlightPaymentRecovery();
++        return;
++      }
++      if (!isRecoverableFlightPayment(recovery)) return;
++      const activeRoute = navigationRef.getCurrentRoute()?.name;
++      if (activeRoute === 'SplashScreen' || activeRoute === 'Login' || activeRoute === 'FlightConfirmationScreen') return;
++      if (activeRoute !== 'FlightPaymentProcessingScreen') {
++        navigationRef.navigate('FlightPaymentProcessingScreen', recovery);
++      }
++    } finally {
++      recoveryCheckInFlightRef.current = false;
++    }
++  }, []);
++
+   if (!fontsLoaded && !fontError) {
+     return null;
+   }
+@@ -49,7 +85,11 @@ export default function App() {
+       <BottomSheetModalProvider>
+         <HotelBookingProvider>
+           <NotificationProvider>
+-            <NavigationContainer>
++            <NavigationContainer
++              ref={navigationRef}
++              onReady={handleNavigationStateChange}
++              onStateChange={handleNavigationStateChange}
++            >
+               <StackNavigation />
+             </NavigationContainer>
+           </NotificationProvider>
+diff --git a/src/components/auth/PhoneLoginForm.jsx b/src/components/auth/PhoneLoginForm.jsx
+index 9779a8b..8ce3d8e 100644
+--- a/src/components/auth/PhoneLoginForm.jsx
++++ b/src/components/auth/PhoneLoginForm.jsx
+@@ -6,7 +6,7 @@ import AuthTextInput from "./AuthTextInput";
+ import AuthPrimaryButton from "./AuthPrimaryButton";
+ import { authTheme } from "./authStyles";
+ 
+-export default function PhoneLoginForm({ navigation }) {
++export default function PhoneLoginForm({ navigation, returnTo, returnParams }) {
+   const [phoneNumber, setPhoneNumber] = useState("");
+   const [error, setError] = useState("");
+   const [apiMessage, setApiMessage] = useState("");
+@@ -28,7 +28,7 @@ export default function PhoneLoginForm({ navigation }) {
+     try {
+       await sendLoginOtp(phoneNumber);
+       setApiMessage("OTP Sent Successfully.");
+-      setTimeout(() => navigation.navigate("VerifyMobileOtpScreen", { phoneNumber }), 500);
++      setTimeout(() => navigation.navigate("VerifyMobileOtpScreen", { phoneNumber, returnTo, returnParams }), 500);
+     } catch (err) {
+       setApiMessage(err?.message || "Something went wrong.");
+     } finally {
+diff --git a/src/hooks/useCashfreePayment.js b/src/hooks/useCashfreePayment.js
+index 5bac9db..e6d5258 100644
+--- a/src/hooks/useCashfreePayment.js
++++ b/src/hooks/useCashfreePayment.js
+@@ -30,7 +30,7 @@ export const classifyVerification = (response, requestedBookingType) => {
+ 
+   if (['failed', 'cancelled', 'canceled', 'expired'].includes(paymentStatus)) return 'failed';
+   if (!['success', 'paid'].includes(paymentStatus)) return 'payment_pending';
+-  if (!['bus', 'hotel'].includes(bookingType)) return 'success';
++  if (!['bus', 'hotel', 'flight'].includes(bookingType)) return 'success';
+   if (fulfillmentStatus === 'success') return 'success';
+   if (fulfillmentStatus.startsWith('failed')) return 'booking_failed';
+   return 'booking_pending';
+@@ -40,7 +40,7 @@ const TERMINAL_VERIFICATION_STATES = new Set(['success', 'booking_failed', 'fail
+ const VERIFICATION_POLL_INTERVAL_MS = 5000;
+ const MAX_VERIFICATION_ATTEMPTS = 24;
+ 
+-export const useCashfreePayment = (userToken) => {
++export const useCashfreePayment = (userToken, options = {}) => {
+   const [status, setStatus] = useState('idle');
+   const [error, setError] = useState(null);
+   const [orderId, setOrderId] = useState(null);
+@@ -53,6 +53,8 @@ export const useCashfreePayment = (userToken) => {
+   const bookingTypeRef = useRef(null);
+   const verificationAttemptsRef = useRef(0);
+   const verificationTimerRef = useRef(null);
++  const optionsRef = useRef(options);
++  optionsRef.current = options;
+ 
+   const clearVerificationTimer = () => {
+     if (verificationTimerRef.current) {
+@@ -95,6 +97,7 @@ export const useCashfreePayment = (userToken) => {
+         setError(nextStatus === 'failed' ? (result?.failureReason || result?.FailureReason || 'Payment was not completed.') : null);
+         setStatus(nextStatus);
+       }
++      optionsRef.current?.onVerification?.(result, nextStatus);
+       if (
+         !TERMINAL_VERIFICATION_STATES.has(nextStatus) &&
+         verificationAttemptsRef.current < MAX_VERIFICATION_ATTEMPTS &&
+@@ -126,7 +129,14 @@ export const useCashfreePayment = (userToken) => {
+ 
+   useEffect(() => {
+     isMounted.current = true;
+-    const onVerify = (callbackOrderId) => verifyOrder(callbackOrderId, { restart: true });
++    const onVerify = (callbackOrderId) => {
++      optionsRef.current?.onCallback?.("verify", callbackOrderId, "");
++      if (optionsRef.current?.delegateVerification) {
++        launchInProgress.current = false;
++        return;
++      }
++      verifyOrder(callbackOrderId, { restart: true });
++    };
+     const onError = (callbackError, callbackOrderId) => {
+       if (!isMounted.current) return;
+       const message = callbackError?.message || 'Payment was cancelled or failed.';
+@@ -142,13 +152,27 @@ export const useCashfreePayment = (userToken) => {
+         }
+         orderIdRef.current = callbackOrderId;
+         setOrderId(callbackOrderId);
+-        if (wasCancelled) {
+-          processedOrdersRef.current.add(callbackOrderKey);
+-        }
+       }
+-      if (callbackOrderId && !wasCancelled) {
+-        setError(message);
+-        verifyOrder(callbackOrderId, { restart: true });
++      const recognizedMessageCode = /installer_package_not_approved/i.test(message)
++        ? "installer_package_not_approved"
++        : "";
++      const safeErrorCode = String(
++        callbackError?.code || callbackError?.errorCode || callbackError?.type ||
++        callbackError?.error?.code || recognizedMessageCode || "sdk_error"
++      ).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
++      optionsRef.current?.onCallback?.(
++        wasCancelled ? "cancelled" : "error",
++        callbackOrderId || orderIdRef.current,
++        safeErrorCode
++      );
++      const orderToCheck = callbackOrderId || orderIdRef.current;
++      if (optionsRef.current?.delegateVerification && orderToCheck) {
++        launchInProgress.current = false;
++        return;
++      }
++      if (orderToCheck) {
++        setError(null);
++        verifyOrder(orderToCheck, { restart: true });
+         return;
+       }
+       setError(message);
+@@ -185,9 +209,11 @@ export const useCashfreePayment = (userToken) => {
+ 
+       orderIdRef.current = returnedOrderId;
+       setOrderId(returnedOrderId);
++      optionsRef.current?.onOrderCreated?.(response, returnedOrderId);
+       setStatus('awaiting_payment');
+       const session = new CFSession(paymentSessionId, returnedOrderId, CFEnvironment.PRODUCTION);
+       CFPaymentGatewayService.doWebPayment(session);
++      optionsRef.current?.onOpened?.(returnedOrderId);
+     } catch (err) {
+       launchInProgress.current = false;
+       if (isMounted.current) {
+diff --git a/src/navigation/StackNavigation.jsx b/src/navigation/StackNavigation.jsx
+index 0ff3a51..7c4cda9 100644
+--- a/src/navigation/StackNavigation.jsx
++++ b/src/navigation/StackNavigation.jsx
+@@ -20,7 +20,7 @@ import BordingNDroppingPoints from "../screens/dashboard/bottomTabScreens/Bordin
+ import FlightListingScreen from "../screens/dashboard/bottomTabScreens/flights/FlightListingScreen";
+ import FlightPassengerDetailsScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPassengerDetailsScreen";
+ import FlightSeatSelectionScreen from "../screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen";
+-import FlightPaymentScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPaymentScreen";
++import FlightCheckoutScreen from "../screens/dashboard/bottomTabScreens/flights/FlightCheckoutScreen";
+ import FlightPaymentProcessingScreen from "../screens/dashboard/bottomTabScreens/flights/FlightPaymentProcessingScreen";
+ import FlightConfirmationScreen from "../screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen";
+ import FlightDetailsScreen from "../screens/dashboard/bottomTabScreens/flights/FlightDetailsScreen";
+@@ -107,7 +107,7 @@ const StackNavigation = () => {
+       <Stack.Screen name="FlightListingScreen" component={FlightListingScreen} />
+       <Stack.Screen name="FlightPassengerDetailsScreen" component={FlightPassengerDetailsScreen} />
+       <Stack.Screen name="FlightSeatSelectionScreen" component={FlightSeatSelectionScreen} />
+-      <Stack.Screen name="FlightPaymentScreen" component={FlightPaymentScreen} />
++      <Stack.Screen name="FlightCheckoutScreen" component={FlightCheckoutScreen} />
+       <Stack.Screen name="FlightPaymentProcessingScreen" component={FlightPaymentProcessingScreen} />
+       <Stack.Screen name="FlightConfirmationScreen" component={FlightConfirmationScreen} />
+       <Stack.Screen name="FlightDetailsScreen" component={FlightDetailsScreen} />
+diff --git a/src/screens/FlightSearchScreen.js b/src/screens/FlightSearchScreen.js
+index 6045f33..32752a0 100644
+--- a/src/screens/FlightSearchScreen.js
++++ b/src/screens/FlightSearchScreen.js
+@@ -60,14 +60,14 @@ const TRIPS = [
+   { id: "multicity", label: "Multi-city" },
+ ];
+ 
+-export default function FlightSearchScreen({ navigation }) {
++export default function FlightSearchScreen({ navigation, route }) {
+   const insets = useSafeAreaInsets();
+   const {
+     origin, setOrigin,
+     destination, setDestination,
+     departureDate, setDepartureDate,
+     returnDate, setReturnDate,
+-    multiCitySegments,
++    multiCitySegments, setMultiCitySegments,
+     addMultiCitySegment, removeMultiCitySegment, updateMultiCitySegment,
+     travellers, updateTravellers,
+     cabinClass, setCabinClass,
+@@ -94,6 +94,28 @@ export default function FlightSearchScreen({ navigation }) {
+   const [datePickerSegIndex, setDatePickerSegIndex] = useState(0);
+ 
+   const [searching, setSearching] = useState(false);
++  const restoredSearchRef = useRef(false);
++
++  useEffect(() => {
++    const saved = route?.params?.restoreSearchParams;
++    if (!saved || restoredSearchRef.current) return;
++    restoredSearchRef.current = true;
++    if (saved.origin) setOrigin(saved.origin);
++    if (saved.destination) setDestination(saved.destination);
++    if (saved.date || saved.departureDate) setDepartureDate(new Date(saved.date || saved.departureDate));
++    if (saved.returnDate) setReturnDate(new Date(saved.returnDate));
++    if (saved.tripType) setTripType(saved.tripType);
++    if (saved.travelClass || saved.cabinClass) setCabinClass(saved.travelClass || saved.cabinClass);
++    if (saved.travellers) updateTravellers(saved.travellers);
++    else updateTravellers({ adults: saved.adults, children: saved.children, infants: saved.infants });
++    if (Array.isArray(saved.multiCitySegments) && saved.multiCitySegments.length >= 2) {
++      setMultiCitySegments(saved.multiCitySegments.map((segment) => ({
++        ...segment,
++        date: new Date(segment.date || segment.departureDate),
++        departureDate: new Date(segment.date || segment.departureDate),
++      })));
++    }
++  }, [route?.params?.restoreSearchParams, setOrigin, setDestination, setDepartureDate, setReturnDate, setTripType, setCabinClass, updateTravellers, setMultiCitySegments]);
+ 
+   useEffect(() => {
+     Animated.parallel([
+diff --git a/src/screens/auth/user/MobileLoginScreen.jsx b/src/screens/auth/user/MobileLoginScreen.jsx
+index b24b9ba..f374c9d 100644
+--- a/src/screens/auth/user/MobileLoginScreen.jsx
++++ b/src/screens/auth/user/MobileLoginScreen.jsx
+@@ -4,7 +4,7 @@ import AuthScreenLayout from "../../../components/auth/AuthScreenLayout";
+ import PhoneLoginForm from "../../../components/auth/PhoneLoginForm";
+ import { authTheme } from "../../../components/auth/authStyles";
+ 
+-const MobileLoginScreen = ({ navigation }) => {
++const MobileLoginScreen = ({ navigation, route }) => {
+   const goBack = () =>
+     navigation.canGoBack() ? navigation.goBack() : navigation.navigate("Login");
+ 
+@@ -23,7 +23,7 @@ const MobileLoginScreen = ({ navigation }) => {
+         </View>
+       )}
+     >
+-      <PhoneLoginForm navigation={navigation} />
++      <PhoneLoginForm navigation={navigation} returnTo={route?.params?.returnTo} returnParams={route?.params?.returnParams} />
+     </AuthScreenLayout>
+   );
+ };
+diff --git a/src/screens/auth/user/UserLoginScreen.jsx b/src/screens/auth/user/UserLoginScreen.jsx
+index 4dd58a2..c27f1f6 100644
+--- a/src/screens/auth/user/UserLoginScreen.jsx
++++ b/src/screens/auth/user/UserLoginScreen.jsx
+@@ -63,7 +63,7 @@ const extractStoredUser = (payload) => {
+   };
+ };
+ 
+-const UserLoginScreen = ({ navigation }) => {
++const UserLoginScreen = ({ navigation, route }) => {
+   const { signIn } = useContext(AuthContext);
+   const [authView, setAuthView] = useState("login");
+   const [loginMethod, setLoginMethod] = useState("email");
+@@ -135,7 +135,9 @@ const UserLoginScreen = ({ navigation }) => {
+ 
+       setApiMessage("Login successful.");
+       signIn();
+-      navigation.reset({ index: 0, routes: [{ name: "DashBoard" }] });
++      const returnTo = route?.params?.returnTo;
++      const returnParams = route?.params?.returnParams;
++      navigation.reset({ index: 0, routes: [{ name: returnTo || "DashBoard", params: returnParams }] });
+     } catch (error) {
+       const statusCode = error?.response?.status;
+       const message =
+@@ -249,7 +251,7 @@ const UserLoginScreen = ({ navigation }) => {
+         </View>
+ 
+         <View style={loginMethod === "phone" ? undefined : styles.hidden}>
+-          <PhoneLoginForm navigation={navigation} />
++          <PhoneLoginForm navigation={navigation} returnTo={route?.params?.returnTo} returnParams={route?.params?.returnParams} />
+         </View>
+ 
+       </View>
+diff --git a/src/screens/auth/user/VerifyMobileOtpScreen.jsx b/src/screens/auth/user/VerifyMobileOtpScreen.jsx
+index 7d98131..cec6a34 100644
+--- a/src/screens/auth/user/VerifyMobileOtpScreen.jsx
++++ b/src/screens/auth/user/VerifyMobileOtpScreen.jsx
+@@ -127,7 +127,7 @@ const VerifyMobileOtpScreen = ({ navigation, route }) => {
+       signIn();
+       navigation.reset({
+         index: 0,
+-        routes: [{ name: "DashBoard" }],
++        routes: [{ name: route?.params?.returnTo || "DashBoard", params: route?.params?.returnParams }],
+       });
+     } catch (err) {
+       setApiMessage(err.message || "Invalid or expired OTP.");
+diff --git a/src/screens/dashboard/bottomTabScreens/FlightScreen.jsx b/src/screens/dashboard/bottomTabScreens/FlightScreen.jsx
+index 59dfc8f..60b88b4 100644
+--- a/src/screens/dashboard/bottomTabScreens/FlightScreen.jsx
++++ b/src/screens/dashboard/bottomTabScreens/FlightScreen.jsx
+@@ -2,10 +2,10 @@ import React from "react";
+ import { StyleSheet, View } from "react-native";
+ import FlightSearchScreen from "./flights/FlightSearchScreen";
+ 
+-export default function FlightScreen({ navigation }) {
++export default function FlightScreen({ navigation, route }) {
+   return (
+     <View style={styles.screen}>
+-      <FlightSearchScreen navigation={navigation} />
++      <FlightSearchScreen navigation={navigation} route={route} />
+     </View>
+   );
+ }
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen.jsx b/src/screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen.jsx
+index f450d68..bc321e9 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/FlightConfirmationScreen.jsx
+@@ -41,12 +41,7 @@ export default function FlightConfirmationScreen({ route, navigation }) {
+     console.log("================================================================================");
+     console.log("🎉 [FLIGHT BOOKING FLOW - STEP 6: BOOKING CONFIRMATION & E-TICKET]");
+     console.log(`📅 Timestamp: ${new Date().toISOString()}`);
+-    console.log(`📋 Ticket Status: ${flowState.ticketStatus || "Confirmed"}`);
+-    console.log(`💵 Total Amount Paid: ₹${flowState.payableAmount || flowState.fareSummary?.totalFare || 0}`);
+-    console.log(`🛫 Flight Details: ${flowState.flight?.airline || flowState.flight?.airlineName} (${flowState.flight?.flightNumber || flowState.flight?.flightNo || ""})`);
+-    console.log(`📍 Route: ${flowState.flight?.from || flowState.searchContext?.from} ✈️ ${flowState.flight?.to || flowState.searchContext?.to}`);
+-    console.log(`💺 Selected Seats: ${flowState.selectedSeatLabels ? flowState.selectedSeatLabels.join(", ") : "Auto-assigned"}`);
+-    console.log(`📧 Contact Email: ${flowState.contact?.email || "N/A"} | Mobile: ${flowState.contact?.mobile || "N/A"}`);
++    console.log(`[Flight][Booking][Navigation] confirmed=${flowState.ticketStatus === "Confirmed"} hasPnr=${Boolean(flowState.pnr)} hasBookingId=${Boolean(flowState.bookingId)}`);
+     console.log("================================================================================");
+ 
+     Animated.parallel([
+@@ -69,7 +64,7 @@ export default function FlightConfirmationScreen({ route, navigation }) {
+   };
+ 
+   const handleEmail = () => {
+-    console.log(`[FlightConfirmationScreen] User clicked Email E-Ticket. Sending to: ${flowState.contact?.email || "N/A"}`);
++    console.log("[Flight][Booking][TicketEmail] requested=true");
+     Alert.alert("E-Ticket Sent", "E-Ticket has been successfully emailed to " + (flowState.contact?.email || "your email"));
+   };
+ 
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/FlightListingScreen.jsx b/src/screens/dashboard/bottomTabScreens/flights/FlightListingScreen.jsx
+index d2919ff..13581cd 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/FlightListingScreen.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/FlightListingScreen.jsx
+@@ -1,4 +1,4 @@
+-import React, { useState, useMemo, useCallback } from "react";
++import React, { useState, useMemo, useCallback, useRef } from "react";
+ import {
+   FlatList,
+   ScrollView,
+@@ -24,12 +24,46 @@ import FilterSheet from "./components/FilterSheet";
+ import { getFlightFareQuote, searchFlights } from "./services/flightBookingService";
+ import { writeFlightBookingFlowState } from "./services/flightBookingFlowStore";
+ import { normalizeFlightObject, serializeSearchParamsForNavigation } from "./utils/flightNormalizeUtils";
++import { allSelectionsShareTraceId, compactFlightForFlow, extractAuthoritativeFare, isValidAuthoritativeFare, safeFlightLog, selectedFlightIdentity } from "./utils/flightFlowUtils";
+ 
+ const PRIMARY_RED = "#E11D2E";
+ const BACKGROUND_COLOR = "#F8F9FB";
+ const TEXT_DARK = "#1F2937";
+ const TEXT_MUTED = "#6B7280";
+ 
++function getRecoverableFareMessage(error) {
++  if (error?.backendCode === "MISSING_IDENTITY") {
++    return "This fare is missing required booking information. Refresh results to try again.";
++  }
++  if (error?.isNetworkError) {
++    return "Unable to confirm the fare. Check your connection and retry.";
++  }
++  const details = `${error?.backendCode || ""} ${error?.backendMessage || error?.message || ""}`.toLowerCase();
++  if (details.includes("price") && details.includes("change")) {
++    return "The airline changed this fare. Please retry to review the latest price.";
++  }
++  if (["expired", "unavailable", "not available", "sold out", "fare not found"].some((term) => details.includes(term))) {
++    return "This fare is no longer available. Please retry or select another fare.";
++  }
++  return "We couldn’t confirm this fare. Please retry or select another fare.";
++}
++
++function withAuthoritativeFare(selectedFare, fare) {
++  const current = selectedFare || {};
++  return {
++    ...current,
++    OfferedFare: fare.total,
++    B2CFinalFare: fare.total,
++    Fare: {
++      ...(current.Fare || {}),
++      BaseFare: fare.baseFare,
++      Tax: fare.tax,
++      OfferedFare: fare.total,
++      B2CFinalFare: fare.total,
++    },
++  };
++}
++
+ export default function FlightListingScreen({ route, navigation }) {
+   const routeParams = route?.params || {};
+   const rawFlights = useMemo(() => {
+@@ -43,13 +77,12 @@ export default function FlightListingScreen({ route, navigation }) {
+     return val.airportCode || val.cityName || val.airportId || fallback;
+   };
+ 
+-  const origin = formatCityCode(routeParams.origin || searchParams.from, "DEL");
+-  const destination = formatCityCode(routeParams.destination || searchParams.to, "BOM");
+-  const date = routeParams.departureDate || searchParams.date || "3 Aug 2026";
++  const origin = formatCityCode(routeParams.origin || searchParams.from, "—");
++  const destination = formatCityCode(routeParams.destination || searchParams.to, "—");
++  const date = routeParams.departureDate || searchParams.date || "";
+   const returnDate = routeParams.returnDate || searchParams.returnDate || "";
+   const adults = routeParams.adults || searchParams.adults || 1;
+   const travelClass = routeParams.travelClass || searchParams.travelClass || "Economy";
+-  const traceId = routeParams.traceId || searchParams.traceId || rawFlights?.[0]?.traceId || rawFlights?.[0]?.TraceId;
+ 
+   const normTripType = String(searchParams.tripType || routeParams.tripType || "oneway").toLowerCase();
+   const journeyTypeNum = Number(searchParams.journeyType || routeParams.journeyType || 1);
+@@ -70,10 +103,7 @@ export default function FlightListingScreen({ route, navigation }) {
+   const multiCitySegments = useMemo(() => {
+     if (searchParams.formattedSegments && searchParams.formattedSegments.length > 0) return searchParams.formattedSegments;
+     if (searchParams.multiCitySegments && searchParams.multiCitySegments.length > 0) return searchParams.multiCitySegments;
+-    return [
+-      { origin, destination, date },
+-      { origin: destination, destination: "BLR", date },
+-    ];
++    return [];
+   }, [searchParams, origin, destination, date]);
+ 
+   const isUnifiedRoundTrip = useMemo(() => {
+@@ -127,6 +157,9 @@ export default function FlightListingScreen({ route, navigation }) {
+   }, [isMultiCity, isRoundTrip, origin, destination]);
+ 
+   const [loading, setLoading] = useState(false);
++  const [fareError, setFareError] = useState(null);
++  const fareQuoteInFlightRef = useRef(false);
++  const retryFareActionRef = useRef(null);
+   const [sortSheetVisible, setSortSheetVisible] = useState(false);
+   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
+ 
+@@ -184,12 +217,60 @@ export default function FlightListingScreen({ route, navigation }) {
+     availableCabinClasses,
+   } = useFlightResults(currentDisplayList);
+ 
++  const handleRefreshResults = useCallback(async () => {
++    if (fareQuoteInFlightRef.current) return;
++    fareQuoteInFlightRef.current = true;
++    setLoading(true);
++    try {
++      const refreshedFlights = await searchFlights({
++        ...searchParams,
++        from: searchParams.from || routeParams.origin || origin,
++        to: searchParams.to || routeParams.destination || destination,
++        date: searchParams.date || routeParams.departureDate || date,
++        returnDate: searchParams.returnDate || routeParams.returnDate || returnDate,
++      });
++      retryFareActionRef.current = null;
++      setFareError(null);
++      navigation.setParams({ flights: refreshedFlights, rawResults: refreshedFlights });
++    } catch (error) {
++      retryFareActionRef.current = handleRefreshResults;
++      setFareError({
++        message: "Unable to refresh flight results. Check your connection and try again.",
++        actionLabel: "Refresh Results",
++      });
++      safeFlightLog("[Flight][Search][HandledError]", {
++        status: error?.status || null,
++        message: String(error?.message || "Search refresh failed").slice(0, 240),
++        retryAvailable: true,
++      });
++    } finally {
++      fareQuoteInFlightRef.current = false;
++      setLoading(false);
++    }
++  }, [searchParams, routeParams.origin, routeParams.destination, routeParams.departureDate, routeParams.returnDate, origin, destination, date, returnDate, navigation]);
++
++  const recordFareQuoteFailure = useCallback((error, identity, retryAction, actionLabel = "Retry") => {
++    const message = getRecoverableFareMessage(error);
++    retryFareActionRef.current = retryAction;
++    setFareError({ message, actionLabel });
++    safeFlightLog("[Flight][FareQuote][HandledError]", {
++      httpStatus: error?.httpStatus || null,
++      backendCode: error?.backendCode || null,
++      message: String(error?.backendMessage || error?.message || message).slice(0, 240),
++      resolvedTraceId: identity?.resolvedTraceId || identity?.traceId || "",
++      resolvedResultIndex: identity?.resolvedResultIndex || identity?.resultIndex || "",
++      retryAvailable: Boolean(retryAction),
++    });
++  }, []);
++
+   // Handle flight selection
+   const handleSelectFlight = useCallback(
+     async (selectedFlight) => {
+       const flightObj = selectedFlight.rawItem || selectedFlight;
+-      const resultIndex = flightObj?.resultIndex || flightObj?.ResultIndex;
+-      const activeTraceId = traceId || selectedFlight.traceId || selectedFlight.TraceId || flightObj.traceId || flightObj.TraceId || rawFlights?.[0]?.traceId || rawFlights?.[0]?.TraceId;
++      const identity = selectedFlightIdentity(selectedFlight);
++      const resultIndex = identity.resultIndex;
++      const activeTraceId = identity.traceId;
++      safeFlightLog("[Flight][Results][FareSelected]", { ...identity, fareTierCount: flightObj?.FareDataMultiple?.length || 0 });
+ 
+       if (isMultiCity && !isUnifiedMultiCity) {
+         setSelectedLegFlights((prev) => {
+@@ -220,36 +301,54 @@ export default function FlightListingScreen({ route, navigation }) {
+       }
+ 
+       // One-way or Unified Round-Trip selection handling
++      if (fareQuoteInFlightRef.current) return;
++      fareQuoteInFlightRef.current = true;
++      setFareError(null);
+       setLoading(true);
+       try {
+-        console.log(`[FARE_REVALIDATION_STARTED] One-way selection revalidating fare with supplier | ResultIndex: ${resultIndex}`);
+-        let fareQuoteRes = null;
+-        if (activeTraceId && resultIndex) {
+-          fareQuoteRes = await getFlightFareQuote({
+-            traceId: activeTraceId,
+-            resultIndex,
+-            srdvType: flightObj.srdvType || "MixAPI",
+-            srdvIndex: flightObj.srdvIndex || "2",
+-            offeredFare: flightObj.offeredFare || flightObj.displayFare || flightObj.fare || selectedFlight?.price || 0,
+-            baseFare: flightObj.baseFare || flightObj.displayFare || flightObj.fare || 0,
+-            tax: flightObj.tax || 0,
+-            isLCC: flightObj.isLCC,
+-          });
++        safeFlightLog("[Flight][Results][FareIdentityResolved]", identity);
++        if (!activeTraceId || !resultIndex) {
++          const missingIdentityError = new Error("Selected fare is missing its originating TraceId or ResultIndex.");
++          missingIdentityError.backendCode = "MISSING_IDENTITY";
++          throw missingIdentityError;
+         }
++        safeFlightLog("[Flight][FareQuote][Request]", {
++          endpoint: "/api/flight/srdv/FareQuote",
++          traceId: activeTraceId,
++          resultIndex,
++          srdvType: identity.srdvType,
++          srdvIndex: identity.srdvIndex,
++        });
++        const fareQuoteRes = await getFlightFareQuote({
++          traceId: activeTraceId,
++          resultIndex,
++          srdvType: identity.srdvType,
++          srdvIndex: identity.srdvIndex,
++          offeredFare: selectedFlight.offeredFare || selectedFlight.displayFare || selectedFlight.price || 0,
++          baseFare: selectedFlight.baseFare || 0,
++          tax: selectedFlight.tax || 0,
++          isLCC: identity.isLCC,
++        });
+ 
+-        const fareObj = fareQuoteRes?.Results?.Fare || fareQuoteRes?.Fare || fareQuoteRes?.Results;
+-        const confirmedFare = Number(fareObj?.OfferedFare || fareObj?.PublishedFare || selectedFlight.price || 0);
+-        const baseFare = Number(fareObj?.BaseFare || confirmedFare);
+-        const tax = Number(fareObj?.Tax || 0);
++        if (!fareQuoteRes) throw new Error("The airline fare could not be confirmed.");
++        safeFlightLog("[Flight][FareQuote][Response]", {
++          traceId: activeTraceId,
++          resultIndex,
++          status: 200,
++        });
++        const confirmed = extractAuthoritativeFare(fareQuoteRes, 0);
++        if (!isValidAuthoritativeFare(confirmed)) {
++          const invalidFareError = new Error("The supplier returned an invalid fare.");
++          invalidFareError.backendCode = "INVALID_FARE_QUOTE";
++          throw invalidFareError;
++        }
++        const confirmedFare = confirmed.total;
++        const baseFare = confirmed.baseFare;
++        const tax = confirmed.tax;
+         const initialPrice = Number(flightObj.offeredFare || flightObj.displayFare || selectedFlight.price || 0);
+ 
+         if (initialPrice > 0 && confirmedFare > 0 && initialPrice !== confirmedFare) {
+-          console.warn(`[FARE_CHANGED] Supplier updated fare from ₹${initialPrice} to ₹${confirmedFare}`);
+-          Alert.alert(
+-            "Fare Updated by Airline",
+-            `The airline updated the flight fare from ₹${initialPrice.toLocaleString("en-IN")} to ₹${confirmedFare.toLocaleString("en-IN")}.`,
+-            [{ text: "OK" }]
+-          );
++          safeFlightLog("[Flight][FareQuote][FareUpdated]", { total: confirmedFare, changed: true });
+         }
+ 
+         let normalizedMultiCityFlights = undefined;
+@@ -284,24 +383,30 @@ export default function FlightListingScreen({ route, navigation }) {
+         const payload = {
+           traceId: activeTraceId,
+           resultIndex,
+-          srdvType: flightObj.srdvType || "MixAPI",
+-          srdvIndex: flightObj.srdvIndex || "2",
+-          isLCC: flightObj.isLCC,
++          srdvType: identity.srdvType,
++          srdvIndex: identity.srdvIndex,
++          source: identity.source,
++          isLCC: identity.isLCC,
+           isRoundTrip: isUnifiedRoundTrip,
+           isMultiCity: isUnifiedMultiCity,
+           journeyType: isUnifiedMultiCity ? 3 : (isUnifiedRoundTrip ? 2 : (searchParams.journeyType || 1)),
+           multiCityFlights: normalizedMultiCityFlights,
+-          flight: {
+-            ...flightObj,
++          flight: compactFlightForFlow(selectedFlight, {
+             traceId: activeTraceId,
+             resultIndex,
+             selectedTravelClassPriceInr: confirmedFare,
++            displayFare: confirmedFare,
++            offeredFare: confirmedFare,
++            baseFare,
++            tax,
++            selectedFare: withAuthoritativeFare(selectedFlight.selectedFare, confirmed),
+             fromCity: origin,
+             toCity: destination,
+             isRoundTrip: isUnifiedRoundTrip,
+             isMultiCity: isUnifiedMultiCity,
+-          },
++          }),
+           fareQuote: fareQuoteRes?.Results || fareQuoteRes,
++          quoteTimestamp: Date.now(),
+           searchContext: {
+             ...searchParams,
+             travelClass,
+@@ -320,15 +425,23 @@ export default function FlightListingScreen({ route, navigation }) {
+         };
+ 
+         await writeFlightBookingFlowState(payload);
++        retryFareActionRef.current = null;
++        safeFlightLog("[Flight][Navigation]", { destinationRoute: "FlightPassengerDetailsScreen" });
+         navigation.navigate("FlightPassengerDetailsScreen", payload);
+       } catch (e) {
+-        console.error("[FARE_REVALIDATION_FAILED] Select flight error:", e?.message);
+-        Alert.alert("Supplier Fare Revalidation Failed", e?.message || "Unable to confirm real-time pricing from airline. Please try another flight.");
++        const isMissingIdentity = e?.backendCode === "MISSING_IDENTITY";
++        recordFareQuoteFailure(
++          e,
++          identity,
++          isMissingIdentity ? handleRefreshResults : () => handleSelectFlight(selectedFlight),
++          isMissingIdentity ? "Refresh Results" : "Retry"
++        );
+       } finally {
++        fareQuoteInFlightRef.current = false;
+         setLoading(false);
+       }
+     },
+-    [isMultiCity, activeLegIndex, multiCitySegments.length, isRoundTrip, activeTab, returnFlightsList.length, traceId, rawFlights, origin, destination, searchParams, travelClass, date, navigation]
++    [isMultiCity, activeLegIndex, multiCitySegments.length, isRoundTrip, activeTab, returnFlightsList.length, rawFlights, origin, destination, searchParams, travelClass, date, navigation, recordFareQuoteFailure, handleRefreshResults]
+   );
+ 
+   const handleConfirmMultiCity = async () => {
+@@ -341,12 +454,19 @@ export default function FlightListingScreen({ route, navigation }) {
+       return;
+     }
+ 
++    if (fareQuoteInFlightRef.current) return;
++    fareQuoteInFlightRef.current = true;
++    setFareError(null);
+     setLoading(true);
+     try {
+-      const activeTraceId = traceId || selectedLegFlights[0]?.rawItem?.traceId || selectedLegFlights[0]?.traceId;
++      if (!allSelectionsShareTraceId(selectedLegFlights)) {
++        Alert.alert("Unsupported flight combination", "These multi-city legs came from different supplier sessions. Please choose flights from the same combined search result.");
++        return;
++      }
++      const activeTraceId = selectedFlightIdentity(selectedLegFlights[0]).traceId;
+       
+       // Use Set to extract unique ResultIndexes to pass to getFlightFareQuote
+-      const uniqueIndices = Array.from(new Set(selectedLegFlights.map((f) => f.rawItem?.ResultIndex || f.rawItem?.resultIndex || f.resultIndex || f.ResultIndex).filter(Boolean)));
++      const uniqueIndices = Array.from(new Set(selectedLegFlights.map((f) => selectedFlightIdentity(f).resultIndex).filter(Boolean)));
+       const combinedResultIndex = uniqueIndices.join(",");
+       
+       const initialTotal = calculateMultiCityTotal(selectedLegFlights);
+@@ -355,37 +475,42 @@ export default function FlightListingScreen({ route, navigation }) {
+ 
+       let fareQuoteRes = null;
+       if (activeTraceId && combinedResultIndex) {
+-        try {
+-          fareQuoteRes = await getFlightFareQuote({
++        fareQuoteRes = await getFlightFareQuote({
+             traceId: activeTraceId,
+             resultIndex: combinedResultIndex,
+-            srdvType: selectedLegFlights[0]?.rawItem?.srdvType || "MixAPI",
+-            srdvIndex: selectedLegFlights[0]?.rawItem?.srdvIndex || "2",
++            srdvType: selectedFlightIdentity(selectedLegFlights[0]).srdvType,
++            srdvIndex: selectedFlightIdentity(selectedLegFlights[0]).srdvIndex,
+             offeredFare: initialTotal,
+             baseFare: initialTotal,
+             tax: 0,
+-            isLCC: selectedLegFlights.some((f) => f.isLCC),
++            isLCC: selectedLegFlights.some((f) => selectedFlightIdentity(f).isLCC),
+           });
+-        } catch (quoteErr) {
+-          console.warn("[FARE_REVALIDATION_WARNING] Multi-city combined quote returned error, proceeding with leg fares:", quoteErr?.message);
+-        }
+       }
+ 
+-      const fareObj = fareQuoteRes?.Results?.Fare || fareQuoteRes?.Fare || fareQuoteRes?.Results;
+-      const confirmedTotal = Number(fareObj?.OfferedFare || fareObj?.PublishedFare || initialTotal);
+-      const baseFare = Number(fareObj?.BaseFare || confirmedTotal);
+-      const tax = Number(fareObj?.Tax || 0);
++      if (!fareQuoteRes) throw new Error("The combined multi-city fare could not be confirmed.");
++      const confirmed = extractAuthoritativeFare(fareQuoteRes, 0);
++      if (!isValidAuthoritativeFare(confirmed)) {
++        const invalidFareError = new Error("The supplier returned an invalid fare.");
++        invalidFareError.backendCode = "INVALID_FARE_QUOTE";
++        throw invalidFareError;
++      }
++      const confirmedTotal = confirmed.total;
++      const baseFare = confirmed.baseFare;
++      const tax = confirmed.tax;
++      if (initialTotal > 0 && confirmedTotal > 0 && initialTotal !== confirmedTotal) {
++        safeFlightLog("[Flight][FareQuote][FareUpdated]", { total: confirmedTotal, changed: true });
++      }
+ 
+       // Normalize all multi-city leg objects to guarantee clean origin/destination display across screens
+       const normalizedMultiCityFlights = selectedLegFlights.map((leg, idx) => {
+         const segInfo = multiCitySegments[idx] || {};
+-        const originCode = String(segInfo.origin?.airportCode || segInfo.from || leg.fromCity || leg.origin || "DEL").toUpperCase();
++        const originCode = String(segInfo.origin?.airportCode || segInfo.from || leg.fromCity || leg.origin || "").toUpperCase();
+         const originCity = String(segInfo.origin?.cityName || segInfo.origin?.airportName || leg.fromCity || originCode);
+ 
+-        const destCode = String(segInfo.destination?.airportCode || segInfo.to || leg.toCity || leg.destination || "BOM").toUpperCase();
++        const destCode = String(segInfo.destination?.airportCode || segInfo.to || leg.toCity || leg.destination || "").toUpperCase();
+         const destCity = String(segInfo.destination?.cityName || segInfo.destination?.airportName || leg.toCity || destCode);
+ 
+-        return normalizeFlightObject({
++        return compactFlightForFlow(normalizeFlightObject({
+           ...leg,
+           fromCity: originCity,
+           toCity: destCity,
+@@ -397,7 +522,7 @@ export default function FlightListingScreen({ route, navigation }) {
+           destinationCode: destCode,
+           originCity,
+           destinationCity: destCity,
+-        }, idx);
++        }, idx));
+       });
+ 
+       const serializableSearchParams = serializeSearchParamsForNavigation({
+@@ -411,21 +536,27 @@ export default function FlightListingScreen({ route, navigation }) {
+       const payload = {
+         traceId: activeTraceId,
+         resultIndex: combinedResultIndex,
+-        srdvType: selectedLegFlights[0]?.rawItem?.srdvType || "MixAPI",
+-        srdvIndex: selectedLegFlights[0]?.rawItem?.srdvIndex || "2",
+-        isLCC: selectedLegFlights.some((f) => (f.rawItem || f).isLCC),
++        srdvType: selectedFlightIdentity(selectedLegFlights[0]).srdvType,
++        srdvIndex: selectedFlightIdentity(selectedLegFlights[0]).srdvIndex,
++        source: selectedFlightIdentity(selectedLegFlights[0]).source,
++        isLCC: selectedLegFlights.some((f) => selectedFlightIdentity(f).isLCC),
+         isMultiCity: true,
+         journeyType: 3,
+         multiCityFlights: normalizedMultiCityFlights,
+-        flight: {
+-          ...normalizedMultiCityFlights[0],
++        flight: compactFlightForFlow(normalizedMultiCityFlights[0], {
+           traceId: activeTraceId,
+           resultIndex: combinedResultIndex,
+           selectedTravelClassPriceInr: confirmedTotal,
++          displayFare: confirmedTotal,
++          offeredFare: confirmedTotal,
++          baseFare,
++          tax,
++          selectedFare: withAuthoritativeFare(selectedLegFlights[0]?.selectedFare, confirmed),
+           fromCity: origin,
+           toCity: destination,
+-        },
++        }),
+         fareQuote: fareQuoteRes?.Results || fareQuoteRes,
++        quoteTimestamp: Date.now(),
+         searchContext: serializableSearchParams,
+         fareSummary: {
+           baseFare,
+@@ -440,9 +571,9 @@ export default function FlightListingScreen({ route, navigation }) {
+       await writeFlightBookingFlowState(payload);
+       navigation.navigate("FlightPassengerDetailsScreen", payload);
+     } catch (e) {
+-      console.error("[FARE_REVALIDATION_FAILED] Multi-city error:", e?.message);
+-      Alert.alert("Supplier Fare Revalidation Failed", e?.message || "Unable to confirm real-time pricing from airline. Please try another flight.");
++      recordFareQuoteFailure(e, selectedFlightIdentity(selectedLegFlights[0] || {}), () => handleConfirmMultiCity());
+     } finally {
++      fareQuoteInFlightRef.current = false;
+       setLoading(false);
+     }
+   };
+@@ -457,70 +588,78 @@ export default function FlightListingScreen({ route, navigation }) {
+       return;
+     }
+ 
++    if (fareQuoteInFlightRef.current) return;
++    fareQuoteInFlightRef.current = true;
++    setFareError(null);
+     setLoading(true);
+     try {
+       const outboundObj = selectedOutboundFlight.rawItem || selectedOutboundFlight;
+       const returnObj = selectedReturnFlight.rawItem || selectedReturnFlight;
+-      const activeTraceId = traceId || outboundObj.traceId || returnObj.traceId;
++      if (!allSelectionsShareTraceId([selectedOutboundFlight, selectedReturnFlight])) {
++        Alert.alert("Unsupported flight combination", "Split-session round trips are not supported yet. Please choose an onward and return option from the same combined search result.");
++        return;
++      }
++      const activeTraceId = selectedFlightIdentity(selectedOutboundFlight).traceId;
+ 
+       const outboundPrice = Number(selectedOutboundFlight.displayFare || selectedOutboundFlight.price || 0);
+       const returnPrice = Number(selectedReturnFlight.displayFare || selectedReturnFlight.price || 0);
+       const initialTotal = outboundPrice + returnPrice;
+ 
+       // Complete combined ResultIndex for SRDV Round Trip
+-      const combinedResultIndex = `${outboundObj.resultIndex || ""},${returnObj.resultIndex || ""}`;
++      const combinedResultIndex = `${selectedFlightIdentity(selectedOutboundFlight).resultIndex},${selectedFlightIdentity(selectedReturnFlight).resultIndex}`;
+ 
+       console.log(`[FARE_REVALIDATION_STARTED] Round-trip selection revalidating fare with supplier | ResultIndex: ${combinedResultIndex}`);
+ 
+       let fareQuoteRes = null;
+       if (activeTraceId && combinedResultIndex) {
+-        try {
+-          fareQuoteRes = await getFlightFareQuote({
++        fareQuoteRes = await getFlightFareQuote({
+             traceId: activeTraceId,
+             resultIndex: combinedResultIndex,
+-            srdvType: outboundObj.srdvType || "MixAPI",
+-            srdvIndex: outboundObj.srdvIndex || "2",
++            srdvType: selectedFlightIdentity(selectedOutboundFlight).srdvType,
++            srdvIndex: selectedFlightIdentity(selectedOutboundFlight).srdvIndex,
+             offeredFare: initialTotal,
+             baseFare: initialTotal,
+             tax: 0,
+-            isLCC: Boolean(outboundObj.isLCC || returnObj.isLCC),
++            isLCC: Boolean(selectedFlightIdentity(selectedOutboundFlight).isLCC || selectedFlightIdentity(selectedReturnFlight).isLCC),
+           });
+-        } catch (quoteErr) {
+-          console.warn("[FARE_REVALIDATION_WARNING] Combined quote call returned error, proceeding with individual leg quotes:", quoteErr?.message);
+-        }
+       }
+ 
+-      const fareObj = fareQuoteRes?.Results?.Fare || fareQuoteRes?.Fare || fareQuoteRes?.Results;
+-      const confirmedTotal = Number(fareObj?.OfferedFare || fareObj?.PublishedFare || initialTotal);
++      if (!fareQuoteRes) throw new Error("The combined round-trip fare could not be confirmed.");
++      const confirmed = extractAuthoritativeFare(fareQuoteRes, 0);
++      if (!isValidAuthoritativeFare(confirmed)) {
++        const invalidFareError = new Error("The supplier returned an invalid fare.");
++        invalidFareError.backendCode = "INVALID_FARE_QUOTE";
++        throw invalidFareError;
++      }
++      const confirmedTotal = confirmed.total;
+ 
+       if (initialTotal > 0 && confirmedTotal > 0 && initialTotal !== confirmedTotal) {
+-        console.warn(`[FARE_CHANGED] Supplier updated round-trip total from ₹${initialTotal} to ₹${confirmedTotal}`);
+-        Alert.alert(
+-          "Fare Updated by Airline",
+-          `The airline updated the total round-trip fare from ₹${initialTotal.toLocaleString("en-IN")} to ₹${confirmedTotal.toLocaleString("en-IN")}.`,
+-          [{ text: "OK" }]
+-        );
++        safeFlightLog("[Flight][FareQuote][FareUpdated]", { total: confirmedTotal, changed: true });
+       }
+ 
+       const payload = {
+         traceId: activeTraceId,
+         resultIndex: combinedResultIndex,
+-        srdvType: outboundObj.srdvType || "MixAPI",
+-        srdvIndex: outboundObj.srdvIndex || "2",
+-        isLCC: Boolean(outboundObj.isLCC || returnObj.isLCC),
++        srdvType: selectedFlightIdentity(selectedOutboundFlight).srdvType,
++        srdvIndex: selectedFlightIdentity(selectedOutboundFlight).srdvIndex,
++        source: selectedFlightIdentity(selectedOutboundFlight).source,
++        isLCC: Boolean(selectedFlightIdentity(selectedOutboundFlight).isLCC || selectedFlightIdentity(selectedReturnFlight).isLCC),
+         isRoundTrip: true,
+-        outboundFlight: selectedOutboundFlight,
+-        returnFlight: selectedReturnFlight,
+-        flight: {
+-          ...outboundObj,
++        outboundFlight: compactFlightForFlow(selectedOutboundFlight),
++        returnFlight: compactFlightForFlow(selectedReturnFlight),
++        flight: compactFlightForFlow(selectedOutboundFlight, {
+           isRoundTrip: true,
+-          outbound: selectedOutboundFlight,
+-          return: selectedReturnFlight,
+           selectedTravelClassPriceInr: confirmedTotal,
++          displayFare: confirmedTotal,
++          offeredFare: confirmedTotal,
++          baseFare: confirmed.baseFare,
++          tax: confirmed.tax,
++          selectedFare: withAuthoritativeFare(selectedOutboundFlight.selectedFare, confirmed),
+           fromCity: origin,
+           toCity: destination,
+-        },
++        }),
+         fareQuote: fareQuoteRes?.Results || fareQuoteRes,
++        quoteTimestamp: Date.now(),
+         searchContext: {
+           ...searchParams,
+           travelClass,
+@@ -529,8 +668,8 @@ export default function FlightListingScreen({ route, navigation }) {
+           journeyType: 2,
+         },
+         fareSummary: {
+-          baseFare: confirmedTotal,
+-          tax: 0,
++          baseFare: confirmed.baseFare,
++          tax: confirmed.tax,
+           markup: 0,
+           convenienceFee: 0,
+           discount: 0,
+@@ -541,9 +680,9 @@ export default function FlightListingScreen({ route, navigation }) {
+       await writeFlightBookingFlowState(payload);
+       navigation.navigate("FlightPassengerDetailsScreen", payload);
+     } catch (e) {
+-      console.error("[FARE_REVALIDATION_FAILED] Round trip error:", e?.message);
+-      Alert.alert("Supplier Fare Revalidation Failed", e?.message || "Unable to confirm real-time pricing from airline. Please try another flight.");
++      recordFareQuoteFailure(e, selectedFlightIdentity(selectedOutboundFlight || {}), () => handleConfirmRoundTrip());
+     } finally {
++      fareQuoteInFlightRef.current = false;
+       setLoading(false);
+     }
+   };
+@@ -559,7 +698,7 @@ export default function FlightListingScreen({ route, navigation }) {
+         passengers={`${adults} Pax`}
+         travelClass={travelClass}
+         onBack={() => navigation.goBack()}
+-        onModify={() => navigation.navigate("FlightSearchScreen")}
++        onModify={() => navigation.navigate("FlightScreen", { restoreSearchParams: searchParams })}
+       />
+ 
+       {/* Multi-City Tab Controller Banner */}
+@@ -650,6 +789,28 @@ export default function FlightListingScreen({ route, navigation }) {
+         </View>
+       )}
+ 
++      {fareError && (
++        <View style={styles.fareErrorBanner} accessibilityRole="alert">
++          <Ionicons name="alert-circle-outline" size={20} color="#B91C1C" />
++          <Text style={styles.fareErrorText}>{fareError.message}</Text>
++          <TouchableOpacity
++            accessibilityRole="button"
++            disabled={loading}
++            onPress={() => retryFareActionRef.current?.()}
++            style={styles.fareErrorAction}
++          >
++            <Text style={styles.fareErrorActionText}>{fareError.actionLabel || "Retry"}</Text>
++          </TouchableOpacity>
++          <TouchableOpacity
++            accessibilityRole="button"
++            onPress={() => setFareError(null)}
++            style={styles.fareErrorDismiss}
++          >
++            <Ionicons name="close" size={18} color={TEXT_MUTED} />
++          </TouchableOpacity>
++        </View>
++      )}
++
+       {/* Results List / Empty State */}
+       <FlatList
+         data={filteredResults}
+@@ -778,6 +939,38 @@ const styles = StyleSheet.create({
+     fontWeight: "700",
+     color: PRIMARY_RED,
+   },
++  fareErrorBanner: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 8,
++    marginHorizontal: 12,
++    marginTop: 8,
++    paddingHorizontal: 12,
++    paddingVertical: 10,
++    borderRadius: 12,
++    borderWidth: 1,
++    borderColor: "#FECACA",
++    backgroundColor: "#FEF2F2",
++  },
++  fareErrorText: {
++    flex: 1,
++    color: "#991B1B",
++    fontSize: 12,
++    lineHeight: 17,
++    fontWeight: "600",
++  },
++  fareErrorAction: {
++    paddingHorizontal: 8,
++    paddingVertical: 6,
++  },
++  fareErrorActionText: {
++    color: PRIMARY_RED,
++    fontSize: 12,
++    fontWeight: "800",
++  },
++  fareErrorDismiss: {
++    padding: 4,
++  },
+   emptyContainer: {
+     alignItems: "center",
+     justifyContent: "center",
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/FlightPassengerDetailsScreen.jsx b/src/screens/dashboard/bottomTabScreens/flights/FlightPassengerDetailsScreen.jsx
+index 8c41307..742e6dd 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/FlightPassengerDetailsScreen.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/FlightPassengerDetailsScreen.jsx
+@@ -8,6 +8,7 @@ import { getTravelers } from "../../../../services/travelerService";
+ import { getStoredAuthToken } from "../../../../utils/authSession";
+ import { getFlightFareRule } from "./services/flightBookingService";
+ import { cleanFareRuleHtml } from "./utils/flightUtils";
++import { safeFlightLog, validateFlightPassenger } from "./utils/flightFlowUtils";
+ 
+ // Redesigned Theme & Components
+ import { COLORS } from "./theme/passengerDetailsTheme";
+@@ -63,38 +64,42 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+     return { adults, children, infants };
+   }, [flowState.searchContext]);
+ 
+-  const totalPassengers = Math.max(1, travellersCount.adults + travellersCount.children);
++  const totalPassengers = Math.max(1, travellersCount.adults + travellersCount.children + travellersCount.infants);
+ 
+   // International flight check for passport requirements
+   const isInternational = useMemo(() => {
+-    const indianCodes = ["DEL", "BOM", "BLR", "MAA", "HYD", "CCU", "PNQ", "AMD", "JAI", "COK", "GOI", "VGA", "VTZ"];
+-    const from = String(flowState.flight?.from || flowState.searchContext?.from || "DEL").toUpperCase();
+-    const to = String(flowState.flight?.to || flowState.searchContext?.to || "BOM").toUpperCase();
+-    const segs = flowState.searchContext?.segments || [];
+-    const allCodes = [
+-      from,
+-      to,
+-      ...segs.map((s) => String(s.origin || s.from || "").toUpperCase()),
+-      ...segs.map((s) => String(s.destination || s.to || "").toUpperCase()),
+-    ];
+-    return allCodes.some((code) => code && !indianCodes.includes(code));
++    if (typeof flowState.isInternational === "boolean") return flowState.isInternational;
++    const rawSegments = flowState.flight?.Segments?.flat?.() || flowState.flight?.rawItem?.Segments?.flat?.() || [];
++    const countryCodes = [
++      ...rawSegments.flatMap((segment) => [
++      segment?.Origin?.CountryCode,
++      segment?.Destination?.CountryCode,
++      ]),
++      flowState.searchContext?.origin?.countryCode,
++      flowState.searchContext?.origin?.CountryCode,
++      flowState.searchContext?.destination?.countryCode,
++      flowState.searchContext?.destination?.CountryCode,
++    ].filter(Boolean).map((code) => String(code).toUpperCase());
++    return countryCodes.some((code) => !["IN", "IND", "INDIA"].includes(code));
+   }, [flowState]);
+ 
+   // Passengers state
+-  const [passengers, setPassengers] = useState(
+-    Array.from({ length: totalPassengers }, (_, index) => ({
++  const [passengers, setPassengers] = useState(() => {
++    if (Array.isArray(flowState.passengers) && flowState.passengers.length === totalPassengers) return flowState.passengers;
++    return Array.from({ length: totalPassengers }, (_, index) => ({
+       title: "Mr",
+       firstName: "",
+       lastName: "",
+       gender: "Male",
+       dob: "",
+-      nationality: "Indian",
++      nationality: "",
+       passportNo: "",
+-      passportExpiry: "2030-12-31",
+-      passportIssueCountryCode: "IN",
+-      passengerType: index < travellersCount.adults ? "Adult" : "Child",
+-    }))
+-  );
++      passportExpiry: "",
++      passportIssueDate: "",
++      passportIssueCountryCode: "",
++      passengerType: index < travellersCount.adults ? "Adult" : index < travellersCount.adults + travellersCount.children ? "Child" : "Infant",
++    }));
++  });
+ 
+   // Contact details state
+   const [contact, setContact] = useState({
+@@ -106,11 +111,12 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+   const [fareRuleModalVisible, setFareRuleModalVisible] = useState(false);
+   const [fareRuleLoading, setFareRuleLoading] = useState(false);
+   const [fareRuleData, setFareRuleData] = useState(null);
++  const [fareRuleError, setFareRuleError] = useState("");
+ 
+   const handleFetchFareRules = useCallback(async () => {
+     setFareRuleModalVisible(true);
+-    if (fareRuleData) return;
+     setFareRuleLoading(true);
++    setFareRuleError("");
+     try {
+       const activeTraceId = flowState.traceId || flowState.flight?.traceId || routeParams.traceId || routeParams.flight?.traceId;
+       const activeResultIndex = flowState.resultIndex || flowState.flight?.resultIndex || routeParams.resultIndex || routeParams.flight?.resultIndex;
+@@ -129,18 +135,16 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+         srdvIndex: activeSrdvIndex,
+       });
+ 
+-      console.log("\n==========================================");
+-      console.log("📋 [FLIGHT FARE RULE API RESPONSE RETURNED]:");
+-      console.log(JSON.stringify(res, null, 2));
+-      console.log("==========================================\n");
++      safeFlightLog("[Flight][FareRule][Response]", { status: res?.success === false ? "unavailable" : "received", resultIndex: activeResultIndex });
+ 
+       setFareRuleData(res);
+     } catch (err) {
+       console.error("[FlightPassengerDetailsScreen] Fare rule fetch error:", err?.message);
++      setFareRuleError(err?.message || "Fare rules are currently unavailable.");
+     } finally {
+       setFareRuleLoading(false);
+     }
+-  }, [fareRuleData, flowState, routeParams]);
++  }, [flowState, routeParams]);
+ 
+   const fareRulesList = useMemo(() => {
+     if (fareRuleData?.code === "FARE_RULE_UNAVAILABLE" || (fareRuleData?.success === false && (!fareRuleData?.data || fareRuleData?.data?.length === 0))) {
+@@ -175,11 +179,9 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+       const list = await getTravelers(token);
+       setSavedTravelers(list || []);
+ 
+-      if (list && list.length > 0) {
+-        handleSelectTraveler(list[0]);
+-      }
++      safeFlightLog("[Flight][Travelers][Response]", { status: "received", flightCount: list?.length || 0 });
+     } catch (err) {
+-      console.log("[FlightPassengerDetailsScreen] Error fetching travelers:", err);
++      console.warn("[Flight][Travelers][Error]", { message: err?.message || "Unable to load saved travelers" });
+       setTravelersError("Unable to load saved travelers.");
+     } finally {
+       setTravelersLoading(false);
+@@ -213,6 +215,12 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+         firstName,
+         lastName,
+         gender: traveler.gender === "Transgender" ? "Others" : (traveler.gender || "Male"),
++        dob: traveler.dateOfBirth || traveler.dob || next[0].dob,
++        nationality: traveler.nationality || next[0].nationality,
++        passportNo: traveler.passportNumber || traveler.passportNo || next[0].passportNo,
++        passportExpiry: traveler.passportExpiry || next[0].passportExpiry,
++        passportIssueDate: traveler.passportIssueDate || next[0].passportIssueDate,
++        passportIssueCountryCode: traveler.passportIssueCountryCode || next[0].passportIssueCountryCode,
+       };
+       return next;
+     });
+@@ -255,59 +263,11 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+ 
+     // Validate Passenger names & fields
+     passengers.forEach((p, idx) => {
+-      if (!p.firstName.trim()) {
+-        nextErrors[`p-${idx}-firstName`] = "First name is required";
++      const invalid = validateFlightPassenger(p, { international: isInternational, departureDate: flowState.searchContext?.date || flowState.searchContext?.departureDate });
++      invalid.forEach((field) => {
++        nextErrors[`p-${idx}-${field}`] = `${p.passengerType} passenger ${idx + 1}: ${field.replace(/([A-Z])/g, " $1").toLowerCase()} is invalid`;
+         isValid = false;
+-      }
+-      if (!p.lastName.trim()) {
+-        nextErrors[`p-${idx}-lastName`] = "Last name is required";
+-        isValid = false;
+-      }
+-      
+-      if (isInternational) {
+-        if (!p.dob || !p.dob.trim()) {
+-          nextErrors[`p-${idx}-dob`] = "DOB required for intl flights";
+-          isValid = false;
+-        }
+-        if (!p.passportNo || !p.passportNo.trim()) {
+-          nextErrors[`p-${idx}-passportNo`] = "Passport number required";
+-          isValid = false;
+-        }
+-        if (!p.passportExpiry || !p.passportExpiry.trim()) {
+-          nextErrors[`p-${idx}-passportExpiry`] = "Passport expiry required";
+-          isValid = false;
+-        }
+-        if (!p.passportIssueDate || !p.passportIssueDate.trim()) {
+-          nextErrors[`p-${idx}-passportIssueDate`] = "Issue date required";
+-          isValid = false;
+-        }
+-        if (!p.passportIssueCountryCode || !p.passportIssueCountryCode.trim()) {
+-          nextErrors[`p-${idx}-passportIssueCountryCode`] = "Issue country required";
+-          isValid = false;
+-        }
+-        if (!p.nationality || !p.nationality.trim()) {
+-          // nationality validation
+-          isValid = false;
+-        }
+-      } else if (p.passportNo && p.passportNo.trim().length > 0) {
+-        // If they voluntarily entered a passport, require the rest
+-        if (!p.dob || !p.dob.trim()) {
+-          nextErrors[`p-${idx}-dob`] = "DOB required with passport";
+-          isValid = false;
+-        }
+-        if (!p.passportExpiry || !p.passportExpiry.trim()) {
+-          nextErrors[`p-${idx}-passportExpiry`] = "Expiry required";
+-          isValid = false;
+-        }
+-        if (!p.passportIssueDate || !p.passportIssueDate.trim()) {
+-          nextErrors[`p-${idx}-passportIssueDate`] = "Issue date required";
+-          isValid = false;
+-        }
+-        if (!p.passportIssueCountryCode || !p.passportIssueCountryCode.trim()) {
+-          nextErrors[`p-${idx}-passportIssueCountryCode`] = "Country required";
+-          isValid = false;
+-        }
+-      }
++      });
+     });
+ 
+     // Validate Contacts
+@@ -316,7 +276,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+       nextErrors["email"] = "Enter a valid email address";
+       isValid = false;
+     }
+-    if (!contact.mobile.trim() || contact.mobile.length < 10) {
++    if (!/^\d{10}$/.test(contact.mobile.trim())) {
+       nextErrors["mobile"] = "Enter a valid 10-digit mobile number";
+       isValid = false;
+     }
+@@ -327,8 +287,9 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+     }
+ 
+     setErrors(nextErrors);
++    safeFlightLog("[Flight][Passengers][Validation]", { validationPassed: isValid, invalidFields: Object.keys(nextErrors) });
+     return isValid;
+-  }, [passengers, contact, isInternational, acknowledgementAccepted]);
++  }, [passengers, contact, isInternational, acknowledgementAccepted, flowState.searchContext?.date, flowState.searchContext?.departureDate]);
+ 
+   // Handle Continue to Seat Selection
+   const handleContinue = useCallback(async () => {
+@@ -368,6 +329,8 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+       passengers,
+       contact,
+       acknowledgementAccepted,
++      isInternational,
++      fareRuleState: fareRuleError ? "error" : fareRuleData ? "loaded" : "not_loaded",
+       selectedSeats: [],
+       selectedSeatLabels: [],
+       fareSummary: flowState.fareSummary || {
+@@ -379,7 +342,7 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+     await writeFlightBookingFlowState(nextState);
+     console.log("[FlightPassengerDetailsScreen] Navigating to FlightSeatSelectionScreen...");
+     navigation.navigate("FlightSeatSelectionScreen", nextState);
+-  }, [validateDetails, errors, passengers, contact, acknowledgementAccepted, flowState, routeParams, navigation]);
++  }, [validateDetails, errors, passengers, contact, acknowledgementAccepted, flowState, routeParams, navigation, isInternational, fareRuleData, fareRuleError]);
+ 
+   const handleBackPress = useCallback(() => {
+     navigation.goBack();
+@@ -470,9 +433,11 @@ export default function FlightPassengerDetailsScreen({ route, navigation }) {
+           onClose={() => setFareRuleModalVisible(false)}
+           loading={fareRuleLoading}
+           fareRuleData={fareRuleData}
+-          origin={flowState.flight?.from || flowState.searchContext?.from || "DEL"}
+-          destination={flowState.flight?.to || flowState.searchContext?.to || "BOM"}
+-          airline={flowState.flight?.airlineName || "Flight"}
++          error={fareRuleError}
++          onRetry={handleFetchFareRules}
++          origin={flowState.flight?.from || flowState.searchContext?.from || ""}
++          destination={flowState.flight?.to || flowState.searchContext?.to || ""}
++          airline={flowState.flight?.airlineName || "Selected flight"}
+         />
+ 
+         {/* Sticky Action Footer */}
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/FlightPaymentProcessingScreen.jsx b/src/screens/dashboard/bottomTabScreens/flights/FlightPaymentProcessingScreen.jsx
+index dee356d..acac378 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/FlightPaymentProcessingScreen.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/FlightPaymentProcessingScreen.jsx
+@@ -1,576 +1,200 @@
+-/**
+- * FlightPaymentProcessingScreen.jsx
+- * ------------------------------------
+- * Step 4 of the Cashfree payment flow.
+- *
+- * Shows an animated "Confirming your Flight Ticket..." loader while
+- * polling GET /api/cashfree/orders/{cashfreeOrderId}/payments every 3-4 s
+- * (up to 20 attempts / 60 s).
+- *
+- * On SUCCESS  → fetches GET /api/flight/srdv/my-bookings and navigates to
+- *               FlightConfirmationScreen with the confirmed booking data.
+- * On FAILED   → stops polling, shows failure UI with retry / home options.
+- * On TIMEOUT  → shows a "still processing" warning with My Bookings link.
+- */
+-
+-import React, { useEffect, useRef, useState, useCallback } from "react";
+-import {
+-  View,
+-  Text,
+-  StyleSheet,
+-  TouchableOpacity,
+-  Animated,
+-  Easing,
+-} from "react-native";
++import React, { useCallback, useEffect, useRef, useState } from "react";
++import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+ import { SafeAreaView } from "react-native-safe-area-context";
+ import { Ionicons } from "@expo/vector-icons";
+-import { verifyFlightPayment, getMyFlightBookings } from "../../../../services/cashfreeService";
+-
+-// ─── Design tokens (matching existing screens) ───────────────────────────────
+-const PRIMARY_RED = "#E53935";
+-const BACKGROUND = "#F8F9FB";
+-const WHITE = "#FFFFFF";
+-const BORDER = "#E5E7EB";
+-const TEXT_DARK = "#1F2937";
+-const TEXT_MUTED = "#6B7280";
+-
+-// ─── Polling config ────────────────────────────────────────────────────────
+-const POLL_INTERVAL_MS = 3500;    // 3.5 seconds between polls
+-const MAX_POLL_ATTEMPTS = 20;     // max ~70 seconds total
+-
+-// ─── Possible UI states ───────────────────────────────────────────────────
+-// "processing" | "success" | "failed" | "timeout"
++import { cancelFlightPaymentOrder, getMyFlightBookings, verifyFlightPayment } from "../../../../services/cashfreeService";
++import { clearFlightPaymentRecovery, writeFlightPaymentRecovery } from "./services/flightPaymentRecoveryStore";
++import { safeFlightLog } from "./utils/flightFlowUtils";
++
++const RED = "#E53935", BG = "#F8F9FB", INK = "#1F2937", MUTED = "#667085";
++const MAX_ATTEMPTS = 24;
++const lower = (value) => String(value || "").trim().toLowerCase();
++const bookingValue = (booking, keys) => {
++  for (const source of [booking, booking?.payment, booking?.paymentBreakdown, booking?.PaymentBreakdown]) {
++    for (const key of keys) if (source?.[key] != null) return String(source[key]);
++  }
++  return "";
++};
++
++function matchingBooking(bookings, verification, cashfreeOrderId, paymentReference) {
++  const needles = new Set([cashfreeOrderId, paymentReference, verification?.cashfreeOrderId, verification?.paymentReference].filter(Boolean).map(String));
++  return (Array.isArray(bookings) ? bookings : []).find((booking) => [
++    bookingValue(booking, ["cashfreeOrderId", "CashfreeOrderId"]),
++    bookingValue(booking, ["paymentReference", "PaymentReference"]),
++    bookingValue(booking, ["paymentId", "PaymentId", "cashfreePaymentId", "CashfreePaymentId"]),
++  ].some((value) => value && needles.has(value))) || null;
++}
+ 
+ export default function FlightPaymentProcessingScreen({ route, navigation }) {
+   const params = route?.params || {};
+-  const {
+-    cashfreeOrderId,
+-    totalFare,
+-    appliedCoupon,
+-    apiPassengers,
+-    ...flowState
+-  } = params;
+-
+-  // ─── UI State ──────────────────────────────────────────────────────────────
+-  const [uiState, setUiState] = useState("processing"); // processing | success | failed | timeout
+-  const [failureReason, setFailureReason] = useState("");
+-  const [attemptCount, setAttemptCount] = useState(0);
+-  const [confirmedBooking, setConfirmedBooking] = useState(null);
+-
+-  // ─── Animation refs ────────────────────────────────────────────────────────
+-  const spinAnim = useRef(new Animated.Value(0)).current;
+-  const pulseAnim = useRef(new Animated.Value(1)).current;
+-  const fadeAnim = useRef(new Animated.Value(0)).current;
+-  const successScale = useRef(new Animated.Value(0.3)).current;
+-
+-  // ─── Refs to avoid stale closures ─────────────────────────────────────────
+-  const pollTimerRef = useRef(null);
+-  const isMountedRef = useRef(true);
+-  const attemptRef = useRef(0);
+-
+-  // ─── Spin animation (loading state) ──────────────────────────────────────
+-  const startSpinning = useCallback(() => {
+-    spinAnim.setValue(0);
+-    Animated.loop(
+-      Animated.timing(spinAnim, {
+-        toValue: 1,
+-        duration: 1200,
+-        easing: Easing.linear,
+-        useNativeDriver: true,
+-      })
+-    ).start();
+-
+-    Animated.loop(
+-      Animated.sequence([
+-        Animated.timing(pulseAnim, { toValue: 1.08, duration: 700, useNativeDriver: true }),
+-        Animated.timing(pulseAnim, { toValue: 0.95, duration: 700, useNativeDriver: true }),
+-      ])
+-    ).start();
++  const cashfreeOrderId = String(params.cashfreeOrderId || "");
++  const [state, setState] = useState("verifying");
++  const [message, setMessage] = useState("Verifying payment…");
++  const [busy, setBusy] = useState(false);
++  const mountedRef = useRef(true), timerRef = useRef(null), attemptsRef = useRef(0), checkingRef = useRef(false);
++  const schedule = useCallback((fn, delay) => {
++    if (timerRef.current) clearTimeout(timerRef.current);
++    timerRef.current = setTimeout(fn, delay);
+   }, []);
+-
+-  // ─── Success animation ─────────────────────────────────────────────────────
+-  const playSuccess = useCallback(() => {
+-    spinAnim.stopAnimation();
+-    pulseAnim.stopAnimation();
+-
+-    Animated.parallel([
+-      Animated.spring(successScale, { toValue: 1, tension: 55, friction: 5, useNativeDriver: true }),
+-      Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+-    ]).start();
++  const clearTimer = useCallback(() => {
++    if (timerRef.current) clearTimeout(timerRef.current);
++    timerRef.current = null;
+   }, []);
+ 
+-  // ─── Poll single attempt ───────────────────────────────────────────────────
+-  const pollOnce = useCallback(async () => {
+-    if (!isMountedRef.current) return;
+-
+-    attemptRef.current += 1;
+-    const attempt = attemptRef.current;
+-    setAttemptCount(attempt);
+-
+-    console.log(`[ProcessingScreen] Poll #${attempt} | orderId: ${cashfreeOrderId}`);
+-
++  const checkStatus = useCallback(async ({ restart = false } = {}) => {
++    if (!cashfreeOrderId || checkingRef.current) return;
++    if (restart) attemptsRef.current = 0;
++    checkingRef.current = true;
++    setBusy(true);
++    attemptsRef.current += 1;
+     try {
+-      const result = await verifyFlightPayment(cashfreeOrderId);
+-      console.log(`[ProcessingScreen] Poll #${attempt} status: ${result.status}`);
+-
+-      if (!isMountedRef.current) return;
+-
+-      if (result.status === "Success") {
+-        // ── Payment succeeded ─────────────────────────────────────────────
+-        setUiState("success");
+-        playSuccess();
+-
+-        // Fetch the most-recent confirmed booking from SRDV
+-        try {
+-          const bookings = await getMyFlightBookings();
+-          const latest = Array.isArray(bookings) && bookings.length > 0 ? bookings[0] : null;
+-          if (latest) {
+-            setConfirmedBooking(latest);
+-          }
+-
+-          // Navigate to confirmation screen after a 2-second success moment
+-          setTimeout(() => {
+-            if (!isMountedRef.current) return;
+-            navigation.replace("FlightConfirmationScreen", {
+-              ...flowState,
+-              // Confirmed booking fields from /my-bookings
+-              pnr: latest?.Pnr || latest?.pnr || latest?.BookingReference || "",
+-              bookingId: latest?.Id || latest?.id || latest?.BookingId || "",
+-              bookingReference: latest?.BookingReference || latest?.bookingReference || cashfreeOrderId,
+-              ticketStatus: latest?.Status || "Booked",
+-              payableAmount: result.amount || totalFare,
+-              paymentMethod: result.paymentMethod || "Cashfree",
+-              paidAt: result.paidAt || new Date().toISOString(),
+-              appliedCoupon,
+-              passengers: latest?.Passengers || apiPassengers || flowState.passengers,
+-              cashfreeOrderId,
+-            });
+-          }, 2000);
+-        } catch (bookingErr) {
+-          console.warn("[ProcessingScreen] Failed to fetch my-bookings:", bookingErr?.message);
+-          // Still navigate with what we have from the poll response
+-          setTimeout(() => {
+-            if (!isMountedRef.current) return;
+-            navigation.replace("FlightConfirmationScreen", {
+-              ...flowState,
+-              pnr: result.paymentReference || cashfreeOrderId,
+-              bookingId: cashfreeOrderId,
+-              bookingReference: cashfreeOrderId,
+-              ticketStatus: "Booked",
+-              payableAmount: result.amount || totalFare,
+-              paymentMethod: result.paymentMethod || "Cashfree",
+-              paidAt: result.paidAt || new Date().toISOString(),
+-              appliedCoupon,
+-              passengers: apiPassengers || flowState.passengers,
+-              cashfreeOrderId,
+-            });
+-          }, 2000);
+-        }
+-
+-      } else if (result.status === "Failed") {
+-        // ── Payment failed / cancelled ────────────────────────────────────
+-        setFailureReason(result.failureReason || "Payment was declined or cancelled.");
+-        setUiState("failed");
+-
+-      } else {
+-        // ── Still pending — schedule next poll ────────────────────────────
+-        if (attempt >= MAX_POLL_ATTEMPTS) {
+-          console.warn("[ProcessingScreen] Max polling attempts reached. Showing timeout.");
+-          setUiState("timeout");
+-        } else {
+-          pollTimerRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
++      const verification = await verifyFlightPayment(cashfreeOrderId);
++      if (!mountedRef.current) return;
++      const payment = lower(verification.status), fulfillment = lower(verification.fulfillmentStatus);
++      const noPaymentAttempt = payment === "pending" && verification.totalAttempts === 0;
++      await writeFlightPaymentRecovery({
++        cashfreeOrderId, paymentReference: verification.paymentReference || params.paymentReference,
++        idempotencyKey: params.idempotencyKey, traceId: params.traceId || params.flight?.traceId,
++        resultIndex: params.resultIndex || params.flight?.resultIndex,
++        paymentStatus: noPaymentAttempt ? "PaymentNotStarted" : verification.status,
++        fulfillmentStatus: verification.fulfillmentStatus, attemptFingerprint: params.attemptFingerprint,
++        paymentStarted: verification.totalAttempts > 0 || Boolean(params.paymentStarted),
++      });
++      safeFlightLog("[Flight][Payment][Verification]", {
++        paymentStatus: noPaymentAttempt ? "PaymentNotStarted" : verification.status,
++        fulfillmentStatus: verification.fulfillmentStatus || null,
++        totalAttempts: verification.totalAttempts,
++        attempt: attemptsRef.current,
++      });
++      if (payment === "failed") {
++        clearTimer();
++        await clearFlightPaymentRecovery();
++        setState("failed"); setMessage(verification.failureReason || "The payment was not completed."); return;
++      }
++      if (noPaymentAttempt) {
++        clearTimer();
++        setState("payment_not_started");
++        setMessage("Payment was not started. Return to Checkout, or cancel this saved order before starting again.");
++        return;
++      }
++      if (payment !== "success") {
++        setState("pending"); setMessage("Payment pending. You can safely check the status again.");
++        if (attemptsRef.current < MAX_ATTEMPTS) {
++          const delay = Math.min(4000 * (2 ** Math.max(0, attemptsRef.current - 1)), 20000);
++          schedule(() => checkStatus(), delay);
+         }
++        return;
+       }
+-    } catch (err) {
+-      console.error("[ProcessingScreen] Poll error:", err?.message);
+-      if (!isMountedRef.current) return;
+-
+-      if (attemptRef.current >= MAX_POLL_ATTEMPTS) {
+-        setUiState("timeout");
+-      } else {
+-        // On network error, retry after a slightly longer delay
+-        pollTimerRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS + 1000);
++      if (fulfillment.startsWith("failed")) {
++        setState("recovery"); setMessage("Payment succeeded, but the airline booking is being recovered or refunded.");
++        safeFlightLog("[Flight][Booking][Fulfillment]", { fulfillmentStatus: verification.fulfillmentStatus });
++        if (attemptsRef.current < MAX_ATTEMPTS) schedule(() => checkStatus(), 15000);
++        return;
+       }
++      if (fulfillment !== "success") {
++        setState("confirming"); setMessage("Payment successful — confirming your booking");
++        safeFlightLog("[Flight][Booking][Fulfillment]", { fulfillmentStatus: verification.fulfillmentStatus || "Pending" });
++        if (attemptsRef.current < MAX_ATTEMPTS) schedule(() => checkStatus(), 5000);
++        return;
++      }
++      setState("confirming"); setMessage("Payment successful — confirming your booking");
++      const bookings = await getMyFlightBookings();
++      const booking = matchingBooking(bookings, verification, cashfreeOrderId, params.paymentReference || verification.paymentReference);
++      const pnr = bookingValue(booking, ["pnr", "Pnr", "PNR"]);
++      const bookingId = bookingValue(booking, ["bookingId", "BookingId", "id", "Id"]);
++      const realBookingReference = bookingValue(booking, ["bookingReference", "BookingReference"]);
++      if (!booking || !pnr || !bookingId) {
++        if (attemptsRef.current < MAX_ATTEMPTS) schedule(() => checkStatus(), 5000);
++        else { setState("pending"); setMessage("Booking confirmation is taking longer than expected. Check status again shortly."); }
++        return;
++      }
++      safeFlightLog("[Flight][Booking][Fulfillment]", { fulfillmentStatus: "Success", hasPnr: true, hasBookingId: true });
++      safeFlightLog("[Flight][Booking][Navigation]", { destination: "FlightConfirmationScreen", confirmed: true });
++      clearTimer();
++      await clearFlightPaymentRecovery();
++      const confirmedPassengers = (booking?.Passengers || booking?.passengers || params.apiPassengers || params.passengers || []).map((passenger) => ({
++        ...passenger,
++        title: passenger.title || passenger.Title || "",
++        firstName: passenger.firstName || passenger.FirstName || "",
++        lastName: passenger.lastName || passenger.LastName || "",
++        passengerType: passenger.passengerType || (Number(passenger.PaxType) === 2 ? "Child" : Number(passenger.PaxType) === 3 ? "Infant" : "Adult"),
++      }));
++      navigation.replace("FlightConfirmationScreen", {
++        ...params, pnr, bookingId, bookingReference: realBookingReference, ticketStatus: "Confirmed",
++        payableAmount: verification.amount || params.totalFare, paymentMethod: verification.paymentMethod || "Cashfree",
++        paidAt: verification.paidAt, passengers: confirmedPassengers,
++        cashfreeOrderId,
++      });
++    } catch {
++      if (!mountedRef.current) return;
++      setState("pending"); setMessage("We couldn’t check the payment status. Your order is saved; retry safely.");
++      if (attemptsRef.current < MAX_ATTEMPTS) schedule(() => checkStatus(), 7000);
++    } finally {
++      checkingRef.current = false;
++      if (mountedRef.current) setBusy(false);
+     }
+-  }, [cashfreeOrderId, flowState, totalFare, appliedCoupon, apiPassengers, navigation, playSuccess]);
++  }, [cashfreeOrderId, clearTimer, navigation, params, schedule]);
+ 
+-  // ─── Mount / Unmount ───────────────────────────────────────────────────────
+   useEffect(() => {
+-    isMountedRef.current = true;
+-    startSpinning();
+-
+-    // Start first poll
+-    pollTimerRef.current = setTimeout(pollOnce, POLL_INTERVAL_MS);
+-
+-    return () => {
+-      isMountedRef.current = false;
+-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+-    };
++    mountedRef.current = true; checkStatus({ restart: true });
++    return () => { mountedRef.current = false; clearTimer(); };
+   }, []);
+ 
+-  // ─── Spin interpolation ────────────────────────────────────────────────────
+-  const spinInterpolate = spinAnim.interpolate({
+-    inputRange: [0, 1],
+-    outputRange: ["0deg", "360deg"],
+-  });
+-
+-  // ─── Render helpers ────────────────────────────────────────────────────────
+-  const renderProcessing = () => (
+-    <View style={styles.centerContent}>
+-      <Animated.View
+-        style={[
+-          styles.loaderRing,
+-          { transform: [{ scale: pulseAnim }] },
+-        ]}
+-      >
+-        <Animated.View
+-          style={[
+-            styles.loaderSpinner,
+-            { transform: [{ rotate: spinInterpolate }] },
+-          ]}
+-        >
+-          <View style={styles.spinnerArc} />
+-        </Animated.View>
+-        <Ionicons name="airplane" size={36} color={PRIMARY_RED} style={styles.planeIcon} />
+-      </Animated.View>
+-
+-      <Text style={styles.mainTitle}>Confirming your Flight Ticket...</Text>
+-      <Text style={styles.subText}>
+-        We're verifying your payment and securing your seat.{"\n"}
+-        This usually takes a few seconds.
+-      </Text>
+-
+-      <View style={styles.statusPill}>
+-        <View style={styles.statusDot} />
+-        <Text style={styles.statusPillText}>
+-          Checking payment status ({attemptCount}/{MAX_POLL_ATTEMPTS})
+-        </Text>
+-      </View>
+-
+-      <Text style={styles.doNotCloseText}>
+-        🔒 Please don't close the app
+-      </Text>
+-    </View>
+-  );
+-
+-  const renderSuccess = () => (
+-    <Animated.View style={[styles.centerContent, { opacity: fadeAnim }]}>
+-      <Animated.View style={{ transform: [{ scale: successScale }] }}>
+-        <Ionicons name="checkmark-circle" size={96} color="#10B981" />
+-      </Animated.View>
+-      <Text style={[styles.mainTitle, { color: "#10B981", marginTop: 16 }]}>
+-        Payment Confirmed!
+-      </Text>
+-      <Text style={styles.subText}>
+-        Your flight ticket is being issued.{"\n"}
+-        Redirecting to your booking details…
+-      </Text>
+-    </Animated.View>
+-  );
+-
+-  const renderFailed = () => (
+-    <View style={styles.centerContent}>
+-      <Ionicons name="close-circle" size={96} color="#EF4444" />
+-      <Text style={[styles.mainTitle, { color: "#EF4444", marginTop: 16 }]}>
+-        Payment Failed
+-      </Text>
+-      <Text style={styles.subText}>
+-        {failureReason || "Your payment could not be processed."}
+-      </Text>
+-
+-      <View style={styles.actionStack}>
+-        <TouchableOpacity
+-          style={styles.primaryBtn}
+-          activeOpacity={0.85}
+-          onPress={() => navigation.goBack()}
+-        >
+-          <Ionicons name="refresh" size={18} color={WHITE} />
+-          <Text style={styles.primaryBtnText}>Try Again</Text>
+-        </TouchableOpacity>
+-
+-        <TouchableOpacity
+-          style={styles.outlineBtn}
+-          activeOpacity={0.85}
+-          onPress={() => navigation.navigate("DashBoard")}
+-        >
+-          <Text style={styles.outlineBtnText}>Back to Home</Text>
+-        </TouchableOpacity>
+-      </View>
+-    </View>
+-  );
+-
+-  const renderTimeout = () => (
+-    <View style={styles.centerContent}>
+-      <Ionicons name="time-outline" size={80} color="#F59E0B" />
+-      <Text style={[styles.mainTitle, { color: "#F59E0B", marginTop: 16 }]}>
+-        Taking Longer Than Expected
+-      </Text>
+-      <Text style={styles.subText}>
+-        Your payment may have been processed.{"\n"}
+-        Please check My Bookings or contact support.
+-      </Text>
+-
+-      <View style={styles.actionStack}>
+-        <TouchableOpacity
+-          style={[styles.primaryBtn, { backgroundColor: "#F59E0B" }]}
+-          activeOpacity={0.85}
+-          onPress={() => navigation.navigate("DashBoard")}
+-        >
+-          <Ionicons name="list" size={18} color={WHITE} />
+-          <Text style={styles.primaryBtnText}>View My Bookings</Text>
+-        </TouchableOpacity>
+-
+-        <TouchableOpacity
+-          style={styles.outlineBtn}
+-          activeOpacity={0.85}
+-          onPress={() => {
+-            // Restart polling
+-            attemptRef.current = 0;
+-            setAttemptCount(0);
+-            setUiState("processing");
+-            startSpinning();
+-            pollTimerRef.current = setTimeout(pollOnce, 500);
+-          }}
+-        >
+-          <Text style={styles.outlineBtnText}>Recheck Payment</Text>
+-        </TouchableOpacity>
+-      </View>
+-
+-      {cashfreeOrderId ? (
+-        <Text style={styles.referenceText}>
+-          Order Ref: {cashfreeOrderId}
+-        </Text>
+-      ) : null}
+-    </View>
+-  );
+-
+-  return (
+-    <SafeAreaView style={styles.safe} edges={["top", "left", "right", "bottom"]}>
+-      <View style={styles.container}>
+-        {/* Header strip (no back button during processing) */}
+-        <View style={styles.headerBar}>
+-          {(uiState === "failed" || uiState === "timeout") && (
+-            <TouchableOpacity
+-              style={styles.backBtn}
+-              onPress={() => navigation.goBack()}
+-              activeOpacity={0.8}
+-            >
+-              <Ionicons name="arrow-back" size={22} color={TEXT_DARK} />
+-            </TouchableOpacity>
+-          )}
+-          <View style={{ flex: 1 }}>
+-            <Text style={styles.headerTitle}>
+-              {uiState === "processing" && "Processing Payment"}
+-              {uiState === "success"    && "Booking Confirmed"}
+-              {uiState === "failed"     && "Payment Failed"}
+-              {uiState === "timeout"    && "Still Processing"}
+-            </Text>
+-            <Text style={styles.headerSubtitle}>
+-              {uiState === "processing" && "Please wait while we verify…"}
+-              {uiState === "success"    && "Your ticket is confirmed 🎉"}
+-              {uiState === "failed"     && "We couldn't process your payment"}
+-              {uiState === "timeout"    && "Verification taking longer than usual"}
+-            </Text>
+-          </View>
+-        </View>
+-
+-        {/* Main content */}
+-        <View style={styles.bodyContainer}>
+-          {uiState === "processing" && renderProcessing()}
+-          {uiState === "success"    && renderSuccess()}
+-          {uiState === "failed"     && renderFailed()}
+-          {uiState === "timeout"    && renderTimeout()}
+-        </View>
+-
+-        {/* Cashfree secure badge */}
+-        <View style={styles.footer}>
+-          <Ionicons name="shield-checkmark-outline" size={14} color={TEXT_MUTED} />
+-          <Text style={styles.footerText}>Secured by Cashfree Payments</Text>
+-        </View>
+-      </View>
+-    </SafeAreaView>
+-  );
++  const returnToCheckout = useCallback(() => {
++    clearTimer();
++    navigation.navigate("FlightCheckoutScreen", params);
++  }, [clearTimer, navigation, params]);
++
++  const cancelSavedOrder = useCallback(() => {
++    Alert.alert(
++      "Cancel payment order?",
++      "This releases the saved order so you can start payment again.",
++      [
++        { text: "Keep order", style: "cancel" },
++        {
++          text: "Cancel order",
++          style: "destructive",
++          onPress: async () => {
++            setBusy(true);
++            try {
++              await cancelFlightPaymentOrder(cashfreeOrderId);
++              clearTimer();
++              await clearFlightPaymentRecovery();
++              if (mountedRef.current) navigation.navigate("FlightCheckoutScreen", { ...params, paymentOrderCancelled: true });
++            } catch (error) {
++              if (mountedRef.current) setMessage(error?.message || "Unable to cancel the payment order. Please try again.");
++            } finally {
++              if (mountedRef.current) setBusy(false);
++            }
++          },
++        },
++      ]
++    );
++  }, [cashfreeOrderId, clearTimer, navigation, params]);
++
++  const config = ({
++    verifying: ["shield-checkmark-outline", "Verifying payment", RED], pending: ["time-outline", "Payment pending", "#D97706"],
++    payment_not_started: ["card-outline", "Payment not started", "#D97706"],
++    confirming: ["airplane-outline", "Confirming your booking", RED], failed: ["close-circle-outline", "Payment failed", "#B42318"],
++    recovery: ["refresh-circle-outline", "Booking recovery/refund in progress", "#D97706"],
++  })[state] || ["time-outline", "Checking status", RED];
++
++  return <SafeAreaView style={styles.safe}><View style={styles.body}>
++    <View style={styles.icon}><Ionicons name={config[0]} size={58} color={config[2]} /></View>
++    <Text style={styles.title}>{config[1]}</Text><Text style={styles.message}>{message}</Text>
++    {busy && <ActivityIndicator color={RED} size="large" />}
++    {!busy && <TouchableOpacity style={styles.primary} onPress={() => ["failed", "payment_not_started"].includes(state) ? returnToCheckout() : checkStatus({ restart: true })}><Text style={styles.primaryText}>{state === "payment_not_started" ? "Return to Checkout" : state === "pending" ? "Check status" : state === "failed" ? "Return to Checkout" : "Retry"}</Text></TouchableOpacity>}
++    {!busy && state === "payment_not_started" && <TouchableOpacity style={styles.cancel} onPress={cancelSavedOrder}><Text style={styles.cancelText}>Cancel Order</Text></TouchableOpacity>}
++    <TouchableOpacity style={styles.secondary} onPress={() => navigation.navigate("DashBoard")}><Text style={styles.secondaryText}>Return to home</Text></TouchableOpacity>
++    <Text style={styles.note}>Do not create another payment while this order is pending.</Text>
++  </View></SafeAreaView>;
+ }
+ 
+-// ─── Styles ────────────────────────────────────────────────────────────────
+ const styles = StyleSheet.create({
+-  safe: {
+-    flex: 1,
+-    backgroundColor: BACKGROUND,
+-  },
+-  container: {
+-    flex: 1,
+-  },
+-  headerBar: {
+-    flexDirection: "row",
+-    alignItems: "center",
+-    paddingHorizontal: 16,
+-    paddingVertical: 14,
+-    backgroundColor: WHITE,
+-    borderBottomWidth: 1,
+-    borderColor: BORDER,
+-    gap: 10,
+-  },
+-  backBtn: {
+-    padding: 4,
+-  },
+-  headerTitle: {
+-    fontSize: 17,
+-    fontWeight: "800",
+-    color: TEXT_DARK,
+-  },
+-  headerSubtitle: {
+-    fontSize: 12,
+-    color: TEXT_MUTED,
+-    fontWeight: "500",
+-    marginTop: 1,
+-  },
+-  bodyContainer: {
+-    flex: 1,
+-    justifyContent: "center",
+-    alignItems: "center",
+-    paddingHorizontal: 28,
+-  },
+-  centerContent: {
+-    alignItems: "center",
+-    gap: 16,
+-    width: "100%",
+-  },
+-
+-  // ── Loader ring ──────────────────────────────────────────
+-  loaderRing: {
+-    width: 130,
+-    height: 130,
+-    borderRadius: 65,
+-    backgroundColor: WHITE,
+-    borderWidth: 1,
+-    borderColor: BORDER,
+-    justifyContent: "center",
+-    alignItems: "center",
+-    shadowColor: PRIMARY_RED,
+-    shadowOpacity: 0.15,
+-    shadowRadius: 20,
+-    shadowOffset: { width: 0, height: 6 },
+-    elevation: 8,
+-  },
+-  loaderSpinner: {
+-    position: "absolute",
+-    width: 130,
+-    height: 130,
+-    borderRadius: 65,
+-  },
+-  spinnerArc: {
+-    width: 130,
+-    height: 130,
+-    borderRadius: 65,
+-    borderWidth: 4,
+-    borderColor: "transparent",
+-    borderTopColor: PRIMARY_RED,
+-    borderRightColor: PRIMARY_RED,
+-  },
+-  planeIcon: {
+-    position: "absolute",
+-  },
+-
+-  // ── Text ─────────────────────────────────────────────────
+-  mainTitle: {
+-    fontSize: 22,
+-    fontWeight: "900",
+-    color: TEXT_DARK,
+-    textAlign: "center",
+-  },
+-  subText: {
+-    fontSize: 14,
+-    color: TEXT_MUTED,
+-    fontWeight: "500",
+-    textAlign: "center",
+-    lineHeight: 22,
+-  },
+-
+-  // ── Status pill ───────────────────────────────────────────
+-  statusPill: {
+-    flexDirection: "row",
+-    alignItems: "center",
+-    gap: 8,
+-    backgroundColor: "#FEF2F2",
+-    borderWidth: 1,
+-    borderColor: "#FECACA",
+-    borderRadius: 20,
+-    paddingHorizontal: 14,
+-    paddingVertical: 8,
+-  },
+-  statusDot: {
+-    width: 8,
+-    height: 8,
+-    borderRadius: 4,
+-    backgroundColor: PRIMARY_RED,
+-  },
+-  statusPillText: {
+-    fontSize: 12,
+-    fontWeight: "700",
+-    color: PRIMARY_RED,
+-  },
+-  doNotCloseText: {
+-    fontSize: 12,
+-    color: TEXT_MUTED,
+-    fontWeight: "600",
+-    textAlign: "center",
+-  },
+-
+-  // ── Action buttons ────────────────────────────────────────
+-  actionStack: {
+-    gap: 12,
+-    width: "100%",
+-    marginTop: 8,
+-  },
+-  primaryBtn: {
+-    flexDirection: "row",
+-    alignItems: "center",
+-    justifyContent: "center",
+-    gap: 8,
+-    backgroundColor: PRIMARY_RED,
+-    paddingVertical: 14,
+-    borderRadius: 12,
+-    width: "100%",
+-  },
+-  primaryBtnText: {
+-    color: WHITE,
+-    fontSize: 15,
+-    fontWeight: "800",
+-  },
+-  outlineBtn: {
+-    borderWidth: 1,
+-    borderColor: BORDER,
+-    paddingVertical: 13,
+-    borderRadius: 12,
+-    alignItems: "center",
+-    width: "100%",
+-    backgroundColor: WHITE,
+-  },
+-  outlineBtnText: {
+-    fontSize: 14,
+-    fontWeight: "700",
+-    color: TEXT_DARK,
+-  },
+-  referenceText: {
+-    fontSize: 11,
+-    color: TEXT_MUTED,
+-    textAlign: "center",
+-    marginTop: 4,
+-  },
+-
+-  // ── Footer ────────────────────────────────────────────────
+-  footer: {
+-    flexDirection: "row",
+-    alignItems: "center",
+-    justifyContent: "center",
+-    gap: 5,
+-    paddingBottom: 20,
+-    paddingTop: 12,
+-  },
+-  footerText: {
+-    fontSize: 11,
+-    color: TEXT_MUTED,
+-    fontWeight: "600",
+-  },
++  safe: { flex: 1, backgroundColor: BG }, body: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 16 },
++  icon: { width: 126, height: 126, borderRadius: 63, backgroundColor: "#FFF", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#E5E7EB", elevation: 4 },
++  title: { color: INK, fontSize: 24, fontWeight: "900", textAlign: "center" }, message: { color: MUTED, fontSize: 15, lineHeight: 23, textAlign: "center", maxWidth: 360 },
++  primary: { backgroundColor: RED, minWidth: 220, paddingVertical: 15, paddingHorizontal: 22, borderRadius: 14, alignItems: "center", marginTop: 8 }, primaryText: { color: "#FFF", fontSize: 16, fontWeight: "800" },
++  secondary: { padding: 12 }, secondaryText: { color: INK, fontWeight: "700" }, note: { color: MUTED, fontSize: 12, textAlign: "center", marginTop: 4 },
++  cancel: { minWidth: 220, paddingVertical: 13, paddingHorizontal: 22, borderRadius: 14, alignItems: "center", borderWidth: 1, borderColor: "#B42318" }, cancelText: { color: "#B42318", fontSize: 15, fontWeight: "800" },
+ });
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen.jsx b/src/screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen.jsx
+index da9ab53..90e2c44 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/FlightSeatSelectionScreen.jsx
+@@ -1,4 +1,4 @@
+-import React, { useCallback, useEffect, useMemo, useState } from "react";
++import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import {
+   ActivityIndicator,
+   Alert,
+@@ -24,6 +24,7 @@ import { SEAT_STATUS } from "./constants/seatMapConstants";
+ const TEXT = "#0F172A";
+ const MUTED = "#64748B";
+ const PRIMARY_RED = "#E53935";
++const SEAT_MAP_IN_FLIGHT = new Map();
+ 
+ function parsePassengers(flowState) {
+   return Array.isArray(flowState.passengers) ? flowState.passengers : [];
+@@ -82,7 +83,8 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+ 
+   const flowState = useMemo(() => ({ ...currentFlowState, ...routeParams }), [currentFlowState, routeParams]);
+   const passengers = parsePassengers(flowState);
+-  const passengerCount = Math.max(1, passengers.length || 1);
++  const seatEligiblePassengers = passengers.filter((passenger) => String(passenger.passengerType || "Adult").toLowerCase() !== "infant");
++  const passengerCount = Math.max(1, seatEligiblePassengers.length || 1);
+ 
+   const traceId = flowState.traceId || flowState.flight?.traceId || routeParams.traceId || routeParams.flight?.traceId;
+   const resultIndex = flowState.resultIndex || flowState.flight?.resultIndex || routeParams.resultIndex || routeParams.flight?.resultIndex;
+@@ -122,10 +124,10 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+ 
+   // Dynamic SeatMap selection state
+   const originCode = String(
+-    flowState.flight?.fromCityCode || flowState.flight?.fromCity || flowState.searchContext?.from || "DEL"
++    flowState.flight?.fromCityCode || flowState.flight?.fromCity || flowState.searchContext?.from || ""
+   ).toUpperCase();
+   const destinationCode = String(
+-    flowState.flight?.toCityCode || flowState.flight?.toCity || flowState.searchContext?.to || "BOM"
++    flowState.flight?.toCityCode || flowState.flight?.toCity || flowState.searchContext?.to || ""
+   ).toUpperCase();
+ 
+   const multiCityFlightsList = useMemo(() => {
+@@ -155,6 +157,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+ 
+   // Dynamic SeatMap data map per leg index (0: Leg1, 1: Leg2, 2: Leg3, ...)
+   const [legSeatDataMap, setLegSeatDataMap] = useState({});
++  const seatMapRequestRef = useRef({ key: "", promise: null, data: null });
+ 
+   // Dynamic Seat selection labels per leg index
+   const [legSeatLabelsMap, setLegSeatLabelsMap] = useState(() => {
+@@ -204,17 +207,38 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+   const isLegSeatMapEmpty = !activeSrdvSeatData || !activeSrdvSeatData.Seats; 
+   const activeSeatNotApplicable = seatNotApplicable || (!loading && isLegSeatMapEmpty);
+ 
+-  const loadSeatMap = useCallback(async () => {
++  const loadSeatMap = useCallback(async ({ force = false } = {}) => {
+     if (flowState.fareQuote?.SeatSelectAllowed === false || flowState.flight?.SeatSelectAllowed === false) {
+       setSeatNotApplicable(true);
+       setLoading(false);
+       return;
+     }
+ 
++    const requestKey = `${String(traceId)}|${String(resultIndex)}|${multiCityFlightsList.map((leg) => leg?.resultIndex || leg?.ResultIndex || "").join(",")}`;
++    if (!force && seatMapRequestRef.current.key === requestKey && seatMapRequestRef.current.data) {
++      setLegSeatDataMap(seatMapRequestRef.current.data);
++      setLoading(false);
++      return seatMapRequestRef.current.data;
++    }
++    const sharedRequest = SEAT_MAP_IN_FLIGHT.get(requestKey);
++    if (sharedRequest) {
++      seatMapRequestRef.current = { key: requestKey, promise: sharedRequest };
++      setLoading(true);
++      const sharedMap = await sharedRequest;
++      if (sharedMap && typeof sharedMap === "object") {
++        seatMapRequestRef.current.data = sharedMap;
++        setLegSeatDataMap(sharedMap);
++        setSeatNotApplicable(Object.keys(sharedMap).length === 0);
++      }
++      setLoading(false);
++      return sharedMap;
++    }
++
+     setLoading(true);
+     setError(null);
+     setSeatNotApplicable(false);
+ 
++    const request = (async () => {
+     try {
+       if (!traceId || !resultIndex) {
+         throw new Error("Session trace ID or flight result index missing. Please re-select flight.");
+@@ -222,6 +246,14 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+ 
+       const resultIndices = String(resultIndex || "").split(",").map((s) => s.trim()).filter(Boolean);
+       const updatedMap = {};
++      const responseByResultIndex = new Map();
++      const fetchSeatMapOnce = (targetResultIndex) => {
++        const key = String(targetResultIndex || "");
++        if (!responseByResultIndex.has(key)) {
++          responseByResultIndex.set(key, getFlightSeatMap({ traceId, resultIndex: targetResultIndex }));
++        }
++        return responseByResultIndex.get(key);
++      };
+ 
+       console.log(`[SEATMAP_FETCH] Fetching seat maps for ${legCount} legs (TraceId: ${traceId}, Indices: ${resultIndices.join(" | ")})...`);
+ 
+@@ -231,7 +263,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+           const legIdxStr = resultIndices[i] || resultIndices[0];
+           console.log(`[SEATMAP_FETCH] Fetching Leg ${i + 1} seat map with ResultIndex: ${legIdxStr}...`);
+           try {
+-            const legRes = await getFlightSeatMap({ traceId, resultIndex: legIdxStr });
++            const legRes = await fetchSeatMapOnce(legIdxStr);
+             if (legRes?.success && legRes?.data) {
+               const rawLegData = legRes.data?.Results || legRes.data?.Response?.Results || legRes.data;
+               const segSeatData = Array.isArray(rawLegData)
+@@ -254,7 +286,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+ 
+       // 2. Fallback: If map is still incomplete, query combined resultIndex and parse array
+       if (Object.keys(updatedMap).length < legCount) {
+-        const res = await getFlightSeatMap({ traceId, resultIndex });
++        const res = await fetchSeatMapOnce(resultIndex);
+         if (res?.success && res?.data) {
+           const rawData = res.data?.Results || res.data?.Response?.Results || res.data;
+ 
+@@ -284,6 +316,8 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+       if (Object.keys(updatedMap).length === 0) {
+         setSeatNotApplicable(true);
+       }
++      if (seatMapRequestRef.current.key === requestKey) seatMapRequestRef.current.data = updatedMap;
++      return updatedMap;
+     } catch (err) {
+       const msg = String(err?.message || "");
+       console.log("[SEATMAP_FAILED] Seat map warning:", msg);
+@@ -291,7 +325,15 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+       setSeatNotApplicable(true);
+     } finally {
+       setLoading(false);
++      if (seatMapRequestRef.current.key === requestKey) {
++        seatMapRequestRef.current.promise = null;
++      }
++      SEAT_MAP_IN_FLIGHT.delete(requestKey);
+     }
++    })();
++    seatMapRequestRef.current = { key: requestKey, promise: request, data: null };
++    SEAT_MAP_IN_FLIGHT.set(requestKey, request);
++    return request;
+   }, [traceId, resultIndex, legCount, multiCityFlightsList, flowState]);
+ 
+   const handleFetchSSR = useCallback(async () => {
+@@ -405,7 +447,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+     if (!seatNotApplicable && !isLegEmpty && currentLegLabels.filter(Boolean).length !== passengerCount) {
+       Alert.alert(
+         `Incomplete Leg ${activeLegIndex + 1} Seats`,
+-        `Please select seats for all ${passengerCount} traveler(s) before proceeding to payment.`
++          `Please select seats for all ${passengerCount} seat-eligible traveler(s) before proceeding to Checkout.`
+       );
+       return;
+     }
+@@ -424,8 +466,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+       console.log(`  💺 Leg ${i + 1} Seats: ${legSeats}`);
+     }
+     console.log(`💰 Seat Surcharge Total: ₹${seatCharges}`);
+-    console.log(`🧳 SSR Extra Baggage: ${selectedSsrBaggage ? JSON.stringify(selectedSsrBaggage) : "None"}`);
+-    console.log(`🍱 SSR Meal Service: ${selectedSsrMeal ? JSON.stringify(selectedSsrMeal) : "None"}`);
++    console.log(`[Flight][SSR][Selection] baggage=${selectedSsrBaggage?.Code || "none"} meal=${selectedSsrMeal?.Code || "none"}`);
+     console.log(`💳 Grand Total Payable: ₹${total}`);
+     console.log("================================================================================");
+ 
+@@ -475,8 +516,8 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+       payableAmount: total,
+     });
+ 
+-    console.log("[FlightSeatSelectionScreen] Navigating to FlightPaymentScreen...");
+-    navigation.navigate("FlightPaymentScreen", nextState);
++    console.log("[FlightSeatSelectionScreen] Navigating to FlightCheckoutScreen...");
++    navigation.navigate("FlightCheckoutScreen", nextState);
+   }, [activeLegIndex, legCount, legSeatLabelsMap, seatNotApplicable, passengerCount, seatCharges, selectedSsrBaggage, selectedSsrMeal, selectedOutboundBaggage, selectedReturnBaggage, selectedOutboundMeal, selectedReturnMeal, ssrCharges, total, flowState, baseFare, taxes, navigation]);
+ 
+   const currentLegSeatsList = activeSeatLabels.filter(Boolean);
+@@ -486,7 +527,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+ 
+   const ctaButtonTitle = activeLegIndex < legCount - 1
+     ? `Select Leg ${activeLegIndex + 2} Seats →`
+-    : "Proceed to Payment →";
++    : "Continue to Checkout →";
+ 
+ 
+   return (
+@@ -542,7 +583,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+           {!activeSeatNotApplicable && (
+             <View style={styles.paxScrollContainer}>
+               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.passengerScroll}>
+-                {passengers.map((passenger, index) => {
++                {seatEligiblePassengers.map((passenger, index) => {
+                   const seatLabel = activeSeatLabels[index] || "";
+                   const nameDisplay = passenger.name || passenger.fullName || (passenger.firstName && passenger.lastName ? `${passenger.firstName} ${passenger.lastName}` : `Passenger ${index + 1}`);
+                   return (
+@@ -599,7 +640,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+               <Text style={styles.errorText}>Seat Map Error</Text>
+               <Text style={styles.errorSubText}>{error}</Text>
+               <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+-                <TouchableOpacity activeOpacity={0.8} onPress={loadSeatMap} style={styles.retryBtn}>
++                <TouchableOpacity activeOpacity={0.8} onPress={() => loadSeatMap({ force: true })} style={styles.retryBtn}>
+                   <Text style={styles.retryBtnText}>Retry</Text>
+                 </TouchableOpacity>
+               </View>
+@@ -668,7 +709,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+                             return (
+                               <TouchableOpacity 
+                                 key={idx} 
+-                                onPress={() => setSelectedSsrBaggage(selected ? null : bag)} 
++                                onPress={() => setSelectedSsrBaggage(selected ? null : { ...bag, passengerIndex: 0, legIndex: activeLegIndex })}
+                                 style={[styles.ssrChip, selected && styles.ssrChipActive]}
+                               >
+                                 <Text style={[styles.ssrChipText, selected && styles.ssrChipTextActive]}>
+@@ -692,7 +733,7 @@ export default function FlightSeatSelectionScreen({ route, navigation }) {
+                             return (
+                               <TouchableOpacity 
+                                 key={idx} 
+-                                onPress={() => setSelectedSsrMeal(selected ? null : meal)} 
++                                onPress={() => setSelectedSsrMeal(selected ? null : { ...meal, passengerIndex: 0, legIndex: activeLegIndex })}
+                                 style={[styles.ssrChip, selected && styles.ssrChipActive]}
+                               >
+                                 <Text style={[styles.ssrChipText, selected && styles.ssrChipTextActive]}>
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/components/CompactFlightCard.jsx b/src/screens/dashboard/bottomTabScreens/flights/components/CompactFlightCard.jsx
+index ea4d5cf..52baca0 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/components/CompactFlightCard.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/components/CompactFlightCard.jsx
+@@ -1,6 +1,7 @@
+ import React, { useState } from "react";
+ import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, useWindowDimensions } from "react-native";
+ import { SafeAreaView } from "react-native-safe-area-context";
++import { selectedFlightIdentity, toOpaqueId } from "../utils/flightFlowUtils";
+ 
+ const PRIMARY_RED = "#E11D2E";
+ const TEXT_DARK = "#1F2937";
+@@ -50,7 +51,7 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
+   const fareSegments = fareDataMultiple.FareSegments || [];
+   const firstFareSeg = fareSegments[0] || {};
+   
+-  const airlineCode = firstFareSeg.AirlineCode || flight.airlineCode || rawItem.AirlineCode || "AI";
++  const airlineCode = firstFareSeg.AirlineCode || flight.airlineCode || rawItem.AirlineCode || "";
+   const airlineName = firstFareSeg.AirlineName || flight.airlineName || rawItem.AirlineName || "Airline";
+   const flightNumber = firstFareSeg.FlightNumber || flight.flightNumber || rawItem.FlightNumber || "";
+   
+@@ -135,14 +136,28 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
+     const fareInfo = fare?.Fare || {};
+     const fareSegment = fare?.FareSegments?.[0] || firstFareSeg;
+     const selectedPrice = Number(fare?.B2CFinalFare || fareInfo.B2CFinalFare || fareInfo.PublishedFare || fare?.OfferedFare || displayPrice);
++    const parentIdentity = selectedFlightIdentity(flight);
++    const fareTierTraceId = toOpaqueId(fare?.TraceId ?? fare?.traceId);
++    const fareTierResultIndex = toOpaqueId(fare?.ResultIndex ?? fare?.resultIndex);
++    const resolvedTraceId = fareTierTraceId || parentIdentity.traceId;
++    const resolvedResultIndex = fareTierResultIndex || parentIdentity.resultIndex;
+     onSelect({
+       ...flight,
++      parentFlightTraceId: parentIdentity.traceId,
++      fareTierTraceId,
++      resolvedTraceId,
++      traceId: resolvedTraceId,
++      parentResultIndex: parentIdentity.resultIndex,
++      fareTierResultIndex,
++      resolvedResultIndex,
+       price: selectedPrice,
+       displayFare: selectedPrice,
+       offeredFare: Number(fare?.OfferedFare || fareInfo.OfferedFare || selectedPrice),
+       baseFare: Number(fareInfo.BaseFare || selectedPrice),
+       tax: Number(fareInfo.Tax || 0),
+-      resultIndex: fare?.ResultIndex || flight.resultIndex,
++      resultIndex: resolvedResultIndex,
++      source: fare?.Source ?? flight.source ?? rawItem.Source,
++      srdvType: fare?.SrdvType || flight.srdvType || "MixAPI",
+       srdvIndex: fare?.SrdvIndex || flight.srdvIndex || "2",
+       selectedFareType: String(fare?.Source || fare?.FareType || "STANDARD").toUpperCase(),
+       isRefundable: Boolean(fare?.IsRefundable ?? isRefundable),
+@@ -196,7 +211,7 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
+           <TouchableOpacity onPress={() => onViewDetails(flight)} style={styles.detailsBtn}>
+             <Text style={styles.detailsBtnText}>View Details</Text>
+           </TouchableOpacity>
+-          <TouchableOpacity onPress={() => fareOptions.length > 1 ? setFareListVisible(true) : onSelect(flight)} style={styles.selectBtn}>
++          <TouchableOpacity onPress={() => fareOptions.length > 0 ? (fareOptions.length > 1 ? setFareListVisible(true) : selectFare(fareOptions[0])) : onSelect(flight)} style={styles.selectBtn}>
+             <Text style={styles.selectBtnText}>{fareOptions.length > 1 ? `View fares (${fareOptions.length})` : "Select →"}</Text>
+           </TouchableOpacity>
+         </View>
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/components/FareRuleModal.jsx b/src/screens/dashboard/bottomTabScreens/flights/components/FareRuleModal.jsx
+index 3ed6398..28a4cbc 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/components/FareRuleModal.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/components/FareRuleModal.jsx
+@@ -20,9 +20,11 @@ export default function FareRuleModal({
+   onClose,
+   loading = false,
+   fareRuleData = null,
+-  origin = "DEL",
+-  destination = "BOM",
+-  airline = "Flight",
++  error = "",
++  onRetry,
++  origin = "",
++  destination = "",
++  airline = "Selected flight",
+ }) {
+   const parsedData = useMemo(() => {
+     return parseRawFareRules(fareRuleData);
+@@ -76,6 +78,13 @@ export default function FareRuleModal({
+                 <ActivityIndicator size="large" color={PRIMARY_RED} />
+                 <Text style={styles.loadingText}>Fetching live fare rules & penalties...</Text>
+               </View>
++            ) : error ? (
++              <View style={styles.emptyContainer}>
++                <Ionicons name="alert-circle-outline" size={40} color={PRIMARY_RED} />
++                <Text style={styles.emptyTitle}>Fare rules unavailable</Text>
++                <Text style={styles.emptyText}>{error}</Text>
++                {!!onRetry && <TouchableOpacity onPress={onRetry} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity>}
++              </View>
+             ) : (
+               <>
+                 {/* Special Rules Notice Card */}
+@@ -141,11 +150,12 @@ export default function FareRuleModal({
+                   ))
+                 ) : (
+                   <View style={styles.emptyContainer}>
+-                    <Ionicons name="shield-checkmark-outline" size={40} color="#059669" />
+-                    <Text style={styles.emptyTitle}>Standard Policy Applies</Text>
++                    <Ionicons name="document-text-outline" size={40} color={TEXT_MUTED} />
++                    <Text style={styles.emptyTitle}>Fare rules unavailable</Text>
+                     <Text style={styles.emptyText}>
+-                      Standard airline cancellation, date change penalties, and statutory taxes refund policies apply to this booking segment.
++                      The airline did not provide fare-rule details for this selection.
+                     </Text>
++                    {!!onRetry && <TouchableOpacity onPress={onRetry} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></TouchableOpacity>}
+                   </View>
+                 )}
+               </>
+@@ -177,6 +187,8 @@ const styles = StyleSheet.create({
+     maxHeight: "85%",
+     paddingBottom: 20,
+   },
++  retryButton: { marginTop: 14, paddingHorizontal: 22, paddingVertical: 10, borderRadius: 12, backgroundColor: PRIMARY_RED },
++  retryButtonText: { color: "#FFFFFF", fontWeight: "800" },
+   handleWrap: {
+     alignItems: "center",
+     paddingVertical: 10,
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/components/PassengerCard.jsx b/src/screens/dashboard/bottomTabScreens/flights/components/PassengerCard.jsx
+index de03c1c..acbd6d8 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/components/PassengerCard.jsx
++++ b/src/screens/dashboard/bottomTabScreens/flights/components/PassengerCard.jsx
+@@ -41,7 +41,7 @@ export const PassengerCard = React.memo(({
+             adjustsFontSizeToFit
+             minimumFontScale={0.85}
+           >
+-            {isInternational ? "Passport Req." : "ID Verified"}
++            {isInternational ? "Passport Req." : "Details Required"}
+           </Text>
+         </View>
+       </View>
+@@ -88,7 +88,7 @@ export const PassengerCard = React.memo(({
+       {/* DOB & Nationality Row */}
+       <View style={[styles.row, width < 430 && styles.rowStacked]}>
+         <InputField
+-          label={isInternational ? "DATE OF BIRTH" : "DATE OF BIRTH (OPTIONAL)"}
++          label={isInternational || passenger.passengerType !== "Adult" ? "DATE OF BIRTH" : "DATE OF BIRTH (OPTIONAL)"}
+           value={passenger.dob}
+           onChangeText={(val) => onUpdatePassenger(index, "dob", val)}
+           placeholder="YYYY-MM-DD"
+@@ -104,6 +104,7 @@ export const PassengerCard = React.memo(({
+           onChangeText={(val) => onUpdatePassenger(index, "nationality", val)}
+           placeholder="e.g. Indian"
+           iconName="globe-outline"
++          error={errors[`p-${index}-nationality`]}
+           containerStyle={styles.flex1}
+         />
+       </View>
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/hooks/useFlightResults.js b/src/screens/dashboard/bottomTabScreens/flights/hooks/useFlightResults.js
+index e736791..2a84192 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/hooks/useFlightResults.js
++++ b/src/screens/dashboard/bottomTabScreens/flights/hooks/useFlightResults.js
+@@ -1,4 +1,5 @@
+ import { useState, useMemo, useCallback } from "react";
++import { toOpaqueId } from "../utils/flightFlowUtils";
+ 
+ function getDepMin(timeStr) {
+   if (!timeStr) return 0;
+@@ -21,7 +22,7 @@ export function normalizeFlight(item, index, globalMinPrice) {
+   const segment = item?.Segments?.[0]?.[0] || item?.Segments?.[0] || item?.segment || {};
+ 
+   const airlineName = firstFareSeg?.AirlineName || item?.airlineName || item?.airline || segment?.Airline?.AirlineName || "Airline";
+-  const airlineCode = firstFareSeg?.AirlineCode || item?.airlineCode || segment?.Airline?.AirlineCode || "AI";
++  const airlineCode = firstFareSeg?.AirlineCode || item?.airlineCode || segment?.Airline?.AirlineCode || "";
+   const flightNumber = firstFareSeg?.FlightNumber || item?.flightNumber || segment?.Airline?.FlightNumber || "";
+ 
+   // Explicitly use B2CFinalFare as source of truth
+@@ -32,14 +33,14 @@ export function normalizeFlight(item, index, globalMinPrice) {
+   const firstSegment = segmentsArr[0] || segment;
+   const lastSegment = segmentsArr.length > 0 ? segmentsArr[segmentsArr.length - 1] : segment;
+ 
+-  const depTimeRaw = firstSegment?.DepTime || item?.departureTimeIst || item?.departureTime || "12:00";
+-  const arrTimeRaw = lastSegment?.ArrTime || item?.arrivalTimeIst || item?.arrivalTime || "14:00";
++  const depTimeRaw = firstSegment?.DepTime || item?.departureTimeIst || item?.departureTime || "";
++  const arrTimeRaw = lastSegment?.ArrTime || item?.arrivalTimeIst || item?.arrivalTime || "";
+ 
+-  let depFormatted = "12:00";
++  let depFormatted = "--:--";
+   if (depTimeRaw.includes("T")) depFormatted = depTimeRaw.split("T")[1].slice(0, 5);
+   else if (depTimeRaw.length >= 5) depFormatted = depTimeRaw.slice(0, 5);
+ 
+-  let arrFormatted = "14:00";
++  let arrFormatted = "--:--";
+   if (arrTimeRaw.includes("T")) arrFormatted = arrTimeRaw.split("T")[1].slice(0, 5);
+   else if (arrTimeRaw.length >= 5) arrFormatted = arrTimeRaw.slice(0, 5);
+ 
+@@ -52,7 +53,7 @@ export function normalizeFlight(item, index, globalMinPrice) {
+   if (!durationMinutes && segmentsArr.length > 0) {
+     durationMinutes = segmentsArr.reduce((acc, seg) => acc + Number(seg.Duration || 0) + Number(seg.GroundTime || 0), 0);
+   }
+-  if (!durationMinutes) durationMinutes = Number(firstSegment?.Duration || 120);
++  if (!durationMinutes) durationMinutes = Number(firstSegment?.Duration || 0);
+ 
+   const stops = segmentsArr.length > 1 ? segmentsArr.length - 1 : 0;
+ 
+@@ -77,9 +78,15 @@ export function normalizeFlight(item, index, globalMinPrice) {
+   const cabinClass = firstFareSeg?.CabinClassName || item?.travelClass || "Economy";
+   
+   const id = String(item?.id || item?.ResultIndex || fareDataMultiple?.ResultIndex || `flight-${index}`);
++  const traceId = toOpaqueId(item?.traceId) || toOpaqueId(item?.TraceId);
++  const resultIndex = toOpaqueId(item?.resultIndex) || toOpaqueId(item?.ResultIndex) || toOpaqueId(fareDataMultiple?.ResultIndex);
+ 
+   return {
+     id,
++    traceId,
++    TraceId: traceId,
++    resultIndex,
++    ResultIndex: resultIndex,
+     airlineName,
+     airlineCode,
+     flightNumber,
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/services/flightBookingFlowStore.js b/src/screens/dashboard/bottomTabScreens/flights/services/flightBookingFlowStore.js
+index b6004ea..84bdc6d 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/services/flightBookingFlowStore.js
++++ b/src/screens/dashboard/bottomTabScreens/flights/services/flightBookingFlowStore.js
+@@ -32,21 +32,36 @@ export async function writeFlightBookingFlowState(partialState) {
+       resultIndex: String(next.resultIndex || next.flight?.resultIndex || ""),
+       srdvType: String(next.srdvType || next.flight?.srdvType || "MixAPI"),
+       srdvIndex: String(next.srdvIndex || next.flight?.srdvIndex || "2"),
++      source: next.source ?? next.flight?.source ?? null,
++      selectedFareType: next.flight?.selectedFareType || next.selectedFareType || null,
+       pnr: next.pnr || "",
+       bookingId: next.bookingId || "",
+       ticketStatus: next.ticketStatus || "Confirmed",
+       isLCC: Boolean(next.isLCC),
+       payableAmount: Number(next.payableAmount || next.fareSummary?.totalFare || 0),
+-      contact: next.contact ? { email: next.contact.email, mobile: next.contact.mobile } : undefined,
+-      passengers: Array.isArray(next.passengers)
+-        ? next.passengers.map((p) => ({
+-            title: p.title,
+-            firstName: p.firstName,
+-            lastName: p.lastName,
+-            gender: p.gender,
+-            passengerType: p.passengerType,
+-          }))
+-        : [],
++      journeyType: Number(next.journeyType || next.searchContext?.journeyType || 1),
++      isInternational: Boolean(next.isInternational),
++      quoteTimestamp: next.quoteTimestamp || null,
++      fareSummary: next.fareSummary ? {
++        baseFare: Number(next.fareSummary.baseFare || 0),
++        tax: Number(next.fareSummary.tax || 0),
++        seatSurcharge: Number(next.fareSummary.seatSurcharge || 0),
++        ssrSurcharge: Number(next.fareSummary.ssrSurcharge || 0),
++        totalFare: Number(next.fareSummary.totalFare || 0),
++      } : undefined,
++      searchContext: next.searchContext ? {
++        journeyType: next.searchContext.journeyType,
++        tripType: next.searchContext.tripType,
++        adults: next.searchContext.adults,
++        children: next.searchContext.children,
++        infants: next.searchContext.infants,
++        travelClass: next.searchContext.travelClass,
++        date: next.searchContext.date,
++        returnDate: next.searchContext.returnDate,
++        from: next.searchContext.from,
++        to: next.searchContext.to,
++      } : undefined,
++      selectedSeatLabels: Array.isArray(next.selectedSeatLabels) ? next.selectedSeatLabels.slice(0, 12) : [],
+     };
+ 
+     const jsonStr = JSON.stringify(compactState);
+diff --git a/src/screens/dashboard/bottomTabScreens/flights/utils/flightNormalizeUtils.js b/src/screens/dashboard/bottomTabScreens/flights/utils/flightNormalizeUtils.js
+index 2554cad..0f1dd3a 100644
+--- a/src/screens/dashboard/bottomTabScreens/flights/utils/flightNormalizeUtils.js
++++ b/src/screens/dashboard/bottomTabScreens/flights/utils/flightNormalizeUtils.js
+@@ -2,6 +2,8 @@
+  * Canonical Normalizer for Flight Objects across all application screens.
+  * Eliminates undefined ➔ undefined route display and ensures consistent property names.
+  */
++import { toOpaqueId } from "./flightFlowUtils";
++
+ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
+   if (!flight) return null;
+ 
+@@ -17,7 +19,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
+     raw.Origin?.CityCode ||
+     raw.fromCity ||
+     raw.from ||
+-    "DEL"
++    ""
+   ).toUpperCase();
+ 
+   const originCity = String(
+@@ -40,7 +42,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
+     raw.Destination?.CityCode ||
+     raw.toCity ||
+     raw.to ||
+-    "BOM"
++    ""
+   ).toUpperCase();
+ 
+   const destinationCity = String(
+@@ -59,7 +61,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
+     flight.airline ||
+     raw.AirlineCode ||
+     raw.Airline?.AirlineCode ||
+-    "6E"
++    ""
+   );
+ 
+   const airlineName = String(
+@@ -84,6 +86,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
+     raw.ResultIndex ||
+     ""
+   );
++  const traceId = toOpaqueId(flight.traceId) || toOpaqueId(flight.TraceId) || toOpaqueId(raw.traceId) || toOpaqueId(raw.TraceId);
+ 
+   // Price & Fare
+   const price = Number(
+@@ -100,7 +103,10 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
+     ...raw,
+     ...flight,
+     legIndex: fallbackLegIndex,
++    traceId,
++    TraceId: traceId,
+     resultIndex,
++    ResultIndex: resultIndex,
+     airlineCode,
+     airlineName,
+     flightNumber,
+@@ -121,7 +127,7 @@ export function normalizeFlightObject(flight, fallbackLegIndex = 0) {
+  * Normalizes Date instances to YYYY-MM-DD string for navigation serialization.
+  */
+ export function normalizeDateString(dateVal) {
+-  if (!dateVal) return new Date().toISOString().slice(0, 10);
++  if (!dateVal) return "";
+   if (typeof dateVal === "string") {
+     if (dateVal.includes("T")) return dateVal.split("T")[0];
+     return dateVal;
+diff --git a/src/services/FlightService.js b/src/services/FlightService.js
+index fe6bc1d..f8e1ad9 100644
+--- a/src/services/FlightService.js
++++ b/src/services/FlightService.js
+@@ -21,7 +21,10 @@ export function sanitizeForLog(obj) {
+     const copy = Array.isArray(obj) ? [...obj] : { ...obj };
+     const sensitiveKeys = [
+       "password", "Password", "apiToken", "ApiToken", "authorization", 
+-      "Authorization", "token", "JWT", "cardNumber", "cvv", "upiId", "secret"
++      "Authorization", "token", "JWT", "cardNumber", "cvv", "upiId", "secret",
++      "firstName", "lastName", "fullName", "email", "mobile", "phone", "phoneNumber",
++      "dob", "dateOfBirth", "passportNo", "passportNumber", "passportExpiry",
++      "address", "paymentSessionId", "BookingPayloadJson"
+     ];
+     for (const key of Object.keys(copy)) {
+       if (sensitiveKeys.some((s) => s.toLowerCase() === key.toLowerCase())) {
+@@ -60,13 +63,38 @@ client.interceptors.request.use(
+ client.interceptors.response.use(
+   (response) => {
+     const fullUrl = `${response.config?.baseURL || ""}${response.config?.url || ""}`;
+-    console.log(
+-      `\n[FLIGHT API RESPONSE] ${response.config?.method?.toUpperCase()} ${fullUrl} (Status: ${response.status})\n${JSON.stringify(sanitizeForLog(response.data), null, 2)}`
+-    );
++    if (__DEV__) {
++      const payload = response.data;
++      const results = payload?.Response?.Results ?? payload?.Results ?? payload?.data?.Response?.Results;
++      const groups = Array.isArray(results) ? results : [];
++      const flightCount = groups.reduce((sum, group) => sum + (Array.isArray(group) ? group.length : 1), 0);
++      console.log("[Flight][API][Response]", {
++        method: response.config?.method?.toUpperCase(),
++        endpoint: response.config?.url,
++        status: response.status,
++        topLevelKeys: payload && typeof payload === "object" ? Object.keys(payload).slice(0, 12) : [],
++        groupCount: groups.length,
++        flightCount,
++      });
++    }
+     return response;
+   },
+   (error) => {
+     const fullUrl = `${error.config?.baseURL || ""}${error.config?.url || ""}`;
++    const isFareQuote = String(error.config?.url || "").includes("/api/flight/srdv/FareQuote");
++    if (isFareQuote) {
++      if (__DEV__) {
++        const errorBody = error.response?.data;
++        const apiError = errorBody?.Response?.Error || errorBody?.Error || {};
++        console.log("[Flight][FareQuote][HandledError]", {
++          endpoint: error.config?.url,
++          httpStatus: error.response?.status || null,
++          backendCode: apiError?.ErrorCode || errorBody?.code || null,
++          message: String(apiError?.ErrorMessage || errorBody?.message || error.message || "FareQuote request failed").slice(0, 240),
++        });
++      }
++      return Promise.reject(error);
++    }
+     console.error(`\n==================================================`);
+     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [FLIGHT API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
+     console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Error Message:", error.message);
+@@ -82,7 +110,7 @@ client.interceptors.response.use(
+ 
+ function getCityCode(val) {
+   const clean = String(val || "").trim().toUpperCase();
+-  if (!clean) return "DEL";
++  if (!clean) return "";
+   if (clean.length === 3) return clean;
+   const map = {
+     DELHI: "DEL",
+@@ -103,13 +131,24 @@ function getCityCode(val) {
+   return map[clean] || clean.slice(0, 3);
+ }
+ 
+-function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
++function toOpaqueId(value) {
++  if (value === null || value === undefined) return "";
++  const normalized = String(value).trim();
++  if (!normalized || normalized.toLowerCase() === "null" || normalized.toLowerCase() === "undefined") return "";
++  return normalized;
++}
++
++export function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
+   const resObj = data?.Response || data?.data?.Response || data;
+-  const traceId = String(resObj?.TraceId || resObj?.traceId || data?.TraceId || data?.traceId || "");
++  const rootTraceId = toOpaqueId(
++    resObj?.TraceId || resObj?.traceId || data?.TraceId || data?.traceId
++  );
++  let traceMappingLogged = false;
+ 
+   const mapSingleItem = (item, idx, defaultFrom, defaultTo, legIndex = 0, tripDirection = "outbound") => {
+     const segment = item?.Segments?.[0]?.[0] || item?.Segments?.[0] || item?.segment || {};
+-    const fareData = item?.FareDataMultiple?.[0] || item?.fareData || {};
++    const rawFareOptions = Array.isArray(item?.FareDataMultiple) ? item.FareDataMultiple : [];
++    const fareData = rawFareOptions[0] || item?.fareData || {};
+     const fareSegment = fareData?.FareSegments?.[0] || {};
+     const fareObj = fareData?.Fare || item?.Fare || {};
+ 
+@@ -151,7 +190,7 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
+ 
+     const depTime = segment?.DepTime || item?.departureTimeIst || item?.departureTime || "";
+     const arrTime = segment?.ArrTime || item?.arrivalTimeIst || item?.arrivalTime || "";
+-    const duration = segment?.Duration || item?.duration || 60;
++    const duration = segment?.Duration || item?.duration || 0;
+ 
+     const offeredFare = Number(
+       fareData?.OfferedFare ||
+@@ -165,9 +204,35 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
+     const baseFare = Number(fareObj?.BaseFare || item?.baseFare || offeredFare);
+     const tax = Number(fareObj?.Tax || item?.tax || 0);
+ 
+-    const resultIndex = fareData?.ResultIndex || item?.ResultIndex || item?.resultIndex || String(idx + 1);
++    const itemTraceId = toOpaqueId(item?.TraceId || item?.traceId);
++    const primaryFareTraceId = toOpaqueId(fareData?.TraceId || fareData?.traceId);
++    const resolvedFlightTraceId = itemTraceId || primaryFareTraceId || rootTraceId;
++    const resultIndex = toOpaqueId(fareData?.ResultIndex || fareData?.resultIndex) || toOpaqueId(item?.ResultIndex || item?.resultIndex) || String(idx + 1);
+     const srdvIndex = fareData?.SrdvIndex || item?.SrdvIndex || "2";
+     const srdvType = fareData?.SrdvType || item?.SrdvType || "MixAPI";
++    const normalizedFareOptions = rawFareOptions.map((fareTier) => {
++      const resolvedTierTraceId = toOpaqueId(fareTier?.TraceId || fareTier?.traceId) || resolvedFlightTraceId;
++      const resolvedTierResultIndex = toOpaqueId(fareTier?.ResultIndex || fareTier?.resultIndex) || resultIndex;
++      return {
++        ...fareTier,
++        traceId: resolvedTierTraceId,
++        TraceId: resolvedTierTraceId,
++        resultIndex: resolvedTierResultIndex,
++        ResultIndex: resolvedTierResultIndex,
++      };
++    });
++
++    if (__DEV__ && !traceMappingLogged) {
++      const sampleTierTraceId = toOpaqueId(rawFareOptions[0]?.TraceId || rawFareOptions[0]?.traceId);
++      console.log("[Flight][Search][TraceMapping]", {
++        rootTraceId,
++        sampleItemTraceId: itemTraceId,
++        sampleTierTraceId,
++        resolvedFlightTraceId,
++        traceIdSource: itemTraceId ? "flightItem" : primaryFareTraceId ? "fareTier" : rootTraceId ? "searchRoot" : "missing",
++      });
++      traceMappingLogged = true;
++    }
+ 
+     const isLCC = Boolean(
+       fareData?.IsLCC !== undefined 
+@@ -181,11 +246,14 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
+ 
+     return {
+       ...item,
++      FareDataMultiple: normalizedFareOptions,
++      traceId: resolvedFlightTraceId,
++      TraceId: resolvedFlightTraceId,
+       id: String(item?.Id || item?.id || resultIndex || `flight-${legIndex}-${idx + 1}`),
+       resultIndex,
++      ResultIndex: resultIndex,
+       srdvIndex,
+       srdvType,
+-      traceId,
+       airline: airlineName,
+       airlineName,
+       airlineCode,
+@@ -370,7 +438,9 @@ export async function searchFlights(searchParams) {
+     AdultCount: Number(searchParams.adults !== undefined ? searchParams.adults : 1),
+     ChildCount: Number(searchParams.children !== undefined ? searchParams.children : 0),
+     InfantCount: Number(searchParams.infants !== undefined ? searchParams.infants : 0),
+-    JourneyType: journeyType,
++    JourneyType: String(journeyType),
++    CurrencyCode: "INR",
++    FareType: "1",
+     // CRITICAL: For multi-city bookings (JourneyType 3), DO NOT send DirectFlight tag
+     ...(journeyType !== 3 ? { DirectFlight: Boolean(searchParams.directFlight ?? false) } : {}),
+     Segments: segments,
+@@ -379,14 +449,12 @@ export async function searchFlights(searchParams) {
+   // Unsafe log removed, rely on Axios interceptor
+ 
+   try {
+-    console.log("[FLIGHT SEARCH API REQUEST]", {
+-      endpoint: "/api/flight/srdv/Search",
+-      payload: sanitizeForLog(payload),
++    if (__DEV__) console.log("[Flight][Search][Request]", {
++      endpoint: "/api/flight/srdv/Search", journeyType: payload.JourneyType,
++      adults: payload.AdultCount, children: payload.ChildCount, infants: payload.InfantCount,
++      segmentCount: payload.Segments.length,
+     });
+     const response = await client.post("/api/flight/srdv/Search", payload);
+-    console.log(
+-      `[FLIGHT SEARCH API RESPONSE]\n${JSON.stringify(response.data, null, 2)}`
+-    );
+ 
+     const resObj = response?.data?.Response || response?.data;
+     const errObj = resObj?.Error || response?.data?.Error;
+@@ -394,7 +462,12 @@ export async function searchFlights(searchParams) {
+       throw new Error(errObj.ErrorMessage);
+     }
+ 
+-    return mapFlightResults(response.data, fromCode, toCode, searchParams);
++    const mapped = mapFlightResults(response.data, fromCode, toCode, searchParams);
++    if (__DEV__) console.log("[Flight][Results][Mapped]", {
++      flightCount: mapped.length,
++      sample: mapped.slice(0, 3).map((flight) => ({ traceId: flight.traceId, resultIndex: flight.resultIndex, fareTierCount: flight.FareDataMultiple?.length || 0 })),
++    });
++    return mapped;
+   } catch (error) {
+     const errData = error?.response?.data;
+     console.error("[FLIGHT SEARCH API ERROR RESPONSE]", errData || error);
+@@ -428,15 +501,30 @@ export async function getFlightFareQuote(params = {}) {
+     const errObj = resObj?.Error || response?.data?.Error;
+     
+     if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
+-      console.error(`[FARE_REVALIDATION_FAILED] /api/flight/srdv/FareQuote ErrorCode: ${errObj.ErrorCode} | Message: ${errObj.ErrorMessage} | TraceId: ${activeTraceId}`);
+-      throw new Error(errObj.ErrorMessage || "Fare revalidation failed by supplier.");
++      const supplierError = new Error(errObj.ErrorMessage || "Fare revalidation failed by supplier.");
++      supplierError.backendCode = String(errObj.ErrorCode || "");
++      supplierError.backendMessage = String(errObj.ErrorMessage || "");
++      supplierError.httpStatus = response?.status || 200;
++      throw supplierError;
+     }
+ 
+     return response.data;
+   } catch (error) {
+-    const msg = error?.response?.data?.Error?.ErrorMessage || error?.message || "Fare revalidation failed by supplier.";
+-    console.error(`[FARE_REVALIDATION_FAILED] Supplier Quote Exception: ${msg} | TraceId: ${activeTraceId}`);
+-    throw new Error(msg);
++    const responseBody = error?.response?.data;
++    const apiError = responseBody?.Response?.Error || responseBody?.Error || {};
++    const msg = String(
++      error?.backendMessage ||
++      apiError?.ErrorMessage ||
++      responseBody?.message ||
++      error?.message ||
++      "Fare revalidation failed by supplier."
++    );
++    const quoteError = new Error(msg);
++    quoteError.httpStatus = error?.httpStatus || error?.response?.status || null;
++    quoteError.backendCode = String(error?.backendCode || apiError?.ErrorCode || responseBody?.code || "");
++    quoteError.backendMessage = msg;
++    quoteError.isNetworkError = !error?.response && !error?.httpStatus;
++    throw quoteError;
+   }
+ }
+ 
+diff --git a/src/services/cashfreeApi.js b/src/services/cashfreeApi.js
+index 0ba4ff4..edd93ea 100644
+--- a/src/services/cashfreeApi.js
++++ b/src/services/cashfreeApi.js
+@@ -47,15 +47,33 @@ const validateDatetimeFields = (payloadJson) => {
+  */
+ export const createOrder = async (payload, userToken) => {
+   // Validate datetime fields client-side before sending
+-  if (payload.bookingPayloadJson) {
+-    validateDatetimeFields(payload.bookingPayloadJson);
++  if (payload.bookingPayloadJson || payload.BookingPayloadJson) {
++    validateDatetimeFields(payload.bookingPayloadJson || payload.BookingPayloadJson);
+   }
+ 
+-  // Ensure notifyUrl is set to the correct absolute URL as an async safety net
+-  const payloadToSend = {
+-    ...payload,
+-    notifyUrl: 'https://api.picknbook.com/api/cashfree/webhook',
+-  };
++  const isFlight = String(payload.bookingType || payload.BookingType || '').toLowerCase() === 'flight';
++  const payloadToSend = isFlight ? {
++    IdempotencyKey: String(payload.idempotencyKey || payload.IdempotencyKey || '').slice(0, 45),
++    BookingType: 'Flight',
++    OrderAmount: Number(payload.orderAmount ?? payload.OrderAmount ?? 0),
++    CustomerId: String(payload.customerId ?? payload.CustomerId ?? '').trim(),
++    CustomerName: String(payload.customerName ?? payload.CustomerName ?? ''),
++    CustomerEmail: String(payload.customerEmail ?? payload.CustomerEmail ?? ''),
++    CustomerPhone: String(payload.customerPhone ?? payload.CustomerPhone ?? ''),
++    PaymentMethod: String(payload.paymentMethod ?? payload.PaymentMethod ?? 'Cashfree'),
++    BookingPayloadJson: String(payload.bookingPayloadJson ?? payload.BookingPayloadJson ?? '{}'),
++  } : payload;
++
++  if (isFlight && !payloadToSend.CustomerId) {
++    if (__DEV__) {
++      console.warn('[Flight][Payment][CreateOrderError]', {
++        backendCode: 'SESSION_CUSTOMER_ID_MISSING',
++        httpStatus: null,
++        missingField: 'customer_id',
++      });
++    }
++    throw new Error('Unable to start the secure payment. Please try again.');
++  }
+ 
+   const response = await fetch(`${BASE_URL}/api/cashfree/create-order`, {
+     method: 'POST',
+@@ -70,7 +88,19 @@ export const createOrder = async (payload, userToken) => {
+ 
+ 
+   if (!response.ok) {
+-    // Surface backend's message field (e.g. "Price mismatch") to the user
++    if (isFlight) {
++      if (__DEV__) {
++        console.warn('[Flight][Payment][CreateOrderError]', {
++          backendCode: data.code || data.errorCode || data.ErrorCode || null,
++          httpStatus: response.status,
++          missingField: /customer[_\s.]?id/i.test(String(data.message || data.error || '')) ? 'customer_id' : null,
++        });
++      }
++      const safeError = new Error('Unable to start the secure payment. Please try again.');
++      safeError.backendCode = data.code || data.errorCode || data.ErrorCode || null;
++      safeError.httpStatus = response.status;
++      throw safeError;
++    }
+     throw new Error(data.message || `Failed to create order (status: ${response.status})`);
+   }
+ 
+diff --git a/src/services/cashfreeService.js b/src/services/cashfreeService.js
+index fabcf3d..da1e97f 100644
+--- a/src/services/cashfreeService.js
++++ b/src/services/cashfreeService.js
+@@ -129,20 +129,23 @@ export async function validateFlightCoupon({ serviceType = "flight", couponCode,
+  */
+ export async function createCashfreeOrder(payload) {
+   try {
++    const customerId = String(payload.customerId ?? payload.CustomerId ?? "").trim();
++    if (!customerId) {
++      const missingIdError = new Error("Unable to start the secure payment. Please try again.");
++      missingIdError.backendCode = "SESSION_CUSTOMER_ID_MISSING";
++      missingIdError.missingField = "customer_id";
++      throw missingIdError;
++    }
+     const response = await client.post("/api/cashfree/create-order", {
+-      orderAmount: Number(payload.orderAmount || 0),
+-      orderCurrency: String(payload.orderCurrency || "INR"),
+-      customerId: String(payload.customerId || ""),
+-      customerName: String(payload.customerName || ""),
+-      customerEmail: String(payload.customerEmail || ""),
+-      customerPhone: String(payload.customerPhone || ""),
+-      returnUrl: payload.returnUrl || "",
+-      notifyUrl: payload.notifyUrl || "",
+-      bookingType: "Flight",
+-      couponCode: payload.couponCode || null,
+-      promotionId: payload.promotionId || null,
+-      useWallet: Boolean(payload.useWallet ?? false),
+-      bookingPayloadJson: String(payload.bookingPayloadJson || "{}"),
++      IdempotencyKey: String(payload.idempotencyKey || payload.IdempotencyKey || "").slice(0, 45),
++      BookingType: "Flight",
++      OrderAmount: Number(payload.orderAmount ?? payload.OrderAmount ?? 0),
++      CustomerId: customerId,
++      CustomerName: String(payload.customerName ?? payload.CustomerName ?? ""),
++      CustomerEmail: String(payload.customerEmail ?? payload.CustomerEmail ?? ""),
++      CustomerPhone: String(payload.customerPhone ?? payload.CustomerPhone ?? ""),
++      PaymentMethod: String(payload.paymentMethod ?? payload.PaymentMethod ?? "Cashfree"),
++      BookingPayloadJson: String(payload.bookingPayloadJson ?? payload.BookingPayloadJson ?? "{}"),
+     });
+ 
+     const data = response?.data;
+@@ -158,6 +161,7 @@ export async function createCashfreeOrder(payload) {
+       paymentSessionId: String(data.paymentSessionId ?? data.PaymentSessionId ?? data.sessionId ?? ""),
+       cfOrderId: String(data.cfOrderId ?? data.CfOrderId ?? data.cf_order_id ?? ""),
+       orderStatus: String(data.orderStatus ?? data.OrderStatus ?? "ACTIVE"),
++      paymentReference: String(data.paymentReference ?? data.PaymentReference ?? payload.idempotencyKey ?? payload.IdempotencyKey ?? ""),
+     };
+   } catch (err) {
+     const errData = err?.response?.data;
+@@ -168,8 +172,12 @@ export async function createCashfreeOrder(payload) {
+       err?.message ||
+       "Failed to create payment order.";
+     const status = err?.response?.status;
+-    console.error(`[cashfreeService] createCashfreeOrder failed (${status}):`, msg);
+-    throw new Error(msg);
++    if (__DEV__) console.warn("[Flight][Payment][CreateOrderError]", {
++      backendCode: errData?.code || errData?.errorCode || errData?.ErrorCode || err?.backendCode || null,
++      httpStatus: status || null,
++      missingField: err?.missingField || (/customer[_\s.]?id/i.test(String(msg)) ? "customer_id" : null),
++    });
++    throw new Error("Unable to start the secure payment. Please try again.");
+   }
+ }
+ 
+@@ -182,7 +190,7 @@ export async function createCashfreeOrder(payload) {
+  * @param {string} cashfreeOrderId
+  * @returns {Promise<{
+  *   paymentReference, cashfreeOrderId, status, bookingType,
+- *   amount, paymentMethod, paidAt, failureReason
++ *   amount, paymentMethod, paidAt, failureReason, totalAttempts
+  * }>}
+  */
+ export async function verifyFlightPayment(cashfreeOrderId) {
+@@ -212,6 +220,14 @@ export async function verifyFlightPayment(cashfreeOrderId) {
+       paymentMethod: String(data?.paymentMethod ?? data?.PaymentMethod ?? ""),
+       paidAt: String(data?.paidAt ?? data?.PaidAt ?? ""),
+       failureReason: String(data?.failureReason ?? data?.FailureReason ?? data?.reason ?? ""),
++      currency: String(data?.currency ?? data?.Currency ?? "INR"),
++      fulfillmentStatus: String(data?.fulfillmentStatus ?? data?.FulfillmentStatus ?? ""),
++      totalAttempts: Number.isFinite(Number(data?.totalAttempts ?? data?.TotalAttempts))
++        ? Number(data?.totalAttempts ?? data?.TotalAttempts)
++        : null,
++      bookingReferenceId: data?.bookingReferenceId ?? data?.BookingReferenceId ?? null,
++      reservationId: data?.reservationId ?? data?.ReservationId ?? null,
++      bookingReference: String(data?.bookingReference ?? data?.BookingReference ?? ""),
+     };
+   } catch (err) {
+     const msg = err?.response?.data?.message || err?.message || "Payment verification failed.";
+@@ -220,6 +236,17 @@ export async function verifyFlightPayment(cashfreeOrderId) {
+   }
+ }
+ 
++export async function cancelFlightPaymentOrder(cashfreeOrderId) {
++  const cleanId = String(cashfreeOrderId || "").trim();
++  if (!cleanId) throw new Error("cashfreeOrderId is required to cancel the payment order.");
++  try {
++    const response = await client.post(`/api/cashfree/orders/${encodeURIComponent(cleanId)}/cancel`);
++    return response?.data || {};
++  } catch {
++    throw new Error("Unable to cancel the payment order. Please try again.");
++  }
++}
++
+ // --------------------------------------------------------------------------
+ // 5. Fetch My Confirmed SRDV Bookings
+ //    GET /api/flight/srdv/my-bookings
+@@ -249,5 +276,6 @@ export default {
+   validateFlightCoupon,
+   createCashfreeOrder,
+   verifyFlightPayment,
++  cancelFlightPaymentOrder,
+   getMyFlightBookings,
+ };
+diff --git a/src/services/travelerService.js b/src/services/travelerService.js
+index 8eb7f34..2fbf25e 100644
+--- a/src/services/travelerService.js
++++ b/src/services/travelerService.js
+@@ -66,7 +66,8 @@ export function normalizeTraveler(item) {
+     ? "Other"
+     : "Male";
+ 
+-  const age = item.age || item.Age || (item.dateOfBirth ? calculateAgeFromDob(item.dateOfBirth) : 25);
++  const dateOfBirth = item.dateOfBirth || item.DateOfBirth || item.dob || item.DOB || "";
++  const age = item.age || item.Age || (dateOfBirth ? calculateAgeFromDob(dateOfBirth) : null);
+   const phoneNumber = String(item.phoneNumber || item.PhoneNumber || item.phone || item.Phone || item.phoneNo || item.mobileNumber || "").trim();
+   const email = String(item.email || item.Email || "").trim();
+ 
+@@ -75,6 +76,10 @@ export function normalizeTraveler(item) {
+   const title = item.title || item.Title || "Mr";
+   const country = item.country || item.Country || "";
+   const passportNo = item.passportNo || item.PassportNo || item.passportNumber || null;
++  const nationality = item.nationality || item.Nationality || country || "";
++  const passportExpiry = item.passportExpiry || item.PassportExpiry || item.passportExpiryDate || "";
++  const passportIssueDate = item.passportIssueDate || item.PassportIssueDate || "";
++  const passportIssueCountryCode = item.passportIssueCountryCode || item.PassportIssueCountryCode || item.issueCountryCode || "";
+   const phoneNo = phoneNumber; // Alias for API consistency
+ 
+   return {
+@@ -83,7 +88,8 @@ export function normalizeTraveler(item) {
+     lastName,
+     fullName,
+     gender,
+-    age: Number(age) || 25,
++    age: age == null ? null : Number(age),
++    dateOfBirth,
+     phoneNumber,
+     phoneNo,
+     email,
+@@ -91,6 +97,11 @@ export function normalizeTraveler(item) {
+     title,
+     country,
+     passportNo,
++    passportNumber: passportNo,
++    nationality,
++    passportExpiry,
++    passportIssueDate,
++    passportIssueCountryCode,
+     raw: item,
+   };
+ }
+diff --git a/src/utils/authSession.js b/src/utils/authSession.js
+index 0b26bb2..12e0f3c 100644
+--- a/src/utils/authSession.js
++++ b/src/utils/authSession.js
+@@ -76,3 +76,32 @@ export const isJwtExpired = (token) => {
+     return false
+   }
+ }
++
++export const getStoredAuthUserId = async () => {
++  try {
++    const rawUser = await SecureStore.getItemAsync('user')
++    if (rawUser) {
++      const user = JSON.parse(rawUser)
++      const storedId =
++        user?.id ?? user?.userId ?? user?.Id ?? user?.UserId ??
++        user?.customerId ?? user?.CustomerId ?? user?.accountId ?? user?.AccountId
++      if (storedId !== undefined && storedId !== null && String(storedId).trim()) {
++        return String(storedId).trim()
++      }
++    }
++
++    const token = await getStoredAuthToken()
++    if (!token || isJwtExpired(token)) return ''
++    const parts = token.split('.')
++    if (parts.length !== 3) return ''
++    let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
++    while (payload.length % 4 !== 0) payload += '='
++    const claims = JSON.parse(base64Decode(payload))
++    const claimId =
++      claims?.sub ?? claims?.nameid ?? claims?.userId ?? claims?.UserId ??
++      claims?.['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier']
++    return claimId !== undefined && claimId !== null ? String(claimId).trim() : ''
++  } catch {
++    return ''
++  }
++}
+diff --git a/src/utils/flightValidation.js b/src/utils/flightValidation.js
+index 35647b5..faafebc 100644
+--- a/src/utils/flightValidation.js
++++ b/src/utils/flightValidation.js
+@@ -107,5 +107,9 @@ export function validateFlightSearch({
+     return { isValid: false, message: "Maximum 9 travellers permitted per booking." };
+   }
+ 
++  if (Number(travellers.infants || 0) > Number(travellers.adults || 0)) {
++    return { isValid: false, message: "Each infant must be accompanied by an adult traveller." };
++  }
++
+   return { isValid: true };
+ }

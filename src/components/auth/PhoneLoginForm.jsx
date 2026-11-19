@@ -6,7 +6,7 @@ import AuthTextInput from "./AuthTextInput";
 import AuthPrimaryButton from "./AuthPrimaryButton";
 import { authTheme } from "./authStyles";
 
-export default function PhoneLoginForm({ navigation }) {
+export default function PhoneLoginForm({ navigation, returnTo, returnParams }) {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [error, setError] = useState("");
   const [apiMessage, setApiMessage] = useState("");
@@ -28,7 +28,7 @@ export default function PhoneLoginForm({ navigation }) {
     try {
       await sendLoginOtp(phoneNumber);
       setApiMessage("OTP Sent Successfully.");
-      setTimeout(() => navigation.navigate("VerifyMobileOtpScreen", { phoneNumber }), 500);
+      setTimeout(() => navigation.navigate("VerifyMobileOtpScreen", { phoneNumber, returnTo, returnParams }), 500);
     } catch (err) {
       setApiMessage(err?.message || "Something went wrong.");
     } finally {

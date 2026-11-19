@@ -41,12 +41,7 @@ export default function FlightConfirmationScreen({ route, navigation }) {
     console.log("================================================================================");
     console.log("🎉 [FLIGHT BOOKING FLOW - STEP 6: BOOKING CONFIRMATION & E-TICKET]");
     console.log(`📅 Timestamp: ${new Date().toISOString()}`);
-    console.log(`📋 Ticket Status: ${flowState.ticketStatus || "Confirmed"}`);
-    console.log(`💵 Total Amount Paid: ₹${flowState.payableAmount || flowState.fareSummary?.totalFare || 0}`);
-    console.log(`🛫 Flight Details: ${flowState.flight?.airline || flowState.flight?.airlineName} (${flowState.flight?.flightNumber || flowState.flight?.flightNo || ""})`);
-    console.log(`📍 Route: ${flowState.flight?.from || flowState.searchContext?.from} ✈️ ${flowState.flight?.to || flowState.searchContext?.to}`);
-    console.log(`💺 Selected Seats: ${flowState.selectedSeatLabels ? flowState.selectedSeatLabels.join(", ") : "Auto-assigned"}`);
-    console.log(`📧 Contact Email: ${flowState.contact?.email || "N/A"} | Mobile: ${flowState.contact?.mobile || "N/A"}`);
+    console.log(`[Flight][Booking][Navigation] confirmed=${flowState.ticketStatus === "Confirmed"} hasPnr=${Boolean(flowState.pnr)} hasBookingId=${Boolean(flowState.bookingId)}`);
     console.log("================================================================================");
 
     Animated.parallel([
@@ -69,7 +64,7 @@ export default function FlightConfirmationScreen({ route, navigation }) {
   };
 
   const handleEmail = () => {
-    console.log(`[FlightConfirmationScreen] User clicked Email E-Ticket. Sending to: ${flowState.contact?.email || "N/A"}`);
+    console.log("[Flight][Booking][TicketEmail] requested=true");
     Alert.alert("E-Ticket Sent", "E-Ticket has been successfully emailed to " + (flowState.contact?.email || "your email"));
   };
 

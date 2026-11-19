@@ -66,7 +66,8 @@ export function normalizeTraveler(item) {
     ? "Other"
     : "Male";
 
-  const age = item.age || item.Age || (item.dateOfBirth ? calculateAgeFromDob(item.dateOfBirth) : 25);
+  const dateOfBirth = item.dateOfBirth || item.DateOfBirth || item.dob || item.DOB || "";
+  const age = item.age || item.Age || (dateOfBirth ? calculateAgeFromDob(dateOfBirth) : null);
   const phoneNumber = String(item.phoneNumber || item.PhoneNumber || item.phone || item.Phone || item.phoneNo || item.mobileNumber || "").trim();
   const email = String(item.email || item.Email || "").trim();
 
@@ -75,6 +76,10 @@ export function normalizeTraveler(item) {
   const title = item.title || item.Title || "Mr";
   const country = item.country || item.Country || "";
   const passportNo = item.passportNo || item.PassportNo || item.passportNumber || null;
+  const nationality = item.nationality || item.Nationality || country || "";
+  const passportExpiry = item.passportExpiry || item.PassportExpiry || item.passportExpiryDate || "";
+  const passportIssueDate = item.passportIssueDate || item.PassportIssueDate || "";
+  const passportIssueCountryCode = item.passportIssueCountryCode || item.PassportIssueCountryCode || item.issueCountryCode || "";
   const phoneNo = phoneNumber; // Alias for API consistency
 
   return {
@@ -83,7 +88,8 @@ export function normalizeTraveler(item) {
     lastName,
     fullName,
     gender,
-    age: Number(age) || 25,
+    age: age == null ? null : Number(age),
+    dateOfBirth,
     phoneNumber,
     phoneNo,
     email,
@@ -91,6 +97,11 @@ export function normalizeTraveler(item) {
     title,
     country,
     passportNo,
+    passportNumber: passportNo,
+    nationality,
+    passportExpiry,
+    passportIssueDate,
+    passportIssueCountryCode,
     raw: item,
   };
 }

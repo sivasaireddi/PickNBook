@@ -127,7 +127,7 @@ const VerifyMobileOtpScreen = ({ navigation, route }) => {
       signIn();
       navigation.reset({
         index: 0,
-        routes: [{ name: "DashBoard" }],
+        routes: [{ name: route?.params?.returnTo || "DashBoard", params: route?.params?.returnParams }],
       });
     } catch (err) {
       setApiMessage(err.message || "Invalid or expired OTP.");

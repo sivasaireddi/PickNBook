@@ -1,0 +1,637 @@
+Pick&Book Flight Mobile Pre-Live-Test Contract Addendum & Response Sheet
+
+Authoritative Backend Integration Addendum & Pre-Live Testing Ledger
+Audit Date: November 17, 2026
+Audited Backend Commit: f97ac3772b0bb087a614145716469ca269ae463e
+Working Tree Status: Clean
+Constraint Applied: Read-Only Audit & Specification (No Code Modifications)
+Document Target: Mobile Flight Engineering Team & QA Leads
+
+1. Executive Position & Constraint Adherence
+
+This response sheet serves as the official pre-implementation addendum to PickNBook_Flight_Mobile_Integration_Contract_and_Audit.md. It strictly adheres to the directive:
+
+Zero Code Modifications: In accordance with the prompt constraint ("Constriant: donot make code changes"), no backend source files, migrations, or frontend scripts were modified during this turn.
+Authoritative Evidence-Based Findings: Every finding reflects executing C# code, database constraints, serializers, and configuration files at commit f97ac3772b0bb087a614145716469ca269ae463e.
+Hardened Mobile Contract: Where backend gaps exist (e.g., SSR price recalculation from client JSON, pre-payment passenger validation, and missing nationality in SRDV ticketing), this addendum defines the exact server behavior, failure modes, error contracts, and required mobile client-side safeguards so that Mobile can implement with deterministic safety and conduct controlled live testing without financial risk.
+2. Analysis of Required Backend P0 Protections (Current Code State)
+2.1 Authoritative SSR Validation
+Current Executing Code: In CashfreePaymentController.cs#L866-L897:
+csharp
+if (TryGetProp(root, "Passengers", out var ssrPaxArray) && ssrPaxArray.ValueKind == JsonValueKind.Array)
+{
+    foreach (var p in ssrPaxArray.EnumerateArray())
+    {
+        // Sums baggage.Price, meal.Price, seat.Amount directly from client JSON
+        ...
+    }
+}
+if (computedSsrFromPax > 0 && Math.Abs(computedSsrFromPax - ssrAmount) > 0.5m)
+{
+    ssrAmount = computedSsrFromPax;
+}
+Current Behavior: The backend calculates computedSsrFromPax by summing the prices sent inside the passenger objects in BookingPayloadJson. It does not query the supplier SeatMap or SSR catalog to re-verify the item prices.
+Price Manipulation Vulnerability: If a modified client sends a genuine seat code (e.g., "12A") with Amount: 1.00, the server accepts ₹1.00, adds it to totalFare, and charges the customer ₹1.00. However, when ticketing executes against SRDV, if SRDV debits Pick&Book's agent balance for the full seat price (e.g. ₹350.00), Pick&Book absorbs the loss; or if SRDV rejects the ticketing due to a price mismatch, fulfillment fails and initiates a refund.
+Mobile Integration Rule: Mobile must never calculate or alter SSR prices. Mobile must read Amount directly from the SeatMap response and Price from the SSR response and pass them unmodified.
+Backend Error Contract (When Server Implements Strict Revalidation):
+Unknown / Invalid SSR Code: HTTP 400: {"ErrorCode": 4001, "message": "Selected SSR item '{Code}' is invalid or no longer offered by the airline."}
+Sold / Unavailable Seat: HTTP 400: {"ErrorCode": 4002, "message": "Selected seat '{Code}' is no longer available. Please select another seat."}
+SSR Price Changed Upstream: HTTP 400: {"ErrorCode": 4003, "message": "Airline SSR pricing has changed. Please refresh add-ons and review the updated total."}
+Expired SSR Session / TraceId: HTTP 410: {"ErrorCode": 4010, "message": "Your flight session has expired. Please re-select your flight."}
+Segment Mismatch: HTTP 400: {"ErrorCode": 4004, "message": "SSR '{Code}' does not match the flight segment."}
+2.2 Passenger Validation Before Payment Creation
+Current Executing Code: In CashfreePaymentController.cs#L86-L142, create-order only checks phone format (10–15 digits) and extracts customer contact details. It does not call TravelValidationHelper.cs.
+Validation Execution Point: TravelValidationHelper.ValidatePaxTypeAndAge and ValidatePassport are currently called only in the direct public proxy SrdvFlightApiController.cs#L1358-L1367 (TicketLCC), not during payment creation.
+Risk: If Mobile submits invalid passenger details (e.g., infant age 
+>
+2
+>2 years, passport expiring within 3 months, or adult title with child age), payment is captured first. Ticketing then fails at SRDV, triggering an automated refund.
+Mandatory Mobile Client-Side Validation Rules:
+Adult (PaxType: 1): Age 
+≥
+12
+≥12 years on travel date.
+Child (PaxType: 2): Age 
+≥
+2
+≥2 and 
+<
+12
+<12 years on travel date. DateOfBirth strictly required (YYYY-MM-DD). Title must be "Mstr" (Male) or "Miss" (Female).
+Infant (PaxType: 3): Age 
+<
+2
+<2 years on travel date. DateOfBirth strictly required (YYYY-MM-DD). Title must be "Mstr" or "Miss".
+Lead Passenger: Exactly one passenger must have IsLeadPax: true (or LeadPassenger: true).
+Passport Number: 6 to 9 alphanumeric characters (^[A-Za-z0-9]{6,9}$).
+Passport Expiry: Must be 
+≥
+6
+ months
+≥6 months beyond the flight departure date.
+Passport Issue Country: Valid 2-letter ISO country code (e.g. "IN").
+2.3 Nationality and Real Address Transmission
+Current Executing Code: In SrdvFlightService.cs#L610-L648:
+Nationality is completely omitted from the anonymous JSON sent to SRDV.
+AddressLine1 defaults to "Main Street" if null or whitespace.
+City defaults to "Hyderabad" if null or whitespace.
+CountryCode defaults to "IN".
+CountryName defaults to "India".
+GST fields (GSTNumber, GSTCompanyName, GSTCompanyAddress, GSTCompanyEmail, GSTCompanyContactNumber) are preserved and transmitted to SRDV if present.
+Sanitized Final Payload Sent to SRDV TicketLCC:
+json
+{
+  "TraceId": 1802321117120001,
+  "ResultIndex": "1_SAMPLE_DEL_BOM",
+  "RefID": "PAY-20261117120000-1234",
+  "Passengers": [
+    {
+      "Title": "Mr",
+      "FirstName": "Rahul",
+      "LastName": "Sharma",
+      "MiddleName": "",
+      "PaxType": "1",
+      "DateOfBirth": "1992-05-15",
+      "Gender": "1",
+      "PassportNo": "",
+      "PassportExpiry": "",
+      "PassportIssueDate": "",
+      "PassportIssueCountryCode": "",
+      "CountryCode": "IN",
+      "CountryName": "India",
+      "AddressLine1": "Connaught Place",
+      "City": "Delhi",
+      "CellCountryCode": "+91",
+      "ContactNo": "9876543210",
+      "Email": "rahul.sharma@example.com",
+      "IsLeadPax": true,
+      "DocumentType": "",
+      "DocumentId": "",
+      "Baggage": [],
+      "MealDynamic": [],
+      "Seat": [
+        { "Code": "12A", "Amount": 350.0 }
+      ],
+      "GSTNumber": "",
+      "GSTCompanyName": "",
+      "GSTCompanyAddress": "",
+      "GSTCompanyEmail": "",
+      "GSTCompanyContactNumber": ""
+    }
+  ]
+}
+2.4 Strong Create-Order Idempotency
+Current Executing Code: CashfreePaymentController.cs#L89-L116
+csharp
+if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
+{
+    var cleanKey = request.IdempotencyKey.Trim();
+    var existingPayment = await _dbContext.Payments
+        .Where(p => p.UserId == userIdStr && p.PaymentReference == cleanKey)
+        .OrderByDescending(p => p.Id)
+        .FirstOrDefaultAsync();
+    if (existingPayment != null && (existingPayment.Status == PaymentStatus.Created || existingPayment.Status == PaymentStatus.Pending || existingPayment.Status == PaymentStatus.Success))
+    {
+        return Ok(new CreateOrderResponseDto { ... });
+    }
+}
+Format & Constraint:
+Accepted length: 
+≤
+45
+≤45 characters (in line 1117, if request.IdempotencyKey.Length > 45, backend ignores it and generates a random PAY-... reference).
+Recommended Format: Standard UUIDv4 string (e.g. "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d", length 36).
+Scope of Uniqueness: Scoped in code by (UserId, PaymentReference). In MySQL Payments table, PaymentReference has a normal index (HasIndex(x => x.PaymentReference)), not a unique database constraint.
+Payload Conflict Limitation: Current backend checks only whether an active payment exists with that key for the user. It does not verify whether the payload has changed. Re-sending the same key with different passengers or dates returns the existing payment.
+Mobile Idempotency Algorithm:
+Generate a new UUIDv4 when entering the Checkout screen.
+If a network drop, timeout, or app crash occurs during create-order, retry with the exact same UUIDv4. The backend will return the existing PaymentSessionId and CashfreeOrderId without double debiting wallet balance.
+If the user navigates back and modifies flight selection, passenger details, coupon, or wallet contribution, generate a brand new UUIDv4.
+3. Resolution of FareQuote Lifetime Conflict
+Query	Authoritative Code Finding	Safety Implication & Contract
+1. Can create-order trust a 20-min-old cached quote?	Yes, current IMemoryCache TTL is set to 25 minutes (SrdvFlightApiController.cs#L1078).	Risk: Upstream SRDV TraceId expires after ~15 minutes. A checkout at minute 20 captures payment, but ticketing fails with TRACE_ID_EXPIRED, triggering automatic refund.
+2. Does create-order re-query SRDV when cache exists?	No. Lines 818–828 bypass the live supplier call if cache hit occurs.	Cache hit is treated as authoritative.
+3. Is cached quote a tamper check or inventory guarantee?	Tamper check only.	Does not verify live seat availability with the airline.
+4. What server timestamp is stored?	QuotedAtUtc = DateTime.UtcNow in FlightQuoteCacheItem.	Exact quote creation time is recorded in memory.
+5. Does backend know supplier expiry time?	No. SRDV v8 does not return session expiry timestamps.	Upstream session TTL is sliding (~15 min).
+6. Behavior on backend restart / eviction?	Cache miss triggers fallback to live supplier GetFareQuoteRawAsync.	If supplier fare changed, returns HTTP 400: "Flight fare has changed with the supplier."
+7. Multi-instance behavior?	IMemoryCache is process-local. Requests hitting another instance fall back to live supplier re-quote.	Safe: falls back to live supplier quote.
+8. Authoritative Safe Mobile Rule	Mobile must enforce a 12-minute client timer on the review screen.	If user remains on the passenger screen for 
+>
+12
+>12 minutes, Mobile must refresh FareQuote before allowing payment.
+4. Verification of Search Cache Collision in SearchFlightsRawAsync
+Current Cache Key Composition (SrdvFlightService.cs#L81-L86):
+csharp
+var jType = string.IsNullOrWhiteSpace(request.JourneyType) ? "1" : request.JourneyType.Trim();
+var curr = string.IsNullOrWhiteSpace(request.CurrencyCode) ? "INR" : request.CurrencyCode.Trim().ToUpperInvariant();
+var segsKey = request.Segments != null && request.Segments.Any()
+    ? string.Join("|", request.Segments.Select(s => $"{s.Origin?.Trim().ToUpperInvariant()}_{s.Destination?.Trim().ToUpperInvariant()}_{s.PreferredDepartureTime:yyyyMMdd}_{s.FlightCabinClass}"))
+    : "NA";
+var cacheKey = $"srdv:flight:search:{jType}:{curr}:{request.AdultCount}:{request.ChildCount}:{request.InfantCount}:{request.DirectFlight}:{segsKey}";
+Collision Analysis:
+One-Way vs Round-Trip: CANNOT COLLIDE. jType ("1" vs "2") is explicitly in the key prefix, and round-trip contains 2 segments in segsKey.
+Round-Trips with Different Return Dates: CANNOT COLLIDE. Both segments include PreferredDepartureTime:yyyyMMdd.
+Multi-City Searches: CANNOT COLLIDE. All segments are concatenated with |.
+Cabin / Passenger / Direct Flight Variations: CANNOT COLLIDE. All are embedded in the key.
+Metro-Expanded Requests: CANNOT COLLIDE. Each expanded concrete airport pair (e.g. DEL-GOI vs DEL-GOX) generates unique Origin and Destination codes, yielding distinct cache keys.
+Cache TTL: Caches raw response for 5 minutes (TimeSpan.FromMinutes(5)).
+5. Resolution of Exact Identifier Meanings
+Identifier Disambiguation Ledger
+Identifier	Source	Wire Property Name	Type & Example	Nullable?	Purpose & Mobile Usage
+IdempotencyKey	Mobile App	IdempotencyKey	String (UUIDv4)	Yes	Deduplication key in create-order.
+Payment Reference	Backend create-order	paymentReference	String ("PAY-..." or UUID)	No	Payment tracking key. Primary correlation key in My Bookings.
+Cashfree Order ID	Cashfree Gateway	cashfreeOrderId	String ("order_180232_1042")	No	Gateway order ID used to launch Cashfree Mobile SDK and poll verification.
+Cashfree CF Order ID	Cashfree Gateway	cfOrderId	String ("cf_ord_987654321")	Yes	Cashfree internal entity ID. Informational only.
+Payment ID	Database PK	paymentId	Integer (1042)	No	Primary key in Payments table. Secondary correlation key in My Bookings.
+Reservation ID	Database PK	reservationId / bookingReferenceId	Integer (1042)	Yes	Auto-increment PK of FlightReservations table. Internal only. Never confuse with supplier bookingId!
+Booking Reference	Backend Fulfillment	bookingReference	String ("FL-20261117120000-567")	Yes	Authoritative customer booking code. Displayed on tickets, UI headers, and used for PDF voucher download.
+Supplier Booking ID	SRDV Supplier Engine	bookingId / SrdvBookingId	String ("712345")	Yes	Upstream supplier booking reference. Mandatory field in cancellation request payload.
+PNR	Airline Engine	pnr / PNR	String ("ABC123")	Yes	Airline 6-character Passenger Name Record. Used for web check-in and cancellations.
+Return PNR	Airline Engine	returnPnr / ReturnPnr	String ("XYZ789")	Yes	Return leg PNR for combined round trips.
+Ticket ID	SRDV Supplier Engine	TicketId	String ("6E-1042-1")	Yes	Upstream ticket reference per passenger. Mandatory in partial cancellations.
+Ticket Number	Airline Engine	ticketNumber	String ("098-1234567890")	Yes	Official airline e-ticket number. Displayed on passenger boarding passes.
+Corrected Response Contract: GET /api/cashfree/orders/{orderId}/payments
+json
+{
+  "paymentReference": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "cashfreeOrderId": "order_180232_1042",
+  "status": "Success",
+  "bookingType": "Flight",
+  "amount": 5850.0,
+  "currency": "INR",
+  "paymentMethod": "Cashfree",
+  "paidAt": "2026-11-17T12:05:30Z",
+  "failureReason": null,
+  "fulfillmentStatus": "Success",
+  "bookingReferenceId": 1042,
+  "reservationId": 1042,
+  "bookingReference": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+}
+
+IMPORTANT
+
+Correlation Rule for Mobile:
+In PaymentVerificationResponse, bookingReference echoes payment.PaymentReference. In MyFlightBookingResponseDto (from /api/flight/srdv/my-bookings), bookingReference is the real customer reference ("FL-...").
+Mobile must correlate verification with My Bookings using cashfreeOrderId OR paymentReference OR paymentId. Mobile must never match bookingReferenceId with supplier bookingId.
+
+6. Resolution of TraceId Wire Type
+Backend Wire Support:
+AirSearchDtos.cs and FlightProxyDtos.cs decorate TraceId with [JsonConverter(typeof(SafeLongConverter))] or [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)].
+The backend safely binds TraceId from both JSON string and JSON number.
+JavaScript / Mobile Precision Warning:
+C# long maximum value is 
+9.22
+×
+10
+18
+9.22×10
+18
+, which exceeds JavaScript's safe integer ceiling (Number.MAX_SAFE_INTEGER = 
+9.007
+×
+10
+15
+9.007×10
+15
+).
+Parsing an 18-digit numeric TraceId in React Native / JS truncates the lowest digits.
+Authoritative Contract: Mobile must always deserialize, store, and serialize TraceId as an opaque JSON String across all endpoints:
+POST /api/flight/srdv/FareQuote: {"TraceId": "1802321117120001", ...}
+POST /api/flight/srdv/FareRule: {"TraceId": "1802321117120001", ...}
+POST /api/flight/srdv/SSR: {"TraceId": "1802321117120001", ...}
+POST /api/flight/srdv/SeatMap: {"TraceId": "1802321117120001", ...}
+BookingPayloadJson: {"TraceId": "1802321117120001", ...}
+POST /api/flight/srdv/GetCancellationCharges: {"TraceId": "1802321117120001", ...}
+7. Definition of Authentication Requirements
+Mandatory Mobile Requirement: User MUST be logged in (Authenticated JWT) before initiating Flight checkout.
+Architectural Reasons:
+GET /api/cashfree/orders/{orderId}/payments enforces [Authorize] and validates payment.UserId == currentUserId. An unauthenticated client receives HTTP 401/403.
+GET /api/flight/srdv/my-bookings strictly requires JWT.
+GET /api/flight/bookings/{bookingId}/voucher strictly requires JWT.
+Wallet reservations require an authenticated user.
+Contract Boundary: Mobile must prompt for login/registration before transitioning from Passenger Entry to Payment Selection.
+8. Safe Cashfree Cancellation Behavior & Decision Table
+Critical Backend Discovery on CancelOrder
+
+In PaymentService.cs#L229-L245 and CashfreePaymentController.cs#L1457: POST /api/cashfree/orders/{orderId}/cancel marks the payment Failed locally and immediately releases the hybrid wallet hold. If a customer initiated a UPI transaction, closed the SDK, and Mobile calls /cancel while the bank payment is still clearing, the wallet hold is released. When Cashfree later sends a SUCCESS webhook, line 225 logs an inconsistent state and refuses to commit the wallet hold, leaving the payment orphaned!
+
+Authoritative Mobile Decision Table
+Event / User Action	Gateway State	Safe Mobile Action	Should Call /cancel?	Next Screen / Polling
+User closes SDK before selecting payment method	totalAttempts == 0	Call POST /orders/{orderId}/cancel	YES (Safe)	Return to Cart/Checkout. Hold released.
+User closes SDK during UPI / Bank processing	Attempt in-flight	DO NOT CANCEL. Call VerifyPayment.	NO (UNSAFE)	Show "Verifying Payment..." Polling screen.
+SDK returns explicit Failure (onError)	FAILED attempt	Call VerifyPayment to confirm terminal status.	NO	Show Payment Failed screen. Worker releases hold.
+SDK returns User Dropped (USER_DROPPED)	No active attempt	Call VerifyPayment. If totalAttempts == 0, call /cancel.	CONDITIONAL	Return to Checkout.
+SDK returns Success (SUCCESS)	SUCCESS	Call VerifyPayment.	NO	Show "Confirming with Airline..."
+App crashed / killed and reopened	Unknown	Query active orders via GET /api/flight/srdv/my-bookings or VerifyPayment.	NO	Resume verification or show booking status.
+Network timeout during create-order	Unknown	Retry create-order with the same IdempotencyKey.	NO	Recover existing payment session.
+9. Round-Trip and Multi-City Support Boundary
+Supported Journey Types for Mobile Phase 1:
+JourneyType: "1" (One-Way): Fully supported.
+JourneyType: "2" (Round-Trip - Same Trace): Fully supported when both legs originate from the same search TraceId. Comma-separated ResultIndex (e.g. "1_SAMPLE_ONWARD,1_SAMPLE_RETURN") is supported.
+Blocked Combinations:
+Split-Trace Round Trips (Different Airlines / Traces): STRICTLY BLOCKED. Upstream TicketLCCRawAsync accepts only one TraceId as an integer/string. Attempting to pass legs from two different TraceIds causes supplier rejection or leaves one leg un-ticketed. Mobile must block split-trace round-trip selection in Phase 1.
+Multi-City (JourneyType: "3"): Supported only if all legs share a single combined SRDV Multi-City TraceId. Split-trace multi-city is blocked.
+Persisted Record:
+Combined round trips persist onward PNR in FlightReservation.Pnr and return leg PNR in FlightReservation.ReturnPnr.
+10. Partial Cancellation & Quote Limitations
+Authoritative vs Estimated Quotes:
+POST /api/flight/srdv/GetCancellationCharges accepts only TraceId and PNR. It cannot quote an arbitrary subset of passengers or sectors in advance.
+If the supplier returns live charges, it is for the entire PNR or segment.
+If the supplier returns dynamic policy text, Mobile must explicitly label the displayed refund as "Estimated" and display:
+"Final refund amount will be confirmed after airline penalty calculation."
+Execution Contract:
+POST /api/flight/srdv/SendChangeRequest accepts exact TicketData (array of {TicketId, FirstName, LastName}) and Sectors.
+Backend marks IsPartialCancellation = true if TicketData.Count < reservation.SeatsBooked or Sectors.Count < reservation.Segments.Count.
+The authoritative final refund is calculated by FulfillmentRecoveryWorker and recorded in FlightCancellationRequest.CustomerRefundAmountInr and BookingCancellation.CustomerRefundAmount.
+11. Cancellation & Refund Status Contract
+Accepted Literals for RefundPreference
+Canonical Literal: "Original" (Routes to original gateway/wallet components).
+Alternative Literal: "WALLET" (100% credited to customer wallet).
+In RefundRouterService.cs#L161, comparison is case-insensitive (StringComparison.OrdinalIgnoreCase). Mobile should send canonical uppercase "WALLET" or "Original".
+Comprehensive Cancellation & Refund Status Table
+Status Literal	Category	Terminal?	Refresh Endpoint	Can Submit New Cancel?	Reservation Status
+Pending	Cancellation	No	POST /GetCancelStatus & MyBookings	No (Blocked by open request guard)	Cancellation Requested
+IN_PROCESS	Cancellation	No	POST /GetCancelStatus	No	Cancellation Requested
+Completed / 3	Cancellation	Yes	GET /api/flight/srdv/my-bookings	Yes (for remaining active pax)	Cancelled or Partially Cancelled
+Rejected / 4 / FAILED	Cancellation	Yes	POST /GetCancelStatus & MyBookings	Yes	Restored to Booked
+MANUAL_CHECK_REQUIRED	Cancellation	No	GET /api/flight/srdv/my-bookings	No	Cancellation Requested
+NOT_REQUIRED	Refund	Yes	MyBookings	—	Current status
+Processing	Refund	No	MyBookings	—	Current status
+Refunded / COMPLETED	Refund	Yes	MyBookings	—	Cancelled / Partially Cancelled
+Failed / ON_HOLD	Refund	Yes (Manual)	MyBookings (Shows Support Ref)	Contact Support	Current status
+12. Refund Calculation and Routing Formulas
+Authoritative Formula
+FinalCustomerRefund
+=
+SupplierRefund
++
+SrdvMarginRefunded
++
+MarkupRefunded
+−
+ServiceCharge
++
+FeeRefunded
+−
+CouponForfeited
+FinalCustomerRefund=SupplierRefund+SrdvMarginRefunded+MarkupRefunded−ServiceCharge+FeeRefunded−CouponForfeited
+Applied Configuration (appsettings.json:82-86)
+RefundMarkup = true: Markup is 100% refunded.
+RefundConvenienceFee = false: Convenience fee is retained by platform.
+RefundCoupon = false: Coupon discount is forfeited.
+ServiceCharge:
+Domestic Flight: ₹59.00 per cancellation request.
+International Flight: ₹118.00 per cancellation request.
+Rounding: Math.Round(amount, 0, MidpointRounding.AwayFromZero).
+10 Sanitized Calculation Examples
+Scenario	Original Paid (Wallet / Gateway)	Supplier Refund	Markup / Fee / Coupon	Service Charge	Final Customer Refund	Wallet Credit	Gateway Credit	Status & Ref
+1. Pure Cashfree Full Domestic	₹6,000 (₹0 / ₹6,000)	₹4,500	Markup ₹300 refunded, Fee ₹150 retained	₹59.00	₹4,741.00	₹0.00	₹4,741.00	COMPLETED (REF-CAN-FL...-G)
+2. Pure Wallet Full Domestic	₹6,000 (₹6,000 / ₹0)	₹4,500	Markup ₹300 refunded, Fee ₹0	₹59.00	₹4,741.00	₹4,741.00	₹0.00	COMPLETED (WALLET_REFUND_...)
+3. Proportional Hybrid Refund	₹5,000 (₹2,000 / ₹3,000)	₹3,200	Markup ₹200 refunded, Fee ₹100 retained	₹59.00	₹3,341.00	₹1,336.00 (40%)	₹2,005.00 (60%)	COMPLETED (Both legs credited)
+4. Preference Set to Wallet	₹5,000 (₹1,000 / ₹4,000)	₹3,200	Markup ₹200 refunded	₹59.00	₹3,341.00	₹3,341.00 (100%)	₹0.00	COMPLETED (WALLET)
+5. Partial Passenger Cancellation	₹12,000 (2 Pax) (₹0 / ₹12k)	₹2,200 (1 Pax)	Markup ₹150 refunded	₹59.00	₹2,291.00	₹0.00	₹2,291.00	COMPLETED (Remaining pax Booked)
+6. Partial Sector Cancellation	₹10,000 (Round) (₹0 / ₹10k)	₹2,000 (Return)	Markup ₹150 refunded	₹59.00	₹2,091.00	₹0.00	₹2,091.00	COMPLETED (Onward leg Booked)
+7. Zero-Refund Cancellation	₹3,500 (₹0 / ₹3,500)	₹0.00	Airline fee equals fare	₹59.00	₹0.00	₹0.00	₹0.00	COMPLETED (Zero credit)
+8. Supplier Booking Failure	₹5,850 (₹1,000 / ₹4,850)	Full Fare	Full 100% Refund (No deductions, no fees)	₹0.00	₹5,850.00	₹1,000.00	₹4,850.00	COMPLETED (Automated fail refund)
+9. Gateway Success, Wallet Fail	₹5,000 (₹2,000 / ₹3,000)	₹3,000	Normal split	₹59.00	₹2,941.00	₹0.00 (Failed)	₹1,765.00	PartiallyRefunded (Worker retries)
+10. Wallet Success, Gateway Fail	₹5,000 (₹2,000 / ₹3,000)	₹3,000	Normal split	₹59.00	₹2,941.00	₹1,176.00	₹0.00 (Failed)	PartiallyRefunded (Worker retries)
+13. Production Deployment Proof
+Current Repository Git Commit: f97ac3772b0bb087a614145716469ca269ae463e
+Verified Deployed SHA: UNKNOWN / NOT PROVEN IN LOCAL WORKSPACE.
+Local Publish State: Binaries in publish/ are dated October 8, 2026.
+Production Endpoints & Telemetry (appsettings.json):
+API Base URL: https://www.picknbook.in (and https://api.picknbook.in)
+Cashfree Gateway: Production (https://api.cashfree.com/pg)
+SRDV Flight Base URL: Production (https://prod.srdvapi.com/flight/v8/, ClientId: 180232)
+Database Server: Live Azure MySQL Server (40.192.64.103:3306)
+Deployment Topology Warning: IMemoryCache is local to the operating process. If production runs multiple instances behind an Azure load balancer without sticky sessions, FareQuote cache misses fall back to live supplier re-quotes.
+14. Targeted Test & Validation Matrix (64 Points)
+#	Test Category	Target Condition	Verification Method	Status / Result	Notes & Evidence
+1–2	Fare Security	Tampered BaseFare or Tax	Static Code Inspection	PASS	Checked against cachedQuote.SupplierBaseFare. Rejects if 
+>
+₹
+0.50
+>₹0.50.
+3–5	SSR Security	Tampered Seat/Meal/Baggage Price	Static Code Inspection	RISK / LIMITATION	Summed from client JSON without supplier catalog check.
+6–8	SSR Routing	Wrong segment / sold seat	Static Code Inspection	LIMITATION	Validated downstream at SRDV ticketing.
+9–10	Quote Lifetime	Expired TraceId / Missing cache	Static Code Inspection	PASS	Falls back to live GetFareQuoteRawAsync.
+11–13	Pax Age	Child as adult / infant as child	Static Code Inspection	LIMITATION	Enforced in direct proxy; must be pre-validated by Mobile.
+14–15	Passport	Expired / 
+<
+6
+<6 mo validity	Static Code Inspection	PASS	Validated by TravelValidationHelper.ValidatePassport.
+16–17	International	Nationality / address gaps	Static Code Inspection	LIMITATION	Nationality omitted in TicketLCCRawAsync. Address defaults.
+18–19	Passenger/GST	Pax count mismatch / invalid GST	Static Code Inspection	PASS	GST fields validated and transmitted.
+20–25	Idempotency	Replayed key with same/changed payload	Static Code Inspection	PASS (Same) / LIMITATION (Changed)	Returns existing payment. Does not reject changed payload.
+26–30	Concurrency	Concurrent same-key requests	Static Code Inspection	LIMITATION	PaymentReference index is not unique in DB.
+31–34	Zero Attempts	Polling with 0 Cashfree attempts	Static Code Inspection	PASS	Preserves Pending. Does not kill wallet hold.
+35–37	Webhook Race	Webhook & Verify concurrent	Static Code Inspection	PASS	Gated by _orderLocks semaphore.
+38–40	Cancellation	Premature /cancel call	Static Code Inspection	WARNING	Releases wallet hold immediately; unsafe during in-flight UPI.
+41–44	Fulfillment	Ticketing success / price change / fail	Static Code Inspection	PASS	Price change marks Failed_PriceChanged and triggers 100% refund.
+45–48	Recovery	Supplier success with local DB failure	Static Code Inspection	PASS	Failed_LocalPersistence recovered via BookingDetails.
+49–53	Cancellation	Full / Partial / Sector / Duplicate	Static Code Inspection	PASS	Duplicate returns open request. Scope tracked in JSON.
+54–57	Cancel Status	Numeric / OFFLINE-* / Status 4	Static Code Inspection	PASS	OFFLINE-* answered from DB. Status 4 marks Rejected.
+58–61	Refunds	Wallet / Cashfree / Hybrid / Proportional	Static Code Inspection	PASS	ProportionalHybridRefundSplitStrategy enforces exact sum.
+62–64	Refund Recovery	One leg fails / 5 retries / Manual hold	Static Code Inspection	PASS	Reconciled via GetRefundsForOrderAsync. Caps at 5 retries.
+15. Required Current Fixtures for Mobile
+1. One-Way Search Request (POST /api/flight/srdv/Search)
+json
+{
+  "AdultCount": 1,
+  "ChildCount": 0,
+  "InfantCount": 0,
+  "JourneyType": "1",
+  "CurrencyCode": "INR",
+  "FareType": "1",
+  "DirectFlight": false,
+  "Segments": [
+    {
+      "Origin": "DEL",
+      "Destination": "BOM",
+      "FlightCabinClass": 2,
+      "PreferredDepartureTime": "2026-12-05T00:00:00"
+    }
+  ]
+}
+2. Search Response Flight Item Showing Injected TraceId
+json
+{
+  "TraceId": "1802321117120001",
+  "ResultIndex": "1_SAMPLE_DEL_BOM",
+  "IsLCC": true,
+  "AirlineCode": "6E",
+  "AirlineName": "IndiGo",
+  "FlightNumber": "2042",
+  "Fare": {
+    "Currency": "INR",
+    "BaseFare": 4500.0,
+    "Tax": 1150.0,
+    "OfferedFare": 5650.0
+  },
+  "FareDataMultiple": [
+    {
+      "TraceId": "1802321117120001",
+      "ResultIndex": "1_SAMPLE_DEL_BOM",
+      "FareType": "Saver",
+      "Fare": {
+        "BaseFare": 4500.0,
+        "Tax": 1150.0
+      }
+    }
+  ]
+}
+3. FareQuote Request & Success Response
+json
+// Request: POST /api/flight/srdv/FareQuote
+{
+  "TraceId": "1802321117120001",
+  "ResultIndex": "1_SAMPLE_DEL_BOM",
+  "CouponCode": "FLYSAVE100"
+}
+// Response: 200 OK
+{
+  "ResponseStatus": 1,
+  "TraceId": "1802321117120001",
+  "Results": {
+    "ResultIndex": "1_SAMPLE_DEL_BOM",
+    "IsLCC": true,
+    "Fare": {
+      "Currency": "INR",
+      "BaseFare": 4500.0,
+      "Tax": 1150.0,
+      "OfferedFare": 5650.0
+    },
+    "B2CFinalFare": 5850.0,
+    "B2CPublishedFare": 5950.0,
+    "B2CMarkupAmount": 300.0,
+    "PickNBookMarkup": 300.0,
+    "PickNBookDiscount": 100.0,
+    "DisplayBaseFare": 4800.0,
+    "DisplayTax": 1050.0
+  }
+}
+4. Create-Order Request (POST /api/cashfree/create-order)
+json
+{
+  "IdempotencyKey": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "BookingType": "Flight",
+  "OrderAmount": 5850.0,
+  "CustomerName": "Rahul Sharma",
+  "CustomerEmail": "rahul.sharma@example.com",
+  "CustomerPhone": "9876543210",
+  "PaymentMethod": "Cashfree",
+  "BookingPayloadJson": "{\"TraceId\":\"1802321117120001\",\"ResultIndex\":\"1_SAMPLE_DEL_BOM\",\"SrdvType\":\"MixAPI\",\"SrdvIndex\":\"1\",\"JourneyType\":\"1\",\"Fare\":{\"BaseFare\":4500.0,\"Tax\":1150.0,\"OfferedFare\":5650.0,\"TotalSeatCharges\":0.0,\"TotalMealCharges\":0.0,\"TotalBaggageCharges\":0.0},\"Passengers\":[{\"Title\":\"Mr\",\"FirstName\":\"Rahul\",\"LastName\":\"Sharma\",\"PaxType\":1,\"DateOfBirth\":\"1992-05-15\",\"Gender\":\"1\",\"AddressLine1\":\"Connaught Place\",\"City\":\"Delhi\",\"CountryCode\":\"IN\",\"CountryName\":\"India\",\"ContactNo\":\"9876543210\",\"Email\":\"rahul.sharma@example.com\",\"IsLeadPax\":true,\"Seat\":[],\"MealDynamic\":[],\"Baggage\":[]}]}"
+}
+5. Create-Order Response (CreateOrderResponseDto)
+json
+{
+  "totalAmount": 5850.0,
+  "walletUsedAmount": 0.0,
+  "gatewayPaidAmount": 5850.0,
+  "paymentMethod": "Cashfree",
+  "isWalletFullyPaid": false,
+  "cashfreeOrderId": "order_180232_1042",
+  "paymentSessionId": "session_sample_1234567890abcdef",
+  "cfOrderId": "cf_ord_987654321",
+  "orderStatus": "Created",
+  "paymentReference": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+}
+6. Payment Verification Response (GET /api/cashfree/orders/{orderId}/payments)
+json
+{
+  "paymentReference": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "cashfreeOrderId": "order_180232_1042",
+  "status": "Success",
+  "bookingType": "Flight",
+  "amount": 5850.0,
+  "currency": "INR",
+  "paymentMethod": "Cashfree",
+  "paidAt": "2026-11-17T12:05:30Z",
+  "failureReason": null,
+  "fulfillmentStatus": "Success",
+  "bookingReferenceId": 1042,
+  "reservationId": 1042,
+  "bookingReference": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+}
+7. SendChangeRequest Request & Response
+json
+// Request: POST /api/flight/srdv/SendChangeRequest
+{
+  "BookingId": 712345,
+  "PNR": "ABC123",
+  "RequestType": 1,
+  "CancellationType": 3,
+  "Remarks": "Customer requested full trip cancellation",
+  "RefundPreference": "Original",
+  "Sectors": [
+    { "Origin": "DEL", "Destination": "BOM" }
+  ],
+  "TicketData": [
+    { "TicketId": "6E-1042-1", "FirstName": "Rahul", "LastName": "Sharma" }
+  ]
+}
+// Response: 200 OK (Offline Queue Fallback)
+{
+  "ResponseStatus": 1,
+  "SrdvType": "MixAPI",
+  "SrdvIndex": 1,
+  "TraceId": 1802321117120001,
+  "TicketCRInfo": [
+    {
+      "ChangeRequestId": "OFFLINE-1042-20261117121000",
+      "TicketId": "6E-1042-1",
+      "Status": 1,
+      "Remarks": "Queued for manual processing by airline desk.",
+      "ChangeRequestStatus": 1
+    }
+  ]
+}
+8. GetCancelStatus Response
+json
+// Request: POST /api/flight/srdv/GetCancelStatus
+{
+  "ChangeRequestId": "OFFLINE-1042-20261117121000"
+}
+// Response: 200 OK
+{
+  "ResponseStatus": 1,
+  "SrdvType": "MixAPI",
+  "CancellationStatus": "Pending",
+  "RefundStatus": "Pending",
+  "RefundAmount": 0.0,
+  "CancellationCharge": 0.0,
+  "ChangeRequestId": "OFFLINE-1042-20261117121000",
+  "Status": "Pending",
+  "Remarks": "Queued for manual processing by support team."
+}
+16. Mobile Decision Tables
+1. Payment & Checkout Decision Table
+Create-Order Response Received: Store cashfreeOrderId and paymentSessionId. Launch Cashfree Native SDK.
+Network Drop during Create-Order: Retry create-order with the same IdempotencyKey.
+User Closes SDK Modal:
+If user did not attempt payment: Call POST /api/cashfree/orders/{orderId}/cancel to release wallet hold.
+If user launched UPI / Netbanking: Do not cancel. Call GET /api/cashfree/orders/{orderId}/payments.
+SDK Reports Success: Call GET /api/cashfree/orders/{orderId}/payments.
+Verification Returns Status == "Pending": Continue polling every 5 seconds (up to 2 minutes).
+Verification Returns FulfillmentStatus == "InProgress": Show "Confirming with Airline...". Poll every 5s.
+Verification Returns FulfillmentStatus == "Success": Transition to Confirmed screen.
+Verification Returns FulfillmentStatus.StartsWith("Failed"): Show "Booking Failed - 100% Refund Processing".
+2. Booking Confirmation Decision Table
+"Payment Received": When payment.Status == "Success".
+"Confirming with Airline": When payment.Status == "Success" AND fulfillmentStatus == "InProgress".
+"Booking Confirmed": Only when fulfillmentStatus == "Success" AND PNR is populated. (Never display confirmed based on Cashfree success alone).
+"Ticket Issued": When TicketNumber is present.
+"Booking Failed - Full Refund Processing": When fulfillmentStatus == "Failed_SupplierError" or "Failed_PriceChanged".
+3. Cancellation Decision Table
+"Cancellation Requested": When SendChangeRequest returns Status: 1 (Pending).
+"Cancellation Processing": When GetCancelStatus returns CancellationStatus == "Pending" or "IN_PROCESS".
+"Partially Cancelled": When MyBookings reflects specific passengers cancelled while others remain Booked.
+"Fully Cancelled": When all passengers are cancelled and reservation status is Cancelled.
+"Cancellation Rejected": When GetCancelStatus returns CancellationStatus == "Rejected" (Status 4). Show: "Cancellation rejected by airline. Tickets remain active."
+17. Controlled Manual Domestic LCC Test Protocol
+
+To validate end-to-end payment, wallet hold, ticketing, and reconciliation safely without financial risk, follow this exact single-booking test protocol:
+
+Approved Test Route: DEL (Delhi) 
+→
+→ BOM (Mumbai), or BLR (Bengaluru) 
+→
+→ HYD (Hyderabad).
+Airline Selection: Low-Cost Carrier (IndiGo 6E or Akasa QP).
+Travel Date: 14 to 21 days in advance to ensure lowest Saver fare.
+Passenger: Exactly 1 Adult. Real valid name, real 10-digit mobile, real customer email.
+Add-Ons: EXCLUDE all SSR add-ons (No seats, no meals, no extra baggage) for the first live test to prevent SSR price-tampering edge cases.
+Payment Mode: Pure Cashfree (do not use Wallet or Hybrid for the very first test).
+Pre-Execution Check: Verify FareQuote responded within the last 5 minutes.
+Identifiers to Record During Test:
+Client IdempotencyKey
+Returned cashfreeOrderId
+Returned paymentReference
+Verification reservationId
+Confirmed PNR
+Issued TicketNumber
+bookingReference (FL-...)
+Execution Steps:
+Step 1: Call POST /api/cashfree/create-order. Record orderId and paymentSessionId.
+Step 2: Open Cashfree SDK, complete test payment via UPI / Netbanking.
+Step 3: Call GET /api/cashfree/orders/{orderId}/payments.
+Step 4: Verify status transitions from Pending 
+→
+→ Success 
+→
+→ FulfillmentStatus: Success.
+Step 5: Query GET /api/flight/srdv/my-bookings. Verify booking appears under "Upcoming" with valid PNR and ticket number.
+Step 6: Query GET /api/flight/bookings/{bookingReference}/voucher. Confirm PDF downloads and renders correctly.
+Stop Conditions (Do Not Retry):
+If create-order returns HTTP 400 price mismatch.
+If payment verification returns Failed_SupplierError (verify automated refund credit; do not initiate second order).
+If Cashfree charges money but verification does not show Success within 3 minutes (escalate for DB check).
+18. Remaining Backend Limitations
+SSR Item Price Validation: SSR prices are summed from client JSON without server re-verification against the supplier catalog.
+Pre-Payment Passenger Age Check: Passenger validation runs downstream at ticketing rather than inside create-order.
+Nationality Field in Ticketing: Nationality is omitted in TicketLCCRawAsync.
+Idempotency Key Payload Check: Reusing an idempotency key with an altered booking payload echoes the previous order instead of returning a 409 Conflict.
+Database Index Uniqueness: PaymentReference index is non-unique in MySQL.
+19. Module-by-Module Final Verdict
+Module	Verdict	Mandatory Condition / Limitation
+Airport Search	READY	Fully verified on GET /api/Places.
+Flight Search & Results	READY	Fully verified. Metro TraceId stamped on all flights & fare tiers.
+FareQuote & Fare Rules	READY	25-minute cache binding and server recalculation verified.
+Passenger Entry	READY WITH VERIFIED LIMITATION	Mobile must pre-validate ages, DOB, and passport expiry client-side.
+SSR Selection	READY WITH VERIFIED LIMITATION	Mobile must pass exact prices from SeatMap/SSR responses unmodified.
+Pure Cashfree Checkout	READY	Parity checks, order creation, and session tokens verified.
+Wallet Checkout	READY	Atomic DB reservation and zero-gateway execution verified.
+Hybrid Checkout	READY	₹1.00 gateway threshold and atomic hold verified.
+Payment Recovery	READY WITH VERIFIED LIMITATION	Mobile must not call /cancel while UPI payment is in-flight.
+Booking Fulfillment	READY	Single execution guard, coupon consumption, and wallet commit verified.
+Domestic LCC Manual Testing	READY	Approved for controlled 1-passenger pure Cashfree test.
+International Testing	NOT READY	Blocked until supplier ticketing adds passenger Nationality.
+Full Cancellation	READY	Online and offline change request processing verified.
+Partial Cancellation	READY WITH VERIFIED LIMITATION	Quotes cannot be broken down in advance; label refunds as estimated.
+Wallet Refund	READY	100% wallet routing verified.
+Cashfree Refund	READY	Cashfree API refund initiation and reconciliation verified.
+Hybrid Refund	READY	Proportional split strategy mathematically and functionally verified.
+Production Release	READY WITH VERIFIED LIMITATIONS	Ready for Domestic LCC. International routes pending nationality patch.
+
+End of Response Sheet & Contract Addendum.

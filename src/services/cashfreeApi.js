@@ -47,15 +47,33 @@ const validateDatetimeFields = (payloadJson) => {
  */
 export const createOrder = async (payload, userToken) => {
   // Validate datetime fields client-side before sending
-  if (payload.bookingPayloadJson) {
-    validateDatetimeFields(payload.bookingPayloadJson);
+  if (payload.bookingPayloadJson || payload.BookingPayloadJson) {
+    validateDatetimeFields(payload.bookingPayloadJson || payload.BookingPayloadJson);
   }
 
-  // Ensure notifyUrl is set to the correct absolute URL as an async safety net
-  const payloadToSend = {
-    ...payload,
-    notifyUrl: 'https://api.picknbook.com/api/cashfree/webhook',
-  };
+  const isFlight = String(payload.bookingType || payload.BookingType || '').toLowerCase() === 'flight';
+  const payloadToSend = isFlight ? {
+    IdempotencyKey: String(payload.idempotencyKey || payload.IdempotencyKey || '').slice(0, 45),
+    BookingType: 'Flight',
+    OrderAmount: Number(payload.orderAmount ?? payload.OrderAmount ?? 0),
+    CustomerId: String(payload.customerId ?? payload.CustomerId ?? '').trim(),
+    CustomerName: String(payload.customerName ?? payload.CustomerName ?? ''),
+    CustomerEmail: String(payload.customerEmail ?? payload.CustomerEmail ?? ''),
+    CustomerPhone: String(payload.customerPhone ?? payload.CustomerPhone ?? ''),
+    PaymentMethod: String(payload.paymentMethod ?? payload.PaymentMethod ?? 'Cashfree'),
+    BookingPayloadJson: String(payload.bookingPayloadJson ?? payload.BookingPayloadJson ?? '{}'),
+  } : payload;
+
+  if (isFlight && !payloadToSend.CustomerId) {
+    if (__DEV__) {
+      console.warn('[Flight][Payment][CreateOrderError]', {
+        backendCode: 'SESSION_CUSTOMER_ID_MISSING',
+        httpStatus: null,
+        missingField: 'customer_id',
+      });
+    }
+    throw new Error('Unable to start the secure payment. Please try again.');
+  }
 
   const response = await fetch(`${BASE_URL}/api/cashfree/create-order`, {
     method: 'POST',
@@ -70,7 +88,19 @@ export const createOrder = async (payload, userToken) => {
 
 
   if (!response.ok) {
-    // Surface backend's message field (e.g. "Price mismatch") to the user
+    if (isFlight) {
+      if (__DEV__) {
+        console.warn('[Flight][Payment][CreateOrderError]', {
+          backendCode: data.code || data.errorCode || data.ErrorCode || null,
+          httpStatus: response.status,
+          missingField: /customer[_\s.]?id/i.test(String(data.message || data.error || '')) ? 'customer_id' : null,
+        });
+      }
+      const safeError = new Error('Unable to start the secure payment. Please try again.');
+      safeError.backendCode = data.code || data.errorCode || data.ErrorCode || null;
+      safeError.httpStatus = response.status;
+      throw safeError;
+    }
     throw new Error(data.message || `Failed to create order (status: ${response.status})`);
   }
 

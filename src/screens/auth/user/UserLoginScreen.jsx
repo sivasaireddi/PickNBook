@@ -63,7 +63,7 @@ const extractStoredUser = (payload) => {
   };
 };
 
-const UserLoginScreen = ({ navigation }) => {
+const UserLoginScreen = ({ navigation, route }) => {
   const { signIn } = useContext(AuthContext);
   const [authView, setAuthView] = useState("login");
   const [loginMethod, setLoginMethod] = useState("email");
@@ -135,7 +135,9 @@ const UserLoginScreen = ({ navigation }) => {
 
       setApiMessage("Login successful.");
       signIn();
-      navigation.reset({ index: 0, routes: [{ name: "DashBoard" }] });
+      const returnTo = route?.params?.returnTo;
+      const returnParams = route?.params?.returnParams;
+      navigation.reset({ index: 0, routes: [{ name: returnTo || "DashBoard", params: returnParams }] });
     } catch (error) {
       const statusCode = error?.response?.status;
       const message =
@@ -249,7 +251,7 @@ const UserLoginScreen = ({ navigation }) => {
         </View>
 
         <View style={loginMethod === "phone" ? undefined : styles.hidden}>
-          <PhoneLoginForm navigation={navigation} />
+          <PhoneLoginForm navigation={navigation} returnTo={route?.params?.returnTo} returnParams={route?.params?.returnParams} />
         </View>
 
       </View>

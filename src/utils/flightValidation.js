@@ -107,5 +107,9 @@ export function validateFlightSearch({
     return { isValid: false, message: "Maximum 9 travellers permitted per booking." };
   }
 
+  if (Number(travellers.infants || 0) > Number(travellers.adults || 0)) {
+    return { isValid: false, message: "Each infant must be accompanied by an adult traveller." };
+  }
+
   return { isValid: true };
 }

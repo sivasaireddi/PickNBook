@@ -21,7 +21,10 @@ export function sanitizeForLog(obj) {
     const copy = Array.isArray(obj) ? [...obj] : { ...obj };
     const sensitiveKeys = [
       "password", "Password", "apiToken", "ApiToken", "authorization", 
-      "Authorization", "token", "JWT", "cardNumber", "cvv", "upiId", "secret"
+      "Authorization", "token", "JWT", "cardNumber", "cvv", "upiId", "secret",
+      "firstName", "lastName", "fullName", "email", "mobile", "phone", "phoneNumber",
+      "dob", "dateOfBirth", "passportNo", "passportNumber", "passportExpiry",
+      "address", "paymentSessionId", "BookingPayloadJson"
     ];
     for (const key of Object.keys(copy)) {
       if (sensitiveKeys.some((s) => s.toLowerCase() === key.toLowerCase())) {
@@ -60,13 +63,38 @@ client.interceptors.request.use(
 client.interceptors.response.use(
   (response) => {
     const fullUrl = `${response.config?.baseURL || ""}${response.config?.url || ""}`;
-    console.log(
-      `\n[FLIGHT API RESPONSE] ${response.config?.method?.toUpperCase()} ${fullUrl} (Status: ${response.status})\n${JSON.stringify(sanitizeForLog(response.data), null, 2)}`
-    );
+    if (__DEV__) {
+      const payload = response.data;
+      const results = payload?.Response?.Results ?? payload?.Results ?? payload?.data?.Response?.Results;
+      const groups = Array.isArray(results) ? results : [];
+      const flightCount = groups.reduce((sum, group) => sum + (Array.isArray(group) ? group.length : 1), 0);
+      console.log("[Flight][API][Response]", {
+        method: response.config?.method?.toUpperCase(),
+        endpoint: response.config?.url,
+        status: response.status,
+        topLevelKeys: payload && typeof payload === "object" ? Object.keys(payload).slice(0, 12) : [],
+        groupCount: groups.length,
+        flightCount,
+      });
+    }
     return response;
   },
   (error) => {
     const fullUrl = `${error.config?.baseURL || ""}${error.config?.url || ""}`;
+    const isFareQuote = String(error.config?.url || "").includes("/api/flight/srdv/FareQuote");
+    if (isFareQuote) {
+      if (__DEV__) {
+        const errorBody = error.response?.data;
+        const apiError = errorBody?.Response?.Error || errorBody?.Error || {};
+        console.log("[Flight][FareQuote][HandledError]", {
+          endpoint: error.config?.url,
+          httpStatus: error.response?.status || null,
+          backendCode: apiError?.ErrorCode || errorBody?.code || null,
+          message: String(apiError?.ErrorMessage || errorBody?.message || error.message || "FareQuote request failed").slice(0, 240),
+        });
+      }
+      return Promise.reject(error);
+    }
     console.error(`\n==================================================`);
     console.error(`ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ [FLIGHT API ERROR] ${error.config?.method?.toUpperCase()} ${fullUrl} (Status: ${error.response?.status || "Network/Timeout Error"})`);
     console.error("ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã‚Â¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Error Message:", error.message);
@@ -82,7 +110,7 @@ client.interceptors.response.use(
 
 function getCityCode(val) {
   const clean = String(val || "").trim().toUpperCase();
-  if (!clean) return "DEL";
+  if (!clean) return "";
   if (clean.length === 3) return clean;
   const map = {
     DELHI: "DEL",
@@ -103,13 +131,24 @@ function getCityCode(val) {
   return map[clean] || clean.slice(0, 3);
 }
 
-function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
+function toOpaqueId(value) {
+  if (value === null || value === undefined) return "";
+  const normalized = String(value).trim();
+  if (!normalized || normalized.toLowerCase() === "null" || normalized.toLowerCase() === "undefined") return "";
+  return normalized;
+}
+
+export function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
   const resObj = data?.Response || data?.data?.Response || data;
-  const traceId = String(resObj?.TraceId || resObj?.traceId || data?.TraceId || data?.traceId || "");
+  const rootTraceId = toOpaqueId(
+    resObj?.TraceId || resObj?.traceId || data?.TraceId || data?.traceId
+  );
+  let traceMappingLogged = false;
 
   const mapSingleItem = (item, idx, defaultFrom, defaultTo, legIndex = 0, tripDirection = "outbound") => {
     const segment = item?.Segments?.[0]?.[0] || item?.Segments?.[0] || item?.segment || {};
-    const fareData = item?.FareDataMultiple?.[0] || item?.fareData || {};
+    const rawFareOptions = Array.isArray(item?.FareDataMultiple) ? item.FareDataMultiple : [];
+    const fareData = rawFareOptions[0] || item?.fareData || {};
     const fareSegment = fareData?.FareSegments?.[0] || {};
     const fareObj = fareData?.Fare || item?.Fare || {};
 
@@ -151,7 +190,7 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
 
     const depTime = segment?.DepTime || item?.departureTimeIst || item?.departureTime || "";
     const arrTime = segment?.ArrTime || item?.arrivalTimeIst || item?.arrivalTime || "";
-    const duration = segment?.Duration || item?.duration || 60;
+    const duration = segment?.Duration || item?.duration || 0;
 
     const offeredFare = Number(
       fareData?.OfferedFare ||
@@ -165,9 +204,35 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
     const baseFare = Number(fareObj?.BaseFare || item?.baseFare || offeredFare);
     const tax = Number(fareObj?.Tax || item?.tax || 0);
 
-    const resultIndex = fareData?.ResultIndex || item?.ResultIndex || item?.resultIndex || String(idx + 1);
+    const itemTraceId = toOpaqueId(item?.TraceId || item?.traceId);
+    const primaryFareTraceId = toOpaqueId(fareData?.TraceId || fareData?.traceId);
+    const resolvedFlightTraceId = itemTraceId || primaryFareTraceId || rootTraceId;
+    const resultIndex = toOpaqueId(fareData?.ResultIndex || fareData?.resultIndex) || toOpaqueId(item?.ResultIndex || item?.resultIndex) || String(idx + 1);
     const srdvIndex = fareData?.SrdvIndex || item?.SrdvIndex || "2";
     const srdvType = fareData?.SrdvType || item?.SrdvType || "MixAPI";
+    const normalizedFareOptions = rawFareOptions.map((fareTier) => {
+      const resolvedTierTraceId = toOpaqueId(fareTier?.TraceId || fareTier?.traceId) || resolvedFlightTraceId;
+      const resolvedTierResultIndex = toOpaqueId(fareTier?.ResultIndex || fareTier?.resultIndex) || resultIndex;
+      return {
+        ...fareTier,
+        traceId: resolvedTierTraceId,
+        TraceId: resolvedTierTraceId,
+        resultIndex: resolvedTierResultIndex,
+        ResultIndex: resolvedTierResultIndex,
+      };
+    });
+
+    if (__DEV__ && !traceMappingLogged) {
+      const sampleTierTraceId = toOpaqueId(rawFareOptions[0]?.TraceId || rawFareOptions[0]?.traceId);
+      console.log("[Flight][Search][TraceMapping]", {
+        rootTraceId,
+        sampleItemTraceId: itemTraceId,
+        sampleTierTraceId,
+        resolvedFlightTraceId,
+        traceIdSource: itemTraceId ? "flightItem" : primaryFareTraceId ? "fareTier" : rootTraceId ? "searchRoot" : "missing",
+      });
+      traceMappingLogged = true;
+    }
 
     const isLCC = Boolean(
       fareData?.IsLCC !== undefined 
@@ -181,11 +246,14 @@ function mapFlightResults(data, fromCode, toCode, searchParams = {}) {
 
     return {
       ...item,
+      FareDataMultiple: normalizedFareOptions,
+      traceId: resolvedFlightTraceId,
+      TraceId: resolvedFlightTraceId,
       id: String(item?.Id || item?.id || resultIndex || `flight-${legIndex}-${idx + 1}`),
       resultIndex,
+      ResultIndex: resultIndex,
       srdvIndex,
       srdvType,
-      traceId,
       airline: airlineName,
       airlineName,
       airlineCode,
@@ -370,7 +438,9 @@ export async function searchFlights(searchParams) {
     AdultCount: Number(searchParams.adults !== undefined ? searchParams.adults : 1),
     ChildCount: Number(searchParams.children !== undefined ? searchParams.children : 0),
     InfantCount: Number(searchParams.infants !== undefined ? searchParams.infants : 0),
-    JourneyType: journeyType,
+    JourneyType: String(journeyType),
+    CurrencyCode: "INR",
+    FareType: "1",
     // CRITICAL: For multi-city bookings (JourneyType 3), DO NOT send DirectFlight tag
     ...(journeyType !== 3 ? { DirectFlight: Boolean(searchParams.directFlight ?? false) } : {}),
     Segments: segments,
@@ -379,14 +449,12 @@ export async function searchFlights(searchParams) {
   // Unsafe log removed, rely on Axios interceptor
 
   try {
-    console.log("[FLIGHT SEARCH API REQUEST]", {
-      endpoint: "/api/flight/srdv/Search",
-      payload: sanitizeForLog(payload),
+    if (__DEV__) console.log("[Flight][Search][Request]", {
+      endpoint: "/api/flight/srdv/Search", journeyType: payload.JourneyType,
+      adults: payload.AdultCount, children: payload.ChildCount, infants: payload.InfantCount,
+      segmentCount: payload.Segments.length,
     });
     const response = await client.post("/api/flight/srdv/Search", payload);
-    console.log(
-      `[FLIGHT SEARCH API RESPONSE]\n${JSON.stringify(response.data, null, 2)}`
-    );
 
     const resObj = response?.data?.Response || response?.data;
     const errObj = resObj?.Error || response?.data?.Error;
@@ -394,7 +462,12 @@ export async function searchFlights(searchParams) {
       throw new Error(errObj.ErrorMessage);
     }
 
-    return mapFlightResults(response.data, fromCode, toCode, searchParams);
+    const mapped = mapFlightResults(response.data, fromCode, toCode, searchParams);
+    if (__DEV__) console.log("[Flight][Results][Mapped]", {
+      flightCount: mapped.length,
+      sample: mapped.slice(0, 3).map((flight) => ({ traceId: flight.traceId, resultIndex: flight.resultIndex, fareTierCount: flight.FareDataMultiple?.length || 0 })),
+    });
+    return mapped;
   } catch (error) {
     const errData = error?.response?.data;
     console.error("[FLIGHT SEARCH API ERROR RESPONSE]", errData || error);
@@ -428,15 +501,30 @@ export async function getFlightFareQuote(params = {}) {
     const errObj = resObj?.Error || response?.data?.Error;
     
     if (errObj && String(errObj.ErrorCode) !== "0" && errObj.ErrorMessage) {
-      console.error(`[FARE_REVALIDATION_FAILED] /api/flight/srdv/FareQuote ErrorCode: ${errObj.ErrorCode} | Message: ${errObj.ErrorMessage} | TraceId: ${activeTraceId}`);
-      throw new Error(errObj.ErrorMessage || "Fare revalidation failed by supplier.");
+      const supplierError = new Error(errObj.ErrorMessage || "Fare revalidation failed by supplier.");
+      supplierError.backendCode = String(errObj.ErrorCode || "");
+      supplierError.backendMessage = String(errObj.ErrorMessage || "");
+      supplierError.httpStatus = response?.status || 200;
+      throw supplierError;
     }
 
     return response.data;
   } catch (error) {
-    const msg = error?.response?.data?.Error?.ErrorMessage || error?.message || "Fare revalidation failed by supplier.";
-    console.error(`[FARE_REVALIDATION_FAILED] Supplier Quote Exception: ${msg} | TraceId: ${activeTraceId}`);
-    throw new Error(msg);
+    const responseBody = error?.response?.data;
+    const apiError = responseBody?.Response?.Error || responseBody?.Error || {};
+    const msg = String(
+      error?.backendMessage ||
+      apiError?.ErrorMessage ||
+      responseBody?.message ||
+      error?.message ||
+      "Fare revalidation failed by supplier."
+    );
+    const quoteError = new Error(msg);
+    quoteError.httpStatus = error?.httpStatus || error?.response?.status || null;
+    quoteError.backendCode = String(error?.backendCode || apiError?.ErrorCode || responseBody?.code || "");
+    quoteError.backendMessage = msg;
+    quoteError.isNetworkError = !error?.response && !error?.httpStatus;
+    throw quoteError;
   }
 }
 

@@ -129,20 +129,23 @@ export async function validateFlightCoupon({ serviceType = "flight", couponCode,
  */
 export async function createCashfreeOrder(payload) {
   try {
+    const customerId = String(payload.customerId ?? payload.CustomerId ?? "").trim();
+    if (!customerId) {
+      const missingIdError = new Error("Unable to start the secure payment. Please try again.");
+      missingIdError.backendCode = "SESSION_CUSTOMER_ID_MISSING";
+      missingIdError.missingField = "customer_id";
+      throw missingIdError;
+    }
     const response = await client.post("/api/cashfree/create-order", {
-      orderAmount: Number(payload.orderAmount || 0),
-      orderCurrency: String(payload.orderCurrency || "INR"),
-      customerId: String(payload.customerId || ""),
-      customerName: String(payload.customerName || ""),
-      customerEmail: String(payload.customerEmail || ""),
-      customerPhone: String(payload.customerPhone || ""),
-      returnUrl: payload.returnUrl || "",
-      notifyUrl: payload.notifyUrl || "",
-      bookingType: "Flight",
-      couponCode: payload.couponCode || null,
-      promotionId: payload.promotionId || null,
-      useWallet: Boolean(payload.useWallet ?? false),
-      bookingPayloadJson: String(payload.bookingPayloadJson || "{}"),
+      IdempotencyKey: String(payload.idempotencyKey || payload.IdempotencyKey || "").slice(0, 45),
+      BookingType: "Flight",
+      OrderAmount: Number(payload.orderAmount ?? payload.OrderAmount ?? 0),
+      CustomerId: customerId,
+      CustomerName: String(payload.customerName ?? payload.CustomerName ?? ""),
+      CustomerEmail: String(payload.customerEmail ?? payload.CustomerEmail ?? ""),
+      CustomerPhone: String(payload.customerPhone ?? payload.CustomerPhone ?? ""),
+      PaymentMethod: String(payload.paymentMethod ?? payload.PaymentMethod ?? "Cashfree"),
+      BookingPayloadJson: String(payload.bookingPayloadJson ?? payload.BookingPayloadJson ?? "{}"),
     });
 
     const data = response?.data;
@@ -158,6 +161,7 @@ export async function createCashfreeOrder(payload) {
       paymentSessionId: String(data.paymentSessionId ?? data.PaymentSessionId ?? data.sessionId ?? ""),
       cfOrderId: String(data.cfOrderId ?? data.CfOrderId ?? data.cf_order_id ?? ""),
       orderStatus: String(data.orderStatus ?? data.OrderStatus ?? "ACTIVE"),
+      paymentReference: String(data.paymentReference ?? data.PaymentReference ?? payload.idempotencyKey ?? payload.IdempotencyKey ?? ""),
     };
   } catch (err) {
     const errData = err?.response?.data;
@@ -168,8 +172,12 @@ export async function createCashfreeOrder(payload) {
       err?.message ||
       "Failed to create payment order.";
     const status = err?.response?.status;
-    console.error(`[cashfreeService] createCashfreeOrder failed (${status}):`, msg);
-    throw new Error(msg);
+    if (__DEV__) console.warn("[Flight][Payment][CreateOrderError]", {
+      backendCode: errData?.code || errData?.errorCode || errData?.ErrorCode || err?.backendCode || null,
+      httpStatus: status || null,
+      missingField: err?.missingField || (/customer[_\s.]?id/i.test(String(msg)) ? "customer_id" : null),
+    });
+    throw new Error("Unable to start the secure payment. Please try again.");
   }
 }
 
@@ -212,6 +220,11 @@ export async function verifyFlightPayment(cashfreeOrderId) {
       paymentMethod: String(data?.paymentMethod ?? data?.PaymentMethod ?? ""),
       paidAt: String(data?.paidAt ?? data?.PaidAt ?? ""),
       failureReason: String(data?.failureReason ?? data?.FailureReason ?? data?.reason ?? ""),
+      currency: String(data?.currency ?? data?.Currency ?? "INR"),
+      fulfillmentStatus: String(data?.fulfillmentStatus ?? data?.FulfillmentStatus ?? ""),
+      bookingReferenceId: data?.bookingReferenceId ?? data?.BookingReferenceId ?? null,
+      reservationId: data?.reservationId ?? data?.ReservationId ?? null,
+      bookingReference: String(data?.bookingReference ?? data?.BookingReference ?? ""),
     };
   } catch (err) {
     const msg = err?.response?.data?.message || err?.message || "Payment verification failed.";

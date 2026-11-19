@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { selectedFlightIdentity, toOpaqueId } from "../utils/flightFlowUtils";
 
 const PRIMARY_RED = "#E11D2E";
 const TEXT_DARK = "#1F2937";
@@ -50,7 +51,7 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
   const fareSegments = fareDataMultiple.FareSegments || [];
   const firstFareSeg = fareSegments[0] || {};
   
-  const airlineCode = firstFareSeg.AirlineCode || flight.airlineCode || rawItem.AirlineCode || "AI";
+  const airlineCode = firstFareSeg.AirlineCode || flight.airlineCode || rawItem.AirlineCode || "";
   const airlineName = firstFareSeg.AirlineName || flight.airlineName || rawItem.AirlineName || "Airline";
   const flightNumber = firstFareSeg.FlightNumber || flight.flightNumber || rawItem.FlightNumber || "";
   
@@ -135,14 +136,28 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
     const fareInfo = fare?.Fare || {};
     const fareSegment = fare?.FareSegments?.[0] || firstFareSeg;
     const selectedPrice = Number(fare?.B2CFinalFare || fareInfo.B2CFinalFare || fareInfo.PublishedFare || fare?.OfferedFare || displayPrice);
+    const parentIdentity = selectedFlightIdentity(flight);
+    const fareTierTraceId = toOpaqueId(fare?.TraceId ?? fare?.traceId);
+    const fareTierResultIndex = toOpaqueId(fare?.ResultIndex ?? fare?.resultIndex);
+    const resolvedTraceId = fareTierTraceId || parentIdentity.traceId;
+    const resolvedResultIndex = fareTierResultIndex || parentIdentity.resultIndex;
     onSelect({
       ...flight,
+      parentFlightTraceId: parentIdentity.traceId,
+      fareTierTraceId,
+      resolvedTraceId,
+      traceId: resolvedTraceId,
+      parentResultIndex: parentIdentity.resultIndex,
+      fareTierResultIndex,
+      resolvedResultIndex,
       price: selectedPrice,
       displayFare: selectedPrice,
       offeredFare: Number(fare?.OfferedFare || fareInfo.OfferedFare || selectedPrice),
       baseFare: Number(fareInfo.BaseFare || selectedPrice),
       tax: Number(fareInfo.Tax || 0),
-      resultIndex: fare?.ResultIndex || flight.resultIndex,
+      resultIndex: resolvedResultIndex,
+      source: fare?.Source ?? flight.source ?? rawItem.Source,
+      srdvType: fare?.SrdvType || flight.srdvType || "MixAPI",
       srdvIndex: fare?.SrdvIndex || flight.srdvIndex || "2",
       selectedFareType: String(fare?.Source || fare?.FareType || "STANDARD").toUpperCase(),
       isRefundable: Boolean(fare?.IsRefundable ?? isRefundable),
@@ -196,7 +211,7 @@ export default function CompactFlightCard({ flight, onSelect, onViewDetails }) {
           <TouchableOpacity onPress={() => onViewDetails(flight)} style={styles.detailsBtn}>
             <Text style={styles.detailsBtnText}>View Details</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => fareOptions.length > 1 ? setFareListVisible(true) : onSelect(flight)} style={styles.selectBtn}>
+          <TouchableOpacity onPress={() => fareOptions.length > 0 ? (fareOptions.length > 1 ? setFareListVisible(true) : selectFare(fareOptions[0])) : onSelect(flight)} style={styles.selectBtn}>
             <Text style={styles.selectBtnText}>{fareOptions.length > 1 ? `View fares (${fareOptions.length})` : "Select →"}</Text>
           </TouchableOpacity>
         </View>
